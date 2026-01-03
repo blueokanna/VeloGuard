@@ -1,0 +1,46 @@
+[package]
+name = "veloguard-solidtcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "High-performance user-space TCP/IP stack for VeloGuard VPN based on smoltcp"
+keywords = ["tcp", "ip", "tun", "vpn", "proxy"]
+
+[features]
+default = ["ipv4", "ipv6", "tcp", "udp", "icmp", "dns"]
+ipv4 = []
+ipv6 = []
+tcp = []
+udp = []
+icmp = []
+dns = []
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+
+# Network stack - smoltcp with all features we need
+smoltcp = { workspace = true }
+
+# Data structures
+bytes = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+lru = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+rand = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }

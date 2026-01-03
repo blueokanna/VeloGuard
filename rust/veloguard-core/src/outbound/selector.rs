@@ -1,0 +1,150 @@
+use crate::config::OutboundConfig;
+use crate::error::{Error, Result};
+use crate::outbound::{AsyncReadWrite, OutboundProxy, ProxyRegistry, TargetAddr};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// Selector proxy group - allows manual selection of outbound
+/// Also used for url-test, fallback, load-balance, and relay groups
+pub struct SelectorOutbound {
+    config: OutboundConfig,
+    outbounds: Vec<String>,
+    selected: RwLock<String>,
+    registry: ProxyRegistry,
+}
+
+impl SelectorOutbound {
+    pub fn new(config: OutboundConfig, registry: ProxyRegistry) -> Result<Self> {
+        // Parse outbounds from options - the options field contains a YAML value
+        // that was converted from JSON, so we need to handle both formats
+        let outbounds: Vec<String> = if let Some(outbounds_value) = config.options.get("outbounds") {
+            tracing::debug!("Selector '{}' outbounds_value type: {:?}", config.tag, outbounds_value);
+            
+            // Try to parse as array directly
+            if let Some(arr) = outbounds_value.as_sequence() {
+                let result: Vec<String> = arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                tracing::debug!("Selector '{}' parsed {} outbounds from sequence", config.tag, result.len());
+                result
+            } else if let Some(s) = outbounds_value.as_str() {
+                // Try to parse as JSON string
+                let result = serde_json::from_str::<Vec<String>>(s).unwrap_or_default();
+                tracing::debug!("Selector '{}' parsed {} outbounds from JSON string", config.tag, result.len());
+                result
+            } else {
+                tracing::warn!("Selector '{}' outbounds_value is neither sequence nor string", config.tag);
+                Vec::new()
+            }
+        } else {
+            tracing::warn!("Selector '{}' has no 'outbounds' in options. Available keys: {:?}", 
+                config.tag, config.options.keys().collect::<Vec<_>>());
+            Vec::new()
+        };
+        
+        // If no outbounds specified, default to DIRECT
+        let selected = outbounds.first().cloned().unwrap_or_else(|| "DIRECT".to_string());
+        
+        tracing::info!("Selector '{}' created with {} outbounds: {:?}, selected: {}", 
+            config.tag, outbounds.len(), outbounds, selected);
+        
+        Ok(Self {
+            config,
+            outbounds,
+            selected: RwLock::new(selected),
+            registry,
+        })
+    }
+    
+    /// Get the currently selected outbound tag
+    pub async fn get_selected(&self) -> String {
+        self.selected.read().await.clone()
+    }
+    
+    /// Set the selected outbound
+    pub async fn set_selected(&self, tag: &str) -> Result<()> {
+        if self.outbounds.contains(&tag.to_string()) || tag == "DIRECT" || tag == "REJECT" {
+            *self.selected.write().await = tag.to_string();
+            tracing::info!("Selector '{}' switched to '{}'", self.config.tag, tag);
+            Ok(())
+        } else {
+            Err(Error::config(format!("Outbound '{}' not in selector group", tag)))
+        }
+    }
+    
+    /// Get available outbounds
+    pub fn get_outbounds(&self) -> &[String] {
+        &self.outbounds
+    }
+    
+    /// Find a proxy by tag from the registry
+    async fn find_proxy(&self, tag: &str) -> Option<Arc<dyn OutboundProxy>> {
+        self.registry.read().await.get(tag).cloned()
+    }
+    
+    /// Resolve the actual proxy to use (handles nested selectors)
+    async fn resolve_proxy(&self, max_depth: usize) -> Result<Arc<dyn OutboundProxy>> {
+        if max_depth == 0 {
+            return Err(Error::config("Selector chain too deep"));
+        }
+        
+        let selected = self.selected.read().await.clone();
+        
+        if let Some(proxy) = self.find_proxy(&selected).await {
+            // Check if the selected proxy is also a selector (nested group)
+            // For now, we just return the proxy directly
+            // In a full implementation, we'd check if it's a SelectorOutbound and resolve recursively
+            Ok(proxy)
+        } else {
+            Err(Error::config(format!("Selected outbound '{}' not found in registry", selected)))
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl OutboundProxy for SelectorOutbound {
+    async fn connect(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn disconnect(&self) -> Result<()> {
+        Ok(())
+    }
+
+    fn tag(&self) -> &str {
+        &self.config.tag
+    }
+    
+    fn server_addr(&self) -> Option<(String, u16)> {
+        None
+    }
+    
+    async fn test_http_latency(
+        &self,
+        test_url: &str,
+        timeout: std::time::Duration,
+    ) -> Result<std::time::Duration> {
+        let proxy = self.resolve_proxy(10).await?;
+        proxy.test_http_latency(test_url, timeout).await
+    }
+    
+    async fn relay_tcp(
+        &self,
+        inbound: Box<dyn AsyncReadWrite>,
+        target: TargetAddr,
+    ) -> Result<()> {
+        self.relay_tcp_with_connection(inbound, target, None).await
+    }
+    
+    async fn relay_tcp_with_connection(
+        &self,
+        inbound: Box<dyn AsyncReadWrite>,
+        target: TargetAddr,
+        connection: Option<std::sync::Arc<crate::connection_tracker::TrackedConnection>>,
+    ) -> Result<()> {
+        let proxy = self.resolve_proxy(10).await?;
+        tracing::debug!("Selector '{}' relaying to '{}' for target {}", 
+            self.config.tag, proxy.tag(), target);
+        proxy.relay_tcp_with_connection(inbound, target, connection).await
+    }
+}

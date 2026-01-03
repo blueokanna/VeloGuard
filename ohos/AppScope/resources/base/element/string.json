@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "CatClash"
+    },
+    {
+      "name": "module_desc",
+      "value": "A modern cross-platform proxy client"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "CatClash Main Entry"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "CatClash"
+    },
+    {
+      "name": "vpn_service_desc",
+      "value": "VPN Service for CatClash"
+    }
+  ]
+}

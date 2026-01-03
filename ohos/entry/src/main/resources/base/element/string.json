@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "CatClash Entry Module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "CatClash Main Application"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "CatClash"
+    },
+    {
+      "name": "vpn_service_desc",
+      "value": "VPN service for secure network proxy"
+    }
+  ]
+}

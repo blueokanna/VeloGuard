@@ -1,0 +1,9 @@
+# HarmonyOS obfuscation rules for CatClash
+# Add your obfuscation rules here
+
+# Keep Flutter related classes
+-keep class io.flutter.** { *; }
+-keep class com.aspect.flutter_ohos.** { *; }
+
+# Keep CatClash plugin classes
+-keep class com.blueokanna.catclash.** { *; }

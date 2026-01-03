@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "CatClash entry module",
+  "main": "",
+  "author": "blueokanna",
+  "license": "MIT",
+  "dependencies": {
+    "@aspect/flutter_ohos": "file:../har/flutter.har"
+  }
+}

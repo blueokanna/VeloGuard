@@ -1,0 +1,36 @@
+# Android NDK configuration for cross-compilation
+# NDK path: %LOCALAPPDATA%\Android\Sdk\ndk\<version>
+
+[target.aarch64-linux-android]
+linker = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\aarch64-linux-android24-clang.cmd"
+ar = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+[target.armv7-linux-androideabi]
+linker = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\armv7a-linux-androideabi24-clang.cmd"
+ar = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+[target.i686-linux-android]
+linker = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\i686-linux-android24-clang.cmd"
+ar = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+[target.x86_64-linux-android]
+linker = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\x86_64-linux-android24-clang.cmd"
+ar = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+[env]
+# Set CC and CXX for ring crate compilation
+CC_aarch64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\aarch64-linux-android24-clang.cmd"
+CXX_aarch64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\aarch64-linux-android24-clang++.cmd"
+AR_aarch64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+CC_armv7-linux-androideabi = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\armv7a-linux-androideabi24-clang.cmd"
+CXX_armv7-linux-androideabi = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\armv7a-linux-androideabi24-clang++.cmd"
+AR_armv7-linux-androideabi = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+CC_i686-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\i686-linux-android24-clang.cmd"
+CXX_i686-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\i686-linux-android24-clang++.cmd"
+AR_i686-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"
+
+CC_x86_64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\x86_64-linux-android24-clang.cmd"
+CXX_x86_64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\x86_64-linux-android24-clang++.cmd"
+AR_x86_64-linux-android = "C:\\Users\\blueo\\AppData\\Local\\Android\\Sdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\llvm-ar.exe"

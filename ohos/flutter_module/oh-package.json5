@@ -1,0 +1,9 @@
+{
+  "name": "flutter_module",
+  "version": "1.0.0",
+  "description": "Flutter module for CatClash",
+  "main": "",
+  "author": "blueokanna",
+  "license": "MIT",
+  "dependencies": {}
+}

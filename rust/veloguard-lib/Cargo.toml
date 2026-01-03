@@ -1,0 +1,46 @@
+[package]
+name = "veloguard-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rust_lib_veloguard"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+once_cell = { workspace = true }
+chrono = { workspace = true }
+veloguard-core = { workspace = true }
+veloguard-netstack = { workspace = true }
+veloguard-solidtcp = { workspace = true }
+num_cpus = { workspace = true }
+sysinfo = "0.35"
+reqwest = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+url = { workspace = true }
+hkdf = { workspace = true }
+sha1 = { workspace = true }
+md5 = { workspace = true }
+aes-gcm = { workspace = true }
+getrandom = { workspace = true }
+bytes = { workspace = true }
+parking_lot = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

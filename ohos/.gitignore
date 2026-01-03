@@ -1,0 +1,22 @@
+# HarmonyOS NEXT build outputs
+/build/
+/oh_modules/
+/.preview/
+
+# Local configuration
+local.properties
+
+# IDE
+/.idea/
+*.iml
+
+# Hvigor
+/.hvigor/
+/hvigor/
+
+# HAR outputs
+/har/*.har
+
+# Temporary files
+*.log
+*.tmp

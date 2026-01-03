@@ -1,0 +1,12 @@
+[package]
+name = "veloguard-sock2proc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+libc = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }

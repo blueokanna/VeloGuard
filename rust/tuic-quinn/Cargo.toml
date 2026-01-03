@@ -1,0 +1,14 @@
+[package]
+name = "tuic-quinn"
+version = "1.5.2"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+quinn = { workspace = true }
+rustls = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+tuic = { workspace = true }
