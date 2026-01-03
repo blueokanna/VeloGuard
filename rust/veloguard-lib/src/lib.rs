@@ -28,6 +28,21 @@ static VELOGUARD_INSTANCE: once_cell::sync::Lazy<Arc<RwLock<Option<VeloGuard>>>>
 static ANDROID_VPN_PROCESSOR: once_cell::sync::Lazy<Arc<parking_lot::RwLock<Option<Arc<veloguard_netstack::AndroidVpnProcessor>>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
 
+/// Global Windows VPN processor for stats tracking
+#[cfg(windows)]
+static WINDOWS_VPN_PROCESSOR: once_cell::sync::Lazy<Arc<parking_lot::RwLock<Option<Arc<veloguard_netstack::WindowsVpnProcessor>>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
+
+/// Global Windows route manager
+#[cfg(windows)]
+static WINDOWS_ROUTE_MANAGER: once_cell::sync::Lazy<Arc<parking_lot::RwLock<Option<veloguard_netstack::WindowsRouteManager>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
+
+/// Global Windows TUN device
+#[cfg(windows)]
+static WINDOWS_TUN_DEVICE: once_cell::sync::Lazy<Arc<parking_lot::RwLock<Option<veloguard_netstack::TunDevice>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
+
 /// Set the global Android VPN processor
 #[cfg(target_os = "android")]
 pub fn set_android_vpn_processor(processor: Arc<veloguard_netstack::AndroidVpnProcessor>) {
@@ -49,6 +64,90 @@ pub fn clear_android_vpn_processor() {
 pub fn get_android_vpn_processor() -> Option<Arc<veloguard_netstack::AndroidVpnProcessor>> {
     let guard = ANDROID_VPN_PROCESSOR.read();
     guard.clone()
+}
+
+/// Set the global Windows VPN processor
+#[cfg(windows)]
+pub fn set_windows_vpn_processor(processor: Arc<veloguard_netstack::WindowsVpnProcessor>) {
+    let mut guard = WINDOWS_VPN_PROCESSOR.write();
+    *guard = Some(processor);
+    tracing::info!("Windows VPN processor stored globally for stats tracking");
+}
+
+/// Clear the global Windows VPN processor
+#[cfg(windows)]
+pub fn clear_windows_vpn_processor() {
+    let mut guard = WINDOWS_VPN_PROCESSOR.write();
+    *guard = None;
+    tracing::info!("Windows VPN processor cleared");
+}
+
+/// Get the global Windows VPN processor
+#[cfg(windows)]
+pub fn get_windows_vpn_processor() -> Option<Arc<veloguard_netstack::WindowsVpnProcessor>> {
+    let guard = WINDOWS_VPN_PROCESSOR.read();
+    guard.clone()
+}
+
+/// Set the global Windows route manager
+#[cfg(windows)]
+pub fn set_windows_route_manager(manager: veloguard_netstack::WindowsRouteManager) {
+    let mut guard = WINDOWS_ROUTE_MANAGER.write();
+    *guard = Some(manager);
+    tracing::info!("Windows route manager stored globally");
+}
+
+/// Get the global Windows route manager
+#[cfg(windows)]
+pub fn get_windows_route_manager() -> Option<parking_lot::MappedRwLockReadGuard<'static, veloguard_netstack::WindowsRouteManager>> {
+    let guard = WINDOWS_ROUTE_MANAGER.read();
+    if guard.is_some() {
+        Some(parking_lot::RwLockReadGuard::map(guard, |opt| opt.as_ref().unwrap()))
+    } else {
+        None
+    }
+}
+
+/// Get mutable access to the global Windows route manager
+#[cfg(windows)]
+pub fn get_windows_route_manager_mut() -> Option<parking_lot::MappedRwLockWriteGuard<'static, veloguard_netstack::WindowsRouteManager>> {
+    let guard = WINDOWS_ROUTE_MANAGER.write();
+    if guard.is_some() {
+        Some(parking_lot::RwLockWriteGuard::map(guard, |opt| opt.as_mut().unwrap()))
+    } else {
+        None
+    }
+}
+
+/// Clear the global Windows route manager
+#[cfg(windows)]
+pub fn clear_windows_route_manager() {
+    let mut guard = WINDOWS_ROUTE_MANAGER.write();
+    *guard = None;
+    tracing::info!("Windows route manager cleared");
+}
+
+/// Set the global Windows TUN device
+#[cfg(windows)]
+pub fn set_windows_tun_device(device: veloguard_netstack::TunDevice) {
+    let mut guard = WINDOWS_TUN_DEVICE.write();
+    *guard = Some(device);
+    tracing::info!("Windows TUN device stored globally");
+}
+
+/// Clear the global Windows TUN device
+#[cfg(windows)]
+pub fn clear_windows_tun_device() {
+    let mut guard = WINDOWS_TUN_DEVICE.write();
+    *guard = None;
+    tracing::info!("Windows TUN device cleared");
+}
+
+/// Take the global Windows TUN device (removes it from global state)
+#[cfg(windows)]
+pub fn take_windows_tun_device() -> Option<veloguard_netstack::TunDevice> {
+    let mut guard = WINDOWS_TUN_DEVICE.write();
+    guard.take()
 }
 
 static TRACING_INIT: Once = Once::new();

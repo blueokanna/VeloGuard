@@ -33,21 +33,52 @@ import 'package:dynamic_color/dynamic_color.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Rust library
-  await RustLib.init();
+  // Initialize Rust library with error handling
+  try {
+    await RustLib.init();
+    debugPrint('RustLib initialized successfully');
+  } catch (e, stackTrace) {
+    debugPrint('Failed to initialize RustLib: $e');
+    debugPrint('Stack trace: $stackTrace');
+    // Continue anyway, some features may not work
+  }
 
   // Initialize storage service
-  await StorageService.instance.init();
+  try {
+    await StorageService.instance.init();
+    debugPrint('StorageService initialized successfully');
+  } catch (e) {
+    debugPrint('Failed to initialize StorageService: $e');
+  }
 
   // Initialize device info for UI optimization
-  await DeviceInfoUtils.initialize();
+  try {
+    await DeviceInfoUtils.initialize();
+    debugPrint('DeviceInfoUtils initialized successfully');
+  } catch (e) {
+    debugPrint('Failed to initialize DeviceInfoUtils: $e');
+  }
 
-  // 异步检测鸿蒙系统（更准确）
-  await PlatformUtils.checkHarmonyOS();
+  // 异步检测鸿蒙系统（更准确）- with timeout
+  try {
+    await PlatformUtils.checkHarmonyOS().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {
+        debugPrint('HarmonyOS check timed out');
+        return false;
+      },
+    );
+  } catch (e) {
+    debugPrint('Failed to check HarmonyOS: $e');
+  }
 
   // Initialize platform-specific features
   if (PlatformUtils.isDesktop) {
-    await PlatformUtils.initDesktopWindow();
+    try {
+      await PlatformUtils.initDesktopWindow();
+    } catch (e) {
+      debugPrint('Failed to initialize desktop window: $e');
+    }
   }
 
   // Set preferred orientations for mobile (including HarmonyOS)

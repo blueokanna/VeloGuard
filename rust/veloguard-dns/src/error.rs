@@ -21,6 +21,9 @@ pub enum DnsError {
     #[error("DNS query failed: {0}")]
     QueryFailed(String),
 
+    #[error("DNS resolution failed: {0}")]
+    ResolutionFailed(String),
+
     #[error("No DNS servers available")]
     NoServers,
 
@@ -42,6 +45,9 @@ pub enum DnsError {
     #[error("Fake-IP pool exhausted")]
     FakeIpExhausted,
 
+    #[error("Fake-IP error: {0}")]
+    FakeIpError(String),
+
     #[error("Invalid configuration: {0}")]
     Config(String),
 
@@ -56,6 +62,12 @@ pub enum DnsError {
 
     #[error("Parse error: {0}")]
     Parse(String),
+
+    #[error("Connection error: {0}")]
+    Connection(String),
+
+    #[error("Upstream DNS error: {0}")]
+    Upstream(String),
 }
 
 impl From<hickory_proto::ProtoError> for DnsError {

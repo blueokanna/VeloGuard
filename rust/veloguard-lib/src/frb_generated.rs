@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -543989103;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1116204188;
 
 // Section: executor
 
@@ -249,6 +249,42 @@ fn wire__crate__api__enable_tun_mode_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::enable_tun_mode().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__enable_tun_mode_with_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "enable_tun_mode_with_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mode = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::enable_tun_mode_with_mode(api_mode).await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -773,6 +809,72 @@ fn wire__crate__api__get_version_impl(
         },
     )
 }
+fn wire__crate__api__get_windows_proxy_mode_str_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_windows_proxy_mode_str",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(crate::api::get_windows_proxy_mode_str())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__get_windows_tun_stats_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_windows_tun_stats",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::get_windows_tun_stats()?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__get_wintun_dll_path_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1084,6 +1186,41 @@ fn wire__crate__api__set_log_level_impl(
                         Ok(output_ok)
                     })()
                     .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__set_windows_proxy_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_windows_proxy_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mode = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::set_windows_proxy_mode(api_mode)?;
+                        Ok(output_ok)
+                    })(),
                 )
             }
         },
@@ -1719,6 +1856,21 @@ impl SseDecode for (u64, u64, u64, u64) {
     }
 }
 
+impl SseDecode for (u64, u64, u64, u64, usize, usize) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_field0 = <u64>::sse_decode(deserializer);
+        let mut var_field1 = <u64>::sse_decode(deserializer);
+        let mut var_field2 = <u64>::sse_decode(deserializer);
+        let mut var_field3 = <u64>::sse_decode(deserializer);
+        let mut var_field4 = <usize>::sse_decode(deserializer);
+        let mut var_field5 = <usize>::sse_decode(deserializer);
+        return (
+            var_field0, var_field1, var_field2, var_field3, var_field4, var_field5,
+        );
+    }
+}
+
 impl SseDecode for crate::types::SystemInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1808,6 +1960,13 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
+impl SseDecode for usize {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap() as _
+    }
+}
+
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -1823,40 +1982,44 @@ fn pde_ffi_dispatcher_primary_impl(
         4 => wire__crate__api__close_connection_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__disable_tun_mode_impl(port, ptr, rust_vec_len, data_len),
         6 => wire__crate__api__enable_tun_mode_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__enable_uwp_loopback_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__ensure_wintun_dll_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__get_active_connections_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__get_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__get_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__get_build_info_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__get_connection_stats_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__get_connections_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__get_logs_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__get_selected_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__get_system_info_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__get_traffic_stats_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__get_tun_status_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__get_veloguard_status_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__get_version_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__get_wintun_dll_path_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__initialize_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__is_wintun_available_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__open_uwp_loopback_utility_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__reload_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__select_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__set_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__set_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__set_log_level_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__start_android_vpn_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__start_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__stop_android_vpn_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__stop_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__test_config_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__test_outbound_latency_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__test_proxies_latency_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__test_proxy_latency_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__test_shadowsocks_latency_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__test_tcp_connectivity_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__enable_tun_mode_with_mode_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__enable_uwp_loopback_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__ensure_wintun_dll_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__get_active_connections_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__get_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__get_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__get_build_info_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__get_connection_stats_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__get_connections_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__get_logs_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__get_selected_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__get_system_info_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__get_traffic_stats_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__get_tun_status_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__get_veloguard_status_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__get_version_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__get_windows_proxy_mode_str_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__get_windows_tun_stats_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__get_wintun_dll_path_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__initialize_veloguard_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__is_wintun_available_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__open_uwp_loopback_utility_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__reload_veloguard_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__select_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__set_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__set_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__set_log_level_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__set_windows_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__start_android_vpn_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__start_veloguard_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__stop_android_vpn_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__stop_veloguard_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__test_config_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__test_outbound_latency_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__test_proxies_latency_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__test_proxy_latency_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__test_shadowsocks_latency_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__test_tcp_connectivity_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2223,6 +2386,18 @@ impl SseEncode for (u64, u64, u64, u64) {
     }
 }
 
+impl SseEncode for (u64, u64, u64, u64, usize, usize) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.0, serializer);
+        <u64>::sse_encode(self.1, serializer);
+        <u64>::sse_encode(self.2, serializer);
+        <u64>::sse_encode(self.3, serializer);
+        <usize>::sse_encode(self.4, serializer);
+        <usize>::sse_encode(self.5, serializer);
+    }
+}
+
 impl SseEncode for crate::types::SystemInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2288,6 +2463,16 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
+}
+
+impl SseEncode for usize {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer
+            .cursor
+            .write_u64::<NativeEndian>(self as _)
+            .unwrap();
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]

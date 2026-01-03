@@ -1478,13 +1478,41 @@ pub async fn ensure_wintun_dll() -> Result<String> {
 }
 
 /// Enable TUN mode (platform-specific)
+/// On Windows, this creates a TUN device and starts packet processing through SolidTCP
 #[frb]
 pub async fn enable_tun_mode() -> Result<TunStatus> {
+    enable_tun_mode_with_mode("rule".to_string()).await
+}
+
+/// Enable TUN mode with specific proxy mode
+/// mode: "rule", "global", or "direct"
+#[frb]
+pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
     #[cfg(target_os = "windows")]
     {
-        use veloguard_netstack::{TunConfig, TunDevice};
+        use veloguard_netstack::{TunConfig, TunDevice, WindowsVpnProcessor, WindowsRouteManager};
 
-        tracing::info!("Enabling TUN mode on Windows");
+        tracing::info!("=== Enabling TUN mode on Windows with mode={} ===", mode);
+
+        // Clean up any existing processor first
+        if let Some(old_processor) = crate::get_windows_vpn_processor() {
+            tracing::info!("Cleaning up existing Windows VPN processor");
+            old_processor.stop();
+            old_processor.reset();
+        }
+        crate::clear_windows_vpn_processor();
+
+        // Disable existing routes
+        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
+            let _ = route_manager.disable_global_mode();
+        }
+        crate::clear_windows_route_manager();
+
+        // Stop existing TUN device (take it out to avoid holding guard across await)
+        if let Some(mut tun_device) = crate::take_windows_tun_device() {
+            let _ = tun_device.stop().await;
+            tracing::info!("Stopped existing TUN device");
+        }
 
         // First ensure wintun.dll is available
         match veloguard_netstack::ensure_wintun().await {
@@ -1501,48 +1529,157 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
             }
         }
 
-        // Create TUN device with default config
-        let config = TunConfig {
-            name: "VeloGuard".to_string(),
-            address: std::net::Ipv4Addr::new(198, 18, 0, 1),
-            netmask: std::net::Ipv4Addr::new(255, 255, 0, 0),
-            mtu: 1500,
-            gateway: None,
-            dns: vec![std::net::Ipv4Addr::new(198, 18, 0, 2)],
-        };
-
-        match TunDevice::with_config(config.clone()).await {
-            Ok(mut tun) => match tun.start().await {
-                Ok(_) => {
-                    tracing::info!("TUN device started successfully");
-                    Ok(TunStatus {
-                        enabled: true,
-                        interface_name: Some(config.name),
-                        mtu: Some(config.mtu as u32),
-                        error: None,
-                    })
+        // Get proxy port from VeloGuard config
+        let proxy_port = {
+            let instance = get_veloguard_instance().await?;
+            let veloguard_guard = instance.read().await;
+            if let Some(ref veloguard) = *veloguard_guard {
+                let is_running = veloguard.is_running().await.unwrap_or(false);
+                if !is_running {
+                    tracing::error!("VeloGuard proxy service is NOT running! TUN will not work.");
+                    return Ok(TunStatus {
+                        enabled: false,
+                        interface_name: None,
+                        mtu: None,
+                        error: Some("VeloGuard proxy service is not running. Please start it first.".to_string()),
+                    });
                 }
-                Err(e) => Ok(TunStatus {
+                let config = veloguard.config();
+                config.general.mixed_port.or(config.general.socks_port).unwrap_or(7890)
+            } else {
+                return Ok(TunStatus {
                     enabled: false,
                     interface_name: None,
                     mtu: None,
-                    error: Some(format!(
-                        "Failed to start TUN device: {}. Please run as administrator.",
-                        e
-                    )),
-                }),
-            },
-            Err(e) => Ok(TunStatus {
+                    error: Some("VeloGuard not initialized".to_string()),
+                });
+            }
+        };
+
+        tracing::info!("Using proxy port {} for Windows TUN", proxy_port);
+
+        // Set the proxy mode
+        let mode_int = match mode.to_lowercase().as_str() {
+            "global" => 1,
+            "direct" => 2,
+            "rule" => 3,
+            _ => 3, // default to rule
+        };
+        veloguard_core::set_runtime_proxy_mode(mode_int);
+        veloguard_netstack::set_windows_proxy_mode(mode_int);
+        tracing::info!("Proxy mode set to {} ({})", mode, mode_int);
+
+        // Create TUN device with config
+        let tun_address = std::net::Ipv4Addr::new(198, 18, 0, 1);
+        let config = TunConfig {
+            name: "VeloGuard".to_string(),
+            address: tun_address,
+            netmask: std::net::Ipv4Addr::new(255, 255, 0, 0),
+            mtu: 1500,
+            gateway: Some(tun_address),
+            dns: vec![std::net::Ipv4Addr::new(198, 18, 0, 2)],
+        };
+
+        let mut tun = match TunDevice::with_config(config.clone()).await {
+            Ok(t) => t,
+            Err(e) => {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some(format!("Failed to create TUN device: {}", e)),
+                });
+            }
+        };
+
+        // Start TUN device
+        if let Err(e) = tun.start().await {
+            return Ok(TunStatus {
                 enabled: false,
                 interface_name: None,
                 mtu: None,
-                error: Some(format!("Failed to create TUN device: {}", e)),
-            }),
+                error: Some(format!("Failed to start TUN device: {}. Please run as administrator.", e)),
+            });
         }
+
+        tracing::info!("TUN device started successfully");
+
+        // Get the TUN sender and receiver
+        let tun_tx = match tun.get_sender() {
+            Some(tx) => tx,
+            None => {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some("Failed to get TUN sender channel".to_string()),
+                });
+            }
+        };
+
+        let mut tun_rx = match tun.take_receiver() {
+            Some(rx) => rx,
+            None => {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some("Failed to get TUN receiver channel".to_string()),
+                });
+            }
+        };
+
+        // Create the VPN processor
+        let processor = std::sync::Arc::new(WindowsVpnProcessor::new(proxy_port, tun_tx.clone()));
+        crate::set_windows_vpn_processor(processor.clone());
+
+        // Spawn packet processing task
+        let processor_clone = processor.clone();
+        tokio::spawn(async move {
+            tracing::info!("=== Windows TUN packet processing task started ===");
+            let mut packet_count = 0u64;
+
+            while let Some(packet) = tun_rx.recv().await {
+                packet_count += 1;
+                if packet_count <= 10 || packet_count % 100 == 0 {
+                    tracing::debug!("Processing packet #{}: {} bytes", packet_count, packet.len());
+                }
+                if let Err(e) = processor_clone.process_packet(&packet).await {
+                    tracing::debug!("Packet processing error: {}", e);
+                }
+            }
+
+            tracing::info!("Windows TUN packet processing task stopped, processed {} packets", packet_count);
+        });
+
+        // Set up route manager for global mode
+        let mut route_manager = WindowsRouteManager::new(&config.name, tun_address);
+        
+        // If global mode, enable routes
+        if mode.to_lowercase() == "global" {
+            if let Err(e) = route_manager.enable_global_mode() {
+                tracing::warn!("Failed to enable global mode routes: {}", e);
+                // Continue anyway, TUN is still working
+            }
+        }
+
+        crate::set_windows_route_manager(route_manager);
+
+        // Store TUN device globally to keep it alive
+        crate::set_windows_tun_device(tun);
+
+        tracing::info!("=== Windows TUN mode enabled successfully ===");
+        Ok(TunStatus {
+            enabled: true,
+            interface_name: Some(config.name),
+            mtu: Some(config.mtu as u32),
+            error: None,
+        })
     }
 
     #[cfg(target_os = "linux")]
     {
+        let _ = mode;
         tracing::info!("Enabling TUN mode on Linux");
         Ok(TunStatus {
             enabled: false,
@@ -1554,6 +1691,7 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
 
     #[cfg(target_os = "macos")]
     {
+        let _ = mode;
         tracing::info!("Enabling TUN mode on macOS");
         Ok(TunStatus {
             enabled: false,
@@ -1565,6 +1703,7 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
 
     #[cfg(target_os = "android")]
     {
+        let _ = mode;
         // Android uses VpnService, handled by native layer
         Ok(TunStatus {
             enabled: true,
@@ -1581,6 +1720,7 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
         target_os = "android"
     )))]
     {
+        let _ = mode;
         Ok(TunStatus {
             enabled: false,
             interface_name: None,
@@ -1593,7 +1733,39 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
 /// Disable TUN mode
 #[frb]
 pub async fn disable_tun_mode() -> Result<TunStatus> {
-    tracing::info!("Disabling TUN mode");
+    tracing::info!("=== Disabling TUN mode ===");
+
+    #[cfg(target_os = "windows")]
+    {
+        // Stop the VPN processor
+        if let Some(processor) = crate::get_windows_vpn_processor() {
+            processor.stop();
+            processor.reset();
+            tracing::info!("Windows VPN processor stopped");
+        }
+        crate::clear_windows_vpn_processor();
+
+        // Disable routes
+        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
+            if let Err(e) = route_manager.disable_global_mode() {
+                tracing::warn!("Failed to disable global mode routes: {}", e);
+            }
+        }
+        crate::clear_windows_route_manager();
+
+        // Stop TUN device (take it out to avoid holding guard across await)
+        if let Some(mut tun_device) = crate::take_windows_tun_device() {
+            if let Err(e) = tun_device.stop().await {
+                tracing::warn!("Failed to stop TUN device: {}", e);
+            }
+            tracing::info!("Windows TUN device stopped");
+        }
+
+        // Reset proxy mode
+        veloguard_core::set_runtime_proxy_mode(0);
+        veloguard_netstack::set_windows_proxy_mode(0);
+    }
+
     Ok(TunStatus {
         enabled: false,
         interface_name: None,
@@ -1605,13 +1777,95 @@ pub async fn disable_tun_mode() -> Result<TunStatus> {
 /// Get TUN mode status
 #[frb]
 pub async fn get_tun_status() -> Result<TunStatus> {
-    // Return current TUN status
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(processor) = crate::get_windows_vpn_processor() {
+            if processor.is_running() {
+                return Ok(TunStatus {
+                    enabled: true,
+                    interface_name: Some("VeloGuard".to_string()),
+                    mtu: Some(1500),
+                    error: None,
+                });
+            }
+        }
+    }
+
     Ok(TunStatus {
         enabled: false,
         interface_name: None,
         mtu: None,
         error: None,
     })
+}
+
+/// Set Windows proxy mode at runtime
+/// mode: "rule", "global", or "direct"
+#[frb]
+pub fn set_windows_proxy_mode(mode: String) -> Result<bool> {
+    let mode_int = match mode.to_lowercase().as_str() {
+        "global" => 1,
+        "direct" => 2,
+        "rule" => 3,
+        _ => 3,
+    };
+
+    // Set in core routing
+    veloguard_core::set_runtime_proxy_mode(mode_int);
+    tracing::info!("Runtime proxy mode set to {} ({})", mode, mode_int);
+
+    #[cfg(target_os = "windows")]
+    {
+        veloguard_netstack::set_windows_proxy_mode(mode_int);
+
+        // Update routes based on mode
+        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
+            if mode.to_lowercase() == "global" {
+                if let Err(e) = route_manager.enable_global_mode() {
+                    tracing::warn!("Failed to enable global mode routes: {}", e);
+                }
+            } else {
+                if let Err(e) = route_manager.disable_global_mode() {
+                    tracing::warn!("Failed to disable global mode routes: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(true)
+}
+
+/// Get Windows proxy mode
+/// Returns: "rule", "global", or "direct"
+#[frb]
+pub fn get_windows_proxy_mode_str() -> String {
+    match veloguard_core::get_runtime_proxy_mode() {
+        1 => "global".to_string(),
+        2 => "direct".to_string(),
+        3 => "rule".to_string(),
+        _ => "rule".to_string(),
+    }
+}
+
+/// Get Windows TUN traffic statistics
+#[frb]
+pub fn get_windows_tun_stats() -> Result<(u64, u64, u64, u64, usize, usize)> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(processor) = crate::get_windows_vpn_processor() {
+            let stats = processor.get_traffic_stats();
+            return Ok((
+                stats.packets_received,
+                stats.packets_sent,
+                stats.bytes_received,
+                stats.bytes_sent,
+                stats.tcp_connections,
+                stats.udp_sessions,
+            ));
+        }
+    }
+
+    Ok((0, 0, 0, 0, 0, 0))
 }
 
 // ============== UWP Loopback ==============

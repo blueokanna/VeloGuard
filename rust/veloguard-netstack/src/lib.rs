@@ -7,7 +7,7 @@
 //! - TCP connection handling with NAT
 //! - UDP session handling with NAT
 //! - IP packet parsing and generation using smoltcp
-//! - DNS resolution with DoH/DoT support
+//! - DNS resolution with DoH/DoT support (via veloguard-dns)
 //! - Fake-IP mode for transparent proxying
 //!
 //! # Platform Requirements
@@ -60,7 +60,6 @@
 //! }
 //! ```
 
-pub mod dns;
 pub mod error;
 pub mod route;
 pub mod stack;
@@ -69,6 +68,10 @@ pub mod tun;
 pub mod udp;
 #[cfg(windows)]
 pub mod wintun_embed;
+#[cfg(windows)]
+pub mod windows_vpn;
+#[cfg(windows)]
+pub mod windows_route;
 #[cfg(target_os = "android")]
 pub mod android_vpn;
 #[cfg(target_os = "android")]
@@ -82,15 +85,22 @@ pub use tcp::{TcpConnection, TcpConnectionId, TcpListener, TcpStack, TcpState, T
 pub use tun::{TunConfig, TunDevice};
 pub use udp::{UdpListener, UdpNatTable, UdpPacket, UdpSession, UdpSocket, UdpStack};
 
-// DNS module re-exports
-pub use dns::{
-    DnsManager, DnsConfig, DnsCache, DnsError, DnsResult,
-    DnsServer, DnsServerConfig,
-    DnsUpstream, DnsUpstreamType,
-    Resolver,
-    DohClient, DohResolver,
-    DotClient, DotResolver,
-    FakeIpPool,
+// Re-export DNS types from veloguard-dns crate
+pub use veloguard_dns::{
+    // Core types
+    DnsManager, DnsConfig, DnsCache, DnsError, DnsResolver, DnsServer,
+    // DoH/DoT
+    DohClient, DohResolver, DohClientConfig, DohMethod,
+    DotClient, DotResolver, DotClientConfig,
+    // Fake-IP
+    FakeIpPool, FakeIpEntry,
+    // Config
+    UpstreamConfig, UpstreamProtocol, FallbackFilter,
+    // Client
+    DnsClient, DnsProtocol,
+    // Other
+    HostsFile, RecordType, CacheStatistics, DnsManagerState,
+    Result as DnsResult,
 };
 
 // Android-specific exports
@@ -109,6 +119,16 @@ pub use android_tun::{
     set_protect_callback, protect_socket, has_protect_callback, clear_protect_callback,
     AndroidTunProcessor, FakeIpPool as AndroidFakeIpPool,
 };
+
+// Windows-specific exports
+#[cfg(windows)]
+pub use windows_vpn::{
+    WindowsVpnProcessor, WindowsVpnTrafficStats,
+    set_windows_proxy_mode, get_windows_proxy_mode, WINDOWS_PROXY_MODE,
+};
+
+#[cfg(windows)]
+pub use windows_route::{WindowsRouteManager, set_tun_dns, flush_dns_cache};
 
 /// Check if wintun.dll is available (Windows only)
 #[cfg(windows)]

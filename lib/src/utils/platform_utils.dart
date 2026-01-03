@@ -53,7 +53,11 @@ class PlatformUtils {
     if (Platform.isAndroid) {
       try {
         const channel = MethodChannel('com.veloguard/proxy');
-        final deviceInfo = await channel.invokeMethod('getDeviceInfo') as Map?;
+        final deviceInfo =
+            await channel
+                    .invokeMethod('getDeviceInfo')
+                    .timeout(const Duration(seconds: 3), onTimeout: () => null)
+                as Map?;
         if (deviceInfo != null) {
           final brand = (deviceInfo['brand'] as String?)?.toUpperCase() ?? '';
           final manufacturer =

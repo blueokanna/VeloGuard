@@ -165,8 +165,14 @@ Future<String> ensureWintunDll() =>
     RustLib.instance.api.crateApiEnsureWintunDll();
 
 /// Enable TUN mode (platform-specific)
+/// On Windows, this creates a TUN device and starts packet processing through SolidTCP
 Future<TunStatus> enableTunMode() =>
     RustLib.instance.api.crateApiEnableTunMode();
+
+/// Enable TUN mode with specific proxy mode
+/// mode: "rule", "global", or "direct"
+Future<TunStatus> enableTunModeWithMode({required String mode}) =>
+    RustLib.instance.api.crateApiEnableTunModeWithMode(mode: mode);
 
 /// Disable TUN mode
 Future<TunStatus> disableTunMode() =>
@@ -174,6 +180,20 @@ Future<TunStatus> disableTunMode() =>
 
 /// Get TUN mode status
 Future<TunStatus> getTunStatus() => RustLib.instance.api.crateApiGetTunStatus();
+
+/// Set Windows proxy mode at runtime
+/// mode: "rule", "global", or "direct"
+Future<bool> setWindowsProxyMode({required String mode}) =>
+    RustLib.instance.api.crateApiSetWindowsProxyMode(mode: mode);
+
+/// Get Windows proxy mode
+/// Returns: "rule", "global", or "direct"
+Future<String> getWindowsProxyModeStr() =>
+    RustLib.instance.api.crateApiGetWindowsProxyModeStr();
+
+/// Get Windows TUN traffic statistics
+Future<(BigInt, BigInt, BigInt, BigInt, BigInt, BigInt)> getWindowsTunStats() =>
+    RustLib.instance.api.crateApiGetWindowsTunStats();
 
 /// Enable UWP loopback exemption (Windows only)
 Future<bool> enableUwpLoopback() =>

@@ -6,7 +6,7 @@ license.workspace = true
 
 [features]
 default = []
-embed-wintun = []  # Enable to embed wintun.dll in binary
+embed-wintun = []
 
 [dependencies]
 tokio = { workspace = true }
@@ -28,19 +28,10 @@ rand = { workspace = true }
 lru = { workspace = true }
 veloguard-solidtcp = { workspace = true }
 
-# DNS dependencies
-hickory-resolver = { workspace = true }
-hickory-proto = { workspace = true }
-hickory-client = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-http = { workspace = true }
-http-body-util = { workspace = true }
-rustls = { workspace = true }
-webpki-roots = { workspace = true }
-tokio-rustls = { workspace = true }
-url = { workspace = true }
-base64 = { workspace = true }
+# Use veloguard-dns crate for DNS functionality
+veloguard-dns = { path = "../veloguard-dns" }
+
+# Additional dependencies for netstack
 cidr = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

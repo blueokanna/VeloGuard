@@ -199,7 +199,9 @@ class PlatformProxyService {
   Future<bool> _enableWindowsTun() async {
     try {
       await rust_api.ensureWintunDll();
-      final status = await rust_api.enableTunMode();
+      final status = await rust_api.enableTunModeWithMode(
+        mode: _currentProxyMode.name,
+      );
       _tunModeEnabled = status.enabled;
       return _tunModeEnabled;
     } catch (e) {
@@ -217,6 +219,71 @@ class PlatformProxyService {
       debugPrint('Windows TUN disable error: $e');
       _tunModeEnabled = false;
       return true;
+    }
+  }
+
+  /// Set Windows proxy mode at runtime
+  /// mode: ProxyMode.rule, ProxyMode.global, or ProxyMode.direct
+  Future<bool> setWindowsProxyMode(ProxyMode mode) async {
+    if (!Platform.isWindows) return false;
+    try {
+      final result = await rust_api.setWindowsProxyMode(mode: mode.name);
+      if (result) {
+        _currentProxyMode = mode;
+        debugPrint('Windows proxy mode set to ${mode.name}');
+      }
+      return result;
+    } catch (e) {
+      debugPrint('Failed to set Windows proxy mode: $e');
+      return false;
+    }
+  }
+
+  /// Get current Windows proxy mode
+  Future<String> getWindowsProxyMode() async {
+    if (!Platform.isWindows) return 'rule';
+    try {
+      return await rust_api.getWindowsProxyModeStr();
+    } catch (e) {
+      return 'rule';
+    }
+  }
+
+  /// Get Windows TUN traffic statistics
+  /// Returns: (packetsReceived, packetsSent, bytesReceived, bytesSent, tcpConnections, udpSessions)
+  Future<(int, int, int, int, int, int)> getWindowsTunStats() async {
+    if (!Platform.isWindows) return (0, 0, 0, 0, 0, 0);
+    try {
+      final stats = await rust_api.getWindowsTunStats();
+      return (
+        stats.$1.toInt(),
+        stats.$2.toInt(),
+        stats.$3.toInt(),
+        stats.$4.toInt(),
+        stats.$5.toInt(),
+        stats.$6.toInt(),
+      );
+    } catch (e) {
+      debugPrint('Failed to get Windows TUN stats: $e');
+      return (0, 0, 0, 0, 0, 0);
+    }
+  }
+
+  /// Enable Windows TUN mode with specific proxy mode
+  Future<bool> enableWindowsTunWithMode(ProxyMode mode) async {
+    if (!Platform.isWindows) return false;
+    try {
+      _currentProxyMode = mode;
+      await rust_api.ensureWintunDll();
+      final status = await rust_api.enableTunModeWithMode(mode: mode.name);
+      _tunModeEnabled = status.enabled;
+      if (status.error != null) {
+        debugPrint('Windows TUN error: ${status.error}');
+      }
+      return _tunModeEnabled;
+    } catch (e) {
+      debugPrint('Windows TUN error: $e');
+      return false;
     }
   }
 
@@ -496,6 +563,8 @@ class PlatformProxyService {
       return await setAndroidProxyMode(mode);
     } else if (PlatformUtils.isOHOS) {
       return await setOhosProxyMode(mode);
+    } else if (Platform.isWindows) {
+      return await setWindowsProxyMode(mode);
     }
     return false;
   }

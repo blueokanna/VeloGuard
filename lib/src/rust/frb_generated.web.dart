@@ -84,6 +84,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt)
+  dco_decode_record_u_64_u_64_u_64_u_64_usize_usize(dynamic raw);
+
+  @protected
   SystemInfo dco_decode_system_info(dynamic raw);
 
   @protected
@@ -106,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  BigInt dco_decode_usize(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -180,6 +187,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt)
+  sse_decode_record_u_64_u_64_u_64_u_64_usize_usize(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SystemInfo sse_decode_system_info(SseDeserializer deserializer);
 
   @protected
@@ -202,6 +215,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -297,6 +313,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_record_u_64_u_64_u_64_u_64_usize_usize(
+    (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_system_info(SystemInfo self, SseSerializer serializer);
 
   @protected
@@ -319,6 +341,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer);
 }
 
 // Section: wire_class
