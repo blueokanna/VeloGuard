@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/providers/profiles_provider.dart';
 import 'package:veloguard/src/services/storage_service.dart';
@@ -524,12 +526,72 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
-  void _handleFileImport() {
-    // TODO: Implement file picker
-    _showSnackBar('File import not implemented yet');
+  void _handleFileImport() async {
+    final l10n = AppLocalizations.of(context);
+    final provider = context.read<ProfilesProvider>();
+
+    try {
+      // Use file_picker to select a file
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['yaml', 'yml', 'json', 'txt'],
+        allowMultiple: false,
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return; // User cancelled
+      }
+
+      final file = result.files.first;
+      String? content;
+      String fileName = file.name;
+
+      // Read file content
+      if (file.bytes != null) {
+        // Web or mobile - bytes available directly
+        content = String.fromCharCodes(file.bytes!);
+      } else if (file.path != null) {
+        // Desktop - read from path
+        final fileObj = File(file.path!);
+        content = await fileObj.readAsString();
+      }
+
+      if (content == null || content.isEmpty) {
+        if (!mounted) return;
+        _showSnackBar(l10n?.importFileDesc ?? 'Failed to read file content');
+        return;
+      }
+
+      // Generate profile name from file name (remove extension)
+      final profileName = fileName.replaceAll(
+        RegExp(r'\.(yaml|yml|json|txt)$'),
+        '',
+      );
+
+      // Add profile
+      final success = await provider.addProfileFromFile(
+        profileName,
+        file.path ?? 'file',
+        content,
+      );
+
+      if (!mounted) return;
+
+      if (success) {
+        _showSnackBar(l10n?.import_ ?? 'Profile imported successfully');
+      } else {
+        _showSnackBar(
+          '${l10n?.failed ?? "Failed"}: ${provider.error ?? "Unknown error"}',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('${l10n?.failed ?? "Failed"}: $e');
+    }
   }
 
   void _handleClipboardImport() async {
+    final l10n = AppLocalizations.of(context);
     // Get provider reference before any async operations
     final provider = context.read<ProfilesProvider>();
 
@@ -538,44 +600,68 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
       if (!mounted) return;
 
       if (data?.text != null && data!.text!.isNotEmpty) {
-        final name = 'Clipboard ${DateTime.now().millisecondsSinceEpoch}';
+        final clipboardText = data.text!.trim();
+
+        // Generate a unique name with timestamp
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final name = 'Clipboard_$timestamp';
 
         // Check if it's a URL or raw config
-        if (data.text!.startsWith('http://') ||
-            data.text!.startsWith('https://')) {
-          final success = await provider.addProfileFromUrl(name, data.text!);
+        if (clipboardText.startsWith('http://') ||
+            clipboardText.startsWith('https://')) {
+          // It's a subscription URL
+          final success = await provider.addProfileFromUrl(name, clipboardText);
           if (!mounted) return;
 
           if (success) {
-            _showSnackBar('Profile added successfully');
+            _showSnackBar(l10n?.import_ ?? 'Profile imported successfully');
           } else {
             _showSnackBar(
-              'Failed to import: ${provider.error ?? "Unknown error"}',
+              '${l10n?.failed ?? "Failed"}: ${provider.error ?? "Unknown error"}',
+            );
+          }
+        } else if (clipboardText.startsWith('vmess://') ||
+            clipboardText.startsWith('vless://') ||
+            clipboardText.startsWith('ss://') ||
+            clipboardText.startsWith('ssr://') ||
+            clipboardText.startsWith('trojan://') ||
+            clipboardText.startsWith('hysteria://') ||
+            clipboardText.startsWith('hysteria2://') ||
+            clipboardText.startsWith('tuic://')) {
+          // It's a proxy link - treat as URL for the provider to handle
+          final success = await provider.addProfileFromUrl(name, clipboardText);
+          if (!mounted) return;
+
+          if (success) {
+            _showSnackBar(l10n?.import_ ?? 'Profile imported successfully');
+          } else {
+            _showSnackBar(
+              '${l10n?.failed ?? "Failed"}: ${provider.error ?? "Unknown error"}',
             );
           }
         } else {
-          // Treat as raw config content
+          // Treat as raw config content (YAML/JSON)
           final success = await provider.addProfileFromFile(
             name,
             'clipboard',
-            data.text!,
+            clipboardText,
           );
           if (!mounted) return;
 
           if (success) {
-            _showSnackBar('Profile added successfully');
+            _showSnackBar(l10n?.import_ ?? 'Profile imported successfully');
           } else {
             _showSnackBar(
-              'Failed to import: ${provider.error ?? "Unknown error"}',
+              '${l10n?.failed ?? "Failed"}: ${provider.error ?? "Unknown error"}',
             );
           }
         }
       } else {
-        _showSnackBar('Clipboard is empty');
+        _showSnackBar(l10n?.noData ?? 'Clipboard is empty');
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('Failed to read clipboard');
+      _showSnackBar('${l10n?.failed ?? "Failed"}: $e');
     }
   }
 

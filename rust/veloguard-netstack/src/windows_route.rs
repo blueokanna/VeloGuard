@@ -304,6 +304,7 @@ impl Drop for WindowsRouteManager {
 
 /// Set Windows DNS servers for the TUN interface
 pub fn set_tun_dns(interface_name: &str, dns_servers: &[Ipv4Addr]) -> Result<(), String> {
+    // First, set DNS for the TUN interface
     for (i, dns) in dns_servers.iter().enumerate() {
         let action = if i == 0 { "set" } else { "add" };
         let result = Command::new("netsh")
@@ -323,6 +324,20 @@ pub fn set_tun_dns(interface_name: &str, dns_servers: &[Ipv4Addr]) -> Result<(),
             warn!("Failed to set DNS {}: {}", dns, stderr);
         }
     }
+
+    // Set the TUN interface metric to be lower (higher priority) than other interfaces
+    // This ensures DNS queries prefer the TUN interface
+    let _ = Command::new("powershell")
+        .args([
+            "-Command",
+            &format!(
+                "Set-NetIPInterface -InterfaceAlias '{}' -InterfaceMetric 1",
+                interface_name
+            ),
+        ])
+        .output();
+
+    info!("TUN DNS configured: {:?}", dns_servers);
     Ok(())
 }
 

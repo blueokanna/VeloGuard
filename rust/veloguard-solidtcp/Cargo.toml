@@ -8,38 +8,27 @@ keywords = ["tcp", "ip", "tun", "vpn", "proxy"]
 
 [features]
 default = ["ipv4", "ipv6", "tcp", "udp", "icmp", "dns"]
+dns = []
+icmp = []
 ipv4 = []
 ipv6 = []
 tcp = []
 udp = []
-icmp = []
-dns = []
 
 [dependencies]
-# Async runtime
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-futures = { workspace = true }
-
-# Network stack - smoltcp with all features we need
-smoltcp = { workspace = true }
-
-# Data structures
+anyhow = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-parking_lot = { workspace = true }
+futures = { workspace = true }
 lru = { workspace = true }
-
-# Error handling
-thiserror = { workspace = true }
-anyhow = { workspace = true }
-
-# Logging
-tracing = { workspace = true }
-
-# Utilities
-rand = { workspace = true }
 once_cell = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+smoltcp = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

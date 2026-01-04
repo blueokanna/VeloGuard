@@ -25,6 +25,7 @@ import 'package:veloguard/src/screens/proxies_screen.dart';
 import 'package:veloguard/src/widgets/adaptive_scaffold.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
 import 'package:veloguard/src/utils/device_info_utils.dart';
+import 'package:veloguard/src/utils/animation_utils.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/screens/profiles_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -47,6 +48,13 @@ void main() async {
   try {
     await StorageService.instance.init();
     debugPrint('StorageService initialized successfully');
+
+    // 初始化震动反馈状态
+    final generalSettings = await StorageService.instance.getGeneralSettings();
+    AnimationUtils.setHapticEnabled(generalSettings.hapticFeedbackEnabled);
+    debugPrint(
+      'Haptic feedback initialized: ${generalSettings.hapticFeedbackEnabled}',
+    );
   } catch (e) {
     debugPrint('Failed to initialize StorageService: $e');
   }
@@ -165,41 +173,99 @@ final GoRouter _router = GoRouter(
         return AdaptiveScaffold(body: child);
       },
       routes: [
-        GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+        GoRoute(
+          path: '/',
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const HomeScreen()),
+        ),
         GoRoute(
           path: '/proxies',
-          builder: (context, state) => const ProxiesScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const ProxiesScreen()),
         ),
         GoRoute(
           path: '/profiles',
-          builder: (context, state) => const ProfilesScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const ProfilesScreen()),
         ),
         GoRoute(
           path: '/connections',
-          builder: (context, state) => const ConnectionsScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const ConnectionsScreen()),
         ),
-        GoRoute(path: '/logs', builder: (context, state) => const LogsScreen()),
+        GoRoute(
+          path: '/logs',
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const LogsScreen()),
+        ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => const SettingsScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const SettingsScreen()),
         ),
         GoRoute(
           path: '/network-settings',
-          builder: (context, state) => const NetworkSettingsScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const NetworkSettingsScreen()),
         ),
         GoRoute(
           path: '/dns-settings',
-          builder: (context, state) => const DnsSettingsScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const DnsSettingsScreen()),
         ),
         GoRoute(
           path: '/basic-config',
-          builder: (context, state) => const BasicConfigScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const BasicConfigScreen()),
         ),
         GoRoute(
           path: '/advanced-config',
-          builder: (context, state) => const AdvancedConfigScreen(),
+          pageBuilder: (context, state) =>
+              _buildExpressivePage(state, const AdvancedConfigScreen()),
         ),
       ],
     ),
   ],
 );
+
+CustomTransitionPage<void> _buildExpressivePage(
+  GoRouterState state,
+  Widget child,
+) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: AnimationUtils.pageTransitionDuration,
+    reverseTransitionDuration: const Duration(milliseconds: 300),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curvedAnimation = CurvedAnimation(
+        parent: animation,
+        curve: AnimationUtils.curveEmphasizedDecelerate,
+        reverseCurve: AnimationUtils.curveEmphasizedAccelerate,
+      );
+
+      final fadeAnimation = Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).animate(curvedAnimation);
+
+      final slideAnimation = Tween<Offset>(
+        begin: const Offset(0.03, 0),
+        end: Offset.zero,
+      ).animate(curvedAnimation);
+
+      final scaleAnimation = Tween<double>(
+        begin: 0.96,
+        end: 1.0,
+      ).animate(curvedAnimation);
+
+      return FadeTransition(
+        opacity: fadeAnimation,
+        child: SlideTransition(
+          position: slideAnimation,
+          child: ScaleTransition(scale: scaleAnimation, child: child),
+        ),
+      );
+    },
+  );
+}

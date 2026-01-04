@@ -6,36 +6,27 @@ license.workspace = true
 description = "QUIC proxy implementation for VeloGuard with 0-RTT and SNI camouflage"
 
 [dependencies]
-# QUIC
+aead = { workspace = true }
+aes-gcm = { workspace = true }
+async-trait = { workspace = true }
+blake2 = { workspace = true }
+bytes = { workspace = true }
+chacha20poly1305 = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+hkdf = { workspace = true }
+parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
 quinn = { workspace = true }
 quinn-proto = { workspace = true }
+rand = { workspace = true }
 rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 rustls-native-certs = { workspace = true }
-
-# Async runtime
+rustls-pemfile = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+socket2 = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-futures = { workspace = true }
-async-trait = { workspace = true }
-
-# Utilities
-thiserror = { workspace = true }
-serde = { workspace = true }
-bytes = { workspace = true }
 tracing = { workspace = true }
-rand = { workspace = true }
-parking_lot = { workspace = true }
-dashmap = { workspace = true }
-pin-project-lite = { workspace = true }
-
-# Crypto
-blake2 = { workspace = true }
-hkdf = { workspace = true }
-sha2 = { workspace = true }
-aes-gcm = { workspace = true }
-chacha20poly1305 = { workspace = true }
-aead = { workspace = true }
-
-# Address parsing
-socket2 = { workspace = true }

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.blueokanna" "\0"
-            VALUE "FileDescription", "veloguard" "\0"
+            VALUE "CompanyName", "BlueOkanna" "\0"
+            VALUE "FileDescription", "VeloGuard - Modern Proxy Client" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "veloguard" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.blueokanna. All rights reserved." "\0"
-            VALUE "OriginalFilename", "veloguard.exe" "\0"
-            VALUE "ProductName", "veloguard" "\0"
+            VALUE "InternalName", "VeloGuard" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 BlueOkanna. All rights reserved." "\0"
+            VALUE "OriginalFilename", "VeloGuard.exe" "\0"
+            VALUE "ProductName", "VeloGuard" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

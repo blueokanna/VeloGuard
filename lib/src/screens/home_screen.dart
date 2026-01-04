@@ -177,11 +177,14 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Icon(icon, size: iconSize * 0.9, color: colorScheme.primary),
         SizedBox(width: ResponsiveUtils.getSpacing(context)),
-        Text(
-          title,
-          style: textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: colorScheme.primary,
+        Flexible(
+          child: Text(
+            title,
+            style: textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colorScheme.primary,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -195,6 +198,16 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     final colorScheme = Theme.of(context).colorScheme;
     final borderRadius = ResponsiveUtils.getBorderRadius(context);
+
+    // Format CPU info
+    final cpuInfo =
+        appState.systemInfo!.cpuName.isNotEmpty &&
+            !appState.systemInfo!.cpuName.contains('Unknown')
+        ? '${appState.systemInfo!.cpuName} (${appState.systemInfo!.cpuCores}C/${appState.systemInfo!.cpuThreads}T)'
+        : '${appState.systemInfo!.cpuCores} ${l10n?.cpuCores ?? "cores"} / ${appState.systemInfo!.cpuThreads} ${l10n?.cpuThreads ?? "threads"}';
+
+    // Check if mobile platform (Android/iOS/HarmonyOS)
+    final isMobile = PlatformUtils.isMobile;
 
     return Card(
       elevation: 0,
@@ -227,15 +240,17 @@ class _HomeScreenState extends State<HomeScreen> {
               value:
                   '${appState.systemInfo!.memoryTotal ~/ BigInt.from(1024) ~/ BigInt.from(1024)} MB',
             ),
-            const Divider(height: 24),
-            _buildInfoRow(
-              context,
-              icon: Icons.developer_board_outlined,
-              label: l10n?.cpuCores ?? 'CPU',
-              value: appState.systemInfo!.cpuName.isNotEmpty
-                  ? '${appState.systemInfo!.cpuName} (${appState.systemInfo!.cpuCores}C/${appState.systemInfo!.cpuThreads}T)'
-                  : '${appState.systemInfo!.cpuCores} ${l10n?.cpuCores ?? "cores"} / ${appState.systemInfo!.cpuThreads} ${l10n?.cpuThreads ?? "threads"}',
-            ),
+            // Only show CPU Cores on desktop platforms
+            if (!isMobile) ...[
+              const Divider(height: 24),
+              _buildInfoRow(
+                context,
+                icon: Icons.developer_board_outlined,
+                label: l10n?.cpuCores ?? 'CPU',
+                value: cpuInfo,
+                scrollable: true,
+              ),
+            ],
           ],
         ),
       ),
@@ -247,6 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
     required String label,
     required String value,
+    bool scrollable = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -257,7 +273,8 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Icon(icon, size: iconSize * 0.85, color: colorScheme.primary),
         SizedBox(width: spacing),
-        Expanded(
+        Flexible(
+          flex: 0,
           child: Text(
             label,
             style: textTheme.bodyMedium?.copyWith(
@@ -266,15 +283,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         SizedBox(width: spacing),
-        Flexible(
-          child: Text(
-            value,
-            style: textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-            textAlign: TextAlign.end,
-            overflow: TextOverflow.ellipsis,
-          ),
+        Expanded(
+          child: scrollable
+              ? SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Text(
+                    value,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.end,
+                  ),
+                )
+              : Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    value,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.end,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
         ),
       ],
     );
@@ -379,15 +411,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Color _getThemeColor(String themeName, BuildContext context) {
-    switch (themeName) {
-      case 'ocean':
-        return const Color(0xFF0061A4);
-      case 'forest':
-        return const Color(0xFF146C2E);
-      case 'sunset':
-        return const Color(0xFF8F4A4A);
-      default:
-        return Theme.of(context).colorScheme.primary;
-    }
+    return context.read<ThemeProvider>().getThemeSeedColor(themeName);
   }
 }

@@ -263,6 +263,8 @@ class ConfigConverter {
     final mixedPort = generalSettings?.mixedPort ?? clash['mixed-port'];
     final allowLan = generalSettings?.allowLan ?? clash['allow-lan'] ?? false;
     final ipv6 = generalSettings?.ipv6 ?? clash['ipv6'] ?? false;
+    final tcpConcurrent =
+        generalSettings?.tcpConcurrent ?? clash['tcp-concurrent'] ?? false;
     var bindAddress =
         generalSettings?.bindAddress ?? clash['bind-address'] ?? '*';
 
@@ -298,6 +300,7 @@ class ConfigConverter {
       'mode': mode,
       'log_level': logLevel,
       'ipv6': ipv6,
+      'tcp_concurrent': tcpConcurrent,
       'external_controller':
           generalSettings?.externalController ?? clash['external-controller'],
       'external_ui': generalSettings?.externalUi ?? clash['external-ui'],

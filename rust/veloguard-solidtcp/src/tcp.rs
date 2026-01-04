@@ -54,6 +54,12 @@ pub struct TcpConfig {
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
     pub time_wait: Duration,
+    /// WebSocket/long-lived connection timeout (longer than normal)
+    pub websocket_timeout: Duration,
+    /// Maximum receive buffer size
+    pub max_recv_buffer: usize,
+    /// Maximum send buffer size
+    pub max_send_buffer: usize,
 }
 
 impl Default for TcpConfig {
@@ -64,6 +70,9 @@ impl Default for TcpConfig {
             idle_timeout: Duration::from_secs(300),
             connect_timeout: Duration::from_secs(30),
             time_wait: Duration::from_secs(10),
+            websocket_timeout: Duration::from_secs(3600), // 1 hour for WebSocket
+            max_recv_buffer: 1024 * 1024, // 1MB receive buffer
+            max_send_buffer: 1024 * 1024, // 1MB send buffer
         }
     }
 }
@@ -93,6 +102,22 @@ pub struct TcpConnection {
     max_ooo_size: usize,
     /// Current out-of-order buffer size
     ooo_size: usize,
+    /// Is this a WebSocket or long-lived connection
+    is_websocket: bool,
+    /// Receive window for flow control
+    recv_window: u32,
+    /// Last window update sent
+    last_window_update: u32,
+    /// Congestion window (for send rate limiting)
+    /// Reserved for future congestion control implementation
+    #[allow(dead_code)]
+    cwnd: u32,
+    /// Slow start threshold
+    /// Reserved for future congestion control implementation
+    #[allow(dead_code)]
+    ssthresh: u32,
+    /// Duplicate ACK count (for fast retransmit)
+    dup_ack_count: u32,
 }
 
 
@@ -101,6 +126,13 @@ impl TcpConnection {
         let config = TcpConfig::default();
         let iss: u32 = rand::random();
         let mss = their_mss.unwrap_or(DEFAULT_MSS_V4).min(config.mss);
+        
+        // Detect WebSocket connections by port (common WebSocket ports)
+        let is_websocket = matches!(key.dst.port(), 80 | 443 | 8080 | 8443 | 9000);
+        
+        // Initial congestion window (RFC 5681: 10 * MSS for modern networks)
+        let initial_cwnd = (10 * mss as u32).min(64 * 1024);
+        
         Self {
             key, state: TcpState::SynReceived,
             snd_nxt: iss.wrapping_add(1), snd_una: iss,
@@ -112,8 +144,56 @@ impl TcpConnection {
             domain, proxy_tx: None, fin_recv: false,
             pending_data: VecDeque::new(),
             ooo_segments: BTreeMap::new(),
-            max_ooo_size: 256 * 1024, // 256KB max out-of-order buffer
+            max_ooo_size: 512 * 1024, // 512KB max out-of-order buffer for large transfers
             ooo_size: 0,
+            // New fields for WebSocket and flow control
+            is_websocket,
+            recv_window: 65535 * 4, // 256KB receive window for better throughput
+            last_window_update: 65535 * 4,
+            cwnd: initial_cwnd,
+            ssthresh: 65535 * 2, // Initial slow start threshold
+            dup_ack_count: 0,
+        }
+    }
+    
+    /// Mark this connection as a WebSocket connection (detected from HTTP upgrade)
+    pub fn set_websocket(&mut self, is_ws: bool) {
+        self.is_websocket = is_ws;
+        if is_ws {
+            // Increase buffers for WebSocket connections
+            self.max_ooo_size = 1024 * 1024; // 1MB for WebSocket
+            info!("Connection marked as WebSocket: {:?}", self.key);
+        }
+    }
+    
+    /// Check if this is a WebSocket connection
+    pub fn is_websocket(&self) -> bool {
+        self.is_websocket
+    }
+    
+    /// Get current receive window
+    pub fn recv_window(&self) -> u32 {
+        self.recv_window
+    }
+    
+    /// Update receive window based on buffer usage
+    fn update_recv_window(&mut self) {
+        let buffer_used = self.recv_buf.len() + self.pending_data.len() + self.ooo_size;
+        let max_buffer = self.config.max_recv_buffer;
+        
+        // Calculate available window
+        let available = max_buffer.saturating_sub(buffer_used);
+        self.recv_window = (available as u32).min(65535 * 4);
+        
+        // Send window update if significant change
+        let window_diff = if self.recv_window > self.last_window_update {
+            self.recv_window - self.last_window_update
+        } else {
+            self.last_window_update - self.recv_window
+        };
+        
+        if window_diff > 16384 {
+            self.last_window_update = self.recv_window;
         }
     }
 
@@ -250,18 +330,24 @@ impl TcpConnection {
     fn process_data(&mut self, seq: u32, data: &[u8]) -> Result<TcpAction> {
         if data.is_empty() { return Ok(TcpAction::None); }
         
+        // Update receive window
+        self.update_recv_window();
+        
         // Check if this is a retransmission of already received data
         let seq_end = seq.wrapping_add(data.len() as u32);
         
         // If seq_end is at or before rcv_nxt, this is a complete retransmission
         if self.seq_before_or_eq(seq_end, self.rcv_nxt) {
             // Already received all this data, just ACK
-            debug!("Complete retransmission detected: seq={}, seq_end={}, rcv_nxt={}", seq, seq_end, self.rcv_nxt);
+            trace!("Complete retransmission detected: seq={}, seq_end={}, rcv_nxt={}", seq, seq_end, self.rcv_nxt);
             return Ok(TcpAction::SendAck);
         }
         
         // If seq is exactly what we expect - in-order delivery
         if seq == self.rcv_nxt {
+            // Reset duplicate ACK count on new data
+            self.dup_ack_count = 0;
+            
             self.recv_buf.extend(data);
             self.rcv_nxt = self.rcv_nxt.wrapping_add(data.len() as u32);
             self.bytes_rx += data.len() as u64;
@@ -274,6 +360,10 @@ impl TcpConnection {
             if !d.is_empty() {
                 self.deliver_to_proxy(d);
             }
+            
+            // Update window after processing
+            self.update_recv_window();
+            
             return Ok(TcpAction::SendAck);
         }
         
@@ -283,7 +373,7 @@ impl TcpConnection {
             let skip = self.rcv_nxt.wrapping_sub(seq) as usize;
             if skip < data.len() {
                 let new_data = &data[skip..];
-                debug!("Partial retransmission: seq={}, skip={}, new_len={}", seq, skip, new_data.len());
+                trace!("Partial retransmission: seq={}, skip={}, new_len={}", seq, skip, new_data.len());
                 self.recv_buf.extend(new_data);
                 self.rcv_nxt = self.rcv_nxt.wrapping_add(new_data.len() as u32);
                 self.bytes_rx += new_data.len() as u64;
@@ -302,17 +392,21 @@ impl TcpConnection {
         
         // Out-of-order segment - buffer it if within window
         if self.seq_after(seq, self.rcv_nxt) {
+            // Increment duplicate ACK count
+            self.dup_ack_count += 1;
+            
             // Check if we have room in the OOO buffer
             if self.ooo_size + data.len() <= self.max_ooo_size {
                 // Only store if we don't already have this segment
                 if !self.ooo_segments.contains_key(&seq) {
-                    debug!("Buffering out-of-order segment: seq={}, len={}, expected={}", 
-                           seq, data.len(), self.rcv_nxt);
+                    debug!("Buffering out-of-order segment: seq={}, len={}, expected={}, gap={}", 
+                           seq, data.len(), self.rcv_nxt, seq.wrapping_sub(self.rcv_nxt));
                     self.ooo_segments.insert(seq, data.to_vec());
                     self.ooo_size += data.len();
                 }
             } else {
-                warn!("OOO buffer full, dropping segment: seq={}, len={}", seq, data.len());
+                warn!("OOO buffer full ({} bytes), dropping segment: seq={}, len={}", 
+                      self.ooo_size, seq, data.len());
             }
         }
         
@@ -375,30 +469,49 @@ impl TcpConnection {
             // Proxy is ready, send data
             let data_len = data.len();
             let tx = tx.clone();
-            debug!("Sending {} bytes to proxy", data_len);
+            trace!("Sending {} bytes to proxy", data_len);
             
-            // Use try_send first to avoid spawning tasks for small data
-            match tx.try_send(data) {
-                Ok(()) => {
-                    trace!("Data sent to proxy via try_send");
-                }
-                Err(tokio::sync::mpsc::error::TrySendError::Full(data)) => {
-                    // Channel is full, spawn a task to wait
-                    debug!("Proxy channel full, spawning send task for {} bytes", data.len());
-                    tokio::spawn(async move { 
-                        if let Err(e) = tx.send(data).await {
-                            warn!("Failed to send data to proxy: {}", e);
-                        }
-                    });
-                }
-                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                    warn!("Proxy channel closed, cannot send {} bytes", data_len);
+            // For large data (like file uploads), use async send to avoid blocking
+            if data_len > 16384 {
+                // Large data - spawn task to handle backpressure
+                debug!("Large data transfer: {} bytes to proxy", data_len);
+                tokio::spawn(async move { 
+                    if let Err(e) = tx.send(data).await {
+                        warn!("Failed to send large data to proxy: {}", e);
+                    }
+                });
+            } else {
+                // Small data - try synchronous send first
+                match tx.try_send(data) {
+                    Ok(()) => {
+                        trace!("Data sent to proxy via try_send");
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(data)) => {
+                        // Channel is full, spawn a task to wait
+                        debug!("Proxy channel full, spawning send task for {} bytes", data.len());
+                        tokio::spawn(async move { 
+                            if let Err(e) = tx.send(data).await {
+                                warn!("Failed to send data to proxy: {}", e);
+                            }
+                        });
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                        warn!("Proxy channel closed, cannot send {} bytes", data_len);
+                    }
                 }
             }
         } else {
             // Proxy not ready yet, buffer the data
             debug!("Buffering {} bytes (proxy not ready)", data.len());
-            self.pending_data.extend(data);
+            
+            // Check buffer limit
+            let current_pending = self.pending_data.len();
+            if current_pending + data.len() <= self.config.max_recv_buffer {
+                self.pending_data.extend(data);
+            } else {
+                warn!("Pending data buffer full ({} bytes), dropping {} bytes", 
+                      current_pending, data.len());
+            }
         }
     }
     
@@ -438,7 +551,14 @@ impl TcpConnection {
 
     pub fn is_timed_out(&self) -> bool {
         let timeout = match self.state {
-            TcpState::Established => self.config.idle_timeout,
+            TcpState::Established => {
+                // Use longer timeout for WebSocket connections
+                if self.is_websocket {
+                    self.config.websocket_timeout
+                } else {
+                    self.config.idle_timeout
+                }
+            }
             TcpState::TimeWait => self.config.time_wait,
             _ => self.config.connect_timeout,
         };

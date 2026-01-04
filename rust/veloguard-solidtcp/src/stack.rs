@@ -1055,8 +1055,8 @@ impl StackProxy {
         info!("SOCKS5 handshake complete: {} -> {}", src_addr, dst_addr);
 
         // Create channel for app -> proxy data (bounded for backpressure)
-        // Use larger buffer to handle burst traffic
-        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
+        // Use larger buffer to handle burst traffic and file uploads
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(512);
         
         // Set proxy channel in connection
         conn.write().set_proxy_tx(tx);
@@ -1064,26 +1064,57 @@ impl StackProxy {
         // Split stream for bidirectional communication
         let (mut read_half, mut write_half) = stream.into_split();
 
-        // Task: app -> proxy
+        // Task: app -> proxy (with WebSocket detection)
         let running = self.running.clone();
         let src_clone = src_addr;
         let dst_clone = dst_addr;
+        let conn_for_ws = conn.clone();
         tokio::spawn(async move {
+            let mut first_data = true;
+            let mut write_buffer = Vec::with_capacity(65536);
+            
             while running.load(Ordering::Relaxed) {
                 match rx.recv().await {
                     Some(data) => {
-                        if let Err(e) = write_half.write_all(&data).await {
-                            warn!("App->Proxy write error: {} for {} -> {}", e, src_clone, dst_clone);
-                            break;
+                        // Detect WebSocket upgrade in first HTTP request
+                        if first_data && data.len() > 20 {
+                            first_data = false;
+                            // Check for WebSocket upgrade headers
+                            if let Ok(text) = std::str::from_utf8(&data[..data.len().min(512)]) {
+                                let text_lower = text.to_lowercase();
+                                if text_lower.contains("upgrade: websocket") || 
+                                   text_lower.contains("connection: upgrade") {
+                                    info!("WebSocket upgrade detected for {} -> {}", src_clone, dst_clone);
+                                    conn_for_ws.write().set_websocket(true);
+                                }
+                            }
                         }
-                        // Flush immediately to ensure data is sent
-                        if let Err(e) = write_half.flush().await {
-                            warn!("App->Proxy flush error: {} for {} -> {}", e, src_clone, dst_clone);
-                            break;
+                        
+                        // Batch small writes for efficiency
+                        write_buffer.extend_from_slice(&data);
+                        
+                        // Flush if buffer is large enough or channel is empty
+                        if write_buffer.len() >= 16384 || rx.is_empty() {
+                            if let Err(e) = write_half.write_all(&write_buffer).await {
+                                warn!("App->Proxy write error: {} for {} -> {}", e, src_clone, dst_clone);
+                                break;
+                            }
+                            // Flush immediately to ensure data is sent
+                            if let Err(e) = write_half.flush().await {
+                                warn!("App->Proxy flush error: {} for {} -> {}", e, src_clone, dst_clone);
+                                break;
+                            }
+                            write_buffer.clear();
                         }
                     }
                     None => break,
                 }
+            }
+            
+            // Flush any remaining data
+            if !write_buffer.is_empty() {
+                let _ = write_half.write_all(&write_buffer).await;
+                let _ = write_half.flush().await;
             }
         });
 
@@ -1096,8 +1127,9 @@ impl StackProxy {
         let conn_clone = conn.clone();
 
         tokio::spawn(async move {
-            // Use a buffer that's a multiple of typical TLS record size (16KB + overhead)
-            let mut buf = vec![0u8; 32768];
+            // Use a larger buffer for better throughput with large transfers
+            // 64KB is optimal for most network conditions
+            let mut buf = vec![0u8; 65536];
             
             while running.load(Ordering::Relaxed) {
                 match read_half.read(&mut buf).await {
@@ -1140,21 +1172,29 @@ impl StackProxy {
                         
                         // Use smaller segment size to avoid fragmentation
                         // MTU 1500 - IP header (20) - TCP header (20) = 1460
-                        // Use 1400 to be safe with options
-                        let effective_mss = mss.min(1400);
+                        // Use 1360 to be safe with options and tunneling overhead
+                        let effective_mss = mss.min(1360);
                         
                         // Send data in segments
                         let data = &buf[..n];
                         let mut offset = 0;
                         let mut seq = base_seq;
                         
+                        // For large transfers, batch packets to reduce syscall overhead
+                        let mut packets_to_send = Vec::new();
+                        
                         while offset < data.len() {
                             let chunk_end = (offset + effective_mss).min(data.len());
                             let chunk = &data[offset..chunk_end];
+                            let is_last = chunk_end == data.len();
                             
-                            // Always use PSH+ACK to ensure immediate delivery
-                            // This is important for TLS which expects data to be delivered promptly
-                            let flags = TcpFlags::psh_ack();
+                            // Use PSH+ACK for last segment or small data
+                            // This ensures immediate delivery for interactive traffic
+                            let flags = if is_last || data.len() <= effective_mss {
+                                TcpFlags::psh_ack()
+                            } else {
+                                TcpFlags::ack_only()
+                            };
                             
                             let packet = build_ipv4_tcp(
                                 src_ip, dst_ip,
@@ -1166,16 +1206,21 @@ impl StackProxy {
                                 None,
                             );
                             
-                            if let Some(ref tx) = tun_tx {
+                            packets_to_send.push(packet);
+                            
+                            seq = seq.wrapping_add(chunk.len() as u32);
+                            offset = chunk_end;
+                        }
+                        
+                        // Send all packets
+                        if let Some(ref tx) = tun_tx {
+                            for packet in packets_to_send {
                                 stats.record_sent(packet.len());
                                 if tx.send(BytesMut::from(&packet[..])).await.is_err() {
                                     warn!("Failed to send to TUN");
                                     break;
                                 }
                             }
-                            
-                            seq = seq.wrapping_add(chunk.len() as u32);
-                            offset = chunk_end;
                         }
                     }
                     Err(e) => {

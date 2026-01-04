@@ -9,17 +9,17 @@ name = "veloguard"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-anyhow = { workspace = true }
 veloguard-core = { workspace = true }
-clap = { workspace = true }
-axum = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
+futures = { workspace = true }
 signal-hook = { workspace = true }
 signal-hook-tokio = { workspace = true }
-futures = { workspace = true }

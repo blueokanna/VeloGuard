@@ -310,7 +310,27 @@ impl TunDevice {
                 .output();
         }
         
-        info!("Adapter configured successfully");
+        // Set interface metric to 1 (highest priority) to ensure DNS queries use this interface
+        let _ = Command::new("powershell")
+            .args([
+                "-Command",
+                &format!(
+                    "Set-NetIPInterface -InterfaceAlias '{}' -InterfaceMetric 1 -ErrorAction SilentlyContinue",
+                    self.config.name
+                ),
+            ])
+            .output();
+        
+        // Also set IPv4 interface metric via netsh for compatibility
+        let _ = Command::new("netsh")
+            .args([
+                "interface", "ipv4", "set", "interface",
+                &format!("\"{}\"", self.config.name),
+                "metric=1",
+            ])
+            .output();
+        
+        info!("Adapter configured successfully with high priority DNS");
         Ok(())
     }
 

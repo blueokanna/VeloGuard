@@ -79,10 +79,8 @@ pub enum TuicError {
     Protocol(String),
 }
 
-/// TUIC protocol version
 const TUIC_PROTOCOL_VERSION: u8 = 5;
 
-/// TUIC command types
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Command {
@@ -92,7 +90,6 @@ pub enum Command {
     Associate = 3,
 }
 
-/// TUIC address type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Address {
     IPv4([u8; 4]),
@@ -100,7 +97,6 @@ pub enum Address {
     Domain(String),
 }
 
-/// TUIC client configuration
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub server_addr: SocketAddr,
@@ -113,7 +109,6 @@ pub struct ClientConfig {
     pub max_packet_size: usize,
 }
 
-/// TUIC server configuration
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub listen_addr: SocketAddr,
@@ -124,14 +119,12 @@ pub struct ServerConfig {
     pub max_packet_size: usize,
 }
 
-/// UDP relay mode
 #[derive(Debug, Clone, Copy)]
 pub enum UdpRelayMode {
     Native,
     Quic,
 }
 
-/// Congestion control algorithm
 #[derive(Debug, Clone, Copy)]
 pub enum CongestionControl {
     Cubic,
@@ -139,7 +132,6 @@ pub enum CongestionControl {
     Bbr,
 }
 
-/// TUIC authentication data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AuthRequest {
     version: u8,
@@ -153,7 +145,6 @@ struct AuthResponse {
     message: Option<String>,
 }
 
-/// TUIC client
 pub struct TuicClient {
     config: ClientConfig,
 }

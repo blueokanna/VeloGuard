@@ -4,31 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Material Design 3 Expressive 鍔ㄧ敾宸ュ叿绫?
-/// 瀹炵幇鍩轰簬鐗╃悊鐨勯潪绾挎€у姩鐢绘晥鏋滐紝寮鸿皟鎺掔増鎵╁睍銆佸舰鐘跺彉鍖栧拰椴滆壋閰嶈壊
-///
-/// 鍙傝€? https://m3.material.io/styles/motion/overview
-/// Expressive 璁捐寮鸿皟:
-/// - Motion-physics: 鍩轰簬鐗╃悊鐨勫脊鎬у姩鐢?
-/// - 鎺掔増鎵╁睍: 鏂囧瓧澶у皬鍜屾潈閲嶇殑鍔ㄦ€佸彉鍖?
-/// - 褰㈢姸搴? 鍦嗚鍜屽舰鐘剁殑鍔ㄦ€佸彉鎹?
-/// - 椴滆壋閰嶈壊: 棰滆壊杩囨浮鍜屽己璋冩晥鏋?
 class AnimationUtils {
   AnimationUtils._();
 
-  /// 鑾峰彇璁惧鍒锋柊鐜?
   static double getDeviceRefreshRate() {
     final window = WidgetsBinding.instance.platformDispatcher.views.first;
     return window.display.refreshRate;
   }
 
-  /// 鑾峰彇鏈€浣冲姩鐢绘椂闀匡紙鍩轰簬鍒锋柊鐜囷級
   static Duration getOptimalDuration({
     Duration baseDuration = const Duration(milliseconds: 300),
   }) {
     final refreshRate = getDeviceRefreshRate();
 
-    // 楂樺埛鏂扮巼璁惧鍙互浣跨敤鏇寸煭鐨勫姩鐢绘椂闀?
     if (refreshRate >= 120) {
       return Duration(
         milliseconds: (baseDuration.inMilliseconds * 0.75).round(),
@@ -41,213 +29,160 @@ class AnimationUtils {
     return baseDuration;
   }
 
-  // ============================================
-  // Material Design 3 Expressive 鍔ㄧ敾鏃堕暱
-  // 鍩轰簬 Google 鏈€鏂?Expressive 瑙勮寖
-  // ============================================
-
-  // 鐭椂闀?- 鐢ㄤ簬寰氦浜?
   static const Duration durationShort1 = Duration(milliseconds: 50);
   static const Duration durationShort2 = Duration(milliseconds: 100);
   static const Duration durationShort3 = Duration(milliseconds: 150);
   static const Duration durationShort4 = Duration(milliseconds: 200);
 
-  // 涓瓑鏃堕暱 - 鐢ㄤ簬涓€鑸繃娓?
   static const Duration durationMedium1 = Duration(milliseconds: 250);
   static const Duration durationMedium2 = Duration(milliseconds: 300);
   static const Duration durationMedium3 = Duration(milliseconds: 350);
   static const Duration durationMedium4 = Duration(milliseconds: 400);
 
-  // 闀挎椂闀?- 鐢ㄤ簬澶嶆潅鍔ㄧ敾
   static const Duration durationLong1 = Duration(milliseconds: 450);
   static const Duration durationLong2 = Duration(milliseconds: 500);
   static const Duration durationLong3 = Duration(milliseconds: 550);
   static const Duration durationLong4 = Duration(milliseconds: 600);
 
-  // 瓒呴暱鏃堕暱 - 鐢ㄤ簬鎴忓墽鎬ф晥鏋?
   static const Duration durationExtraLong1 = Duration(milliseconds: 700);
   static const Duration durationExtraLong2 = Duration(milliseconds: 800);
   static const Duration durationExtraLong3 = Duration(milliseconds: 900);
   static const Duration durationExtraLong4 = Duration(milliseconds: 1000);
 
-  // ============================================
-  // Material Design 3 Expressive 鐗╃悊鏇茬嚎
-  // Motion-physics 绯荤粺鏍稿績
-  // ============================================
-
-  /// 寮鸿皟鏇茬嚎 - 鐢ㄤ簬閲嶈鐨勭姸鎬佸彉鍖栵紝甯︽湁杞诲井杩囧啿
   static const Curve curveEmphasized = Curves.easeInOutCubicEmphasized;
 
-  /// 寮鸿皟鍔犻€熸洸绾?- 鐢ㄤ簬閫€鍑哄姩鐢?
   static const Curve curveEmphasizedAccelerate = Cubic(0.3, 0.0, 0.8, 0.15);
 
-  /// 寮鸿皟鍑忛€熸洸绾?- 鐢ㄤ簬杩涘叆鍔ㄧ敾
   static const Curve curveEmphasizedDecelerate = Cubic(0.05, 0.7, 0.1, 1.0);
 
-  /// 鏍囧噯鏇茬嚎 - 鐢ㄤ簬涓€鑸姩鐢?
   static const Curve curveStandard = Cubic(0.2, 0.0, 0.0, 1.0);
 
-  /// 鏍囧噯鍔犻€熸洸绾?
   static const Curve curveStandardAccelerate = Cubic(0.3, 0.0, 1.0, 1.0);
 
-  /// 鏍囧噯鍑忛€熸洸绾?
   static const Curve curveStandardDecelerate = Cubic(0.0, 0.0, 0.0, 1.0);
 
-  // ============================================
-  // Expressive 鐗╃悊寮规€ф洸绾?
-  // 鍩轰簬鐪熷疄鐗╃悊妯℃嫙鐨勫脊绨х郴缁?
-  // ============================================
-
-  /// 寮规€ф洸绾?- 鐢ㄤ簬鏈夎叮鐨勪氦浜掞紝妯℃嫙鐪熷疄寮圭哀
   static const Curve curveSpring = _SpringCurve(damping: 0.7, stiffness: 200);
 
-  /// 杞诲脊鎬ф洸绾?- 杈冨皯鎸崱
   static const Curve curveSpringLight = _SpringCurve(
     damping: 0.8,
     stiffness: 300,
   );
 
-  /// 寮哄脊鎬ф洸绾?- 鏇村鎸崱锛屾洿鏈夋椿鍔?
   static const Curve curveSpringBouncy = _SpringCurve(
     damping: 0.5,
     stiffness: 150,
   );
 
-  /// 瓒呭脊鎬ф洸绾?- 鐢ㄤ簬寮鸿皟鏁堟灉
   static const Curve curveSpringExpressive = _SpringCurve(
     damping: 0.4,
     stiffness: 120,
   );
 
-  /// 杩囧啿鏇茬嚎 - 鐢ㄤ簬寮鸿皟鏁堟灉
   static const Curve curveOvershoot = _OvershootCurve(tension: 1.5);
 
-  /// 杞昏繃鍐叉洸绾?
   static const Curve curveOvershootLight = _OvershootCurve(tension: 1.0);
 
-  /// 寮鸿繃鍐叉洸绾?
   static const Curve curveOvershootStrong = _OvershootCurve(tension: 2.0);
 
-  /// 棰勬湡鏇茬嚎 - 鍏堝悗閫€鍐嶅墠杩?
   static const Curve curveAnticipate = _AnticipateCurve(tension: 2.0);
 
-  /// 棰勬湡杩囧啿鏇茬嚎 - 鍏堝悗閫€鍐嶅墠杩涘苟杩囧啿
   static const Curve curveAnticipateOvershoot = _AnticipateOvershootCurve(
     tension: 1.5,
   );
 
-  /// 寮硅烦鏇茬嚎 - 妯℃嫙鐗╀綋钀藉湴寮硅烦
   static const Curve curveBounce = _BounceCurve();
 
-  /// 寮规€у脊璺虫洸绾?- 鏇存湁寮规€х殑寮硅烦
   static const Curve curveElasticBounce = _ElasticCurve(period: 0.4);
 
-  // ============================================
-  // Expressive 鍔ㄧ敾棰勮
-  // 閽堝涓嶅悓 UI 鍏冪礌鐨勪紭鍖栭厤缃?
-  // ============================================
-
-  /// 鎸夐挳鎸変笅鍔ㄧ敾
   static const buttonPressDuration = Duration(milliseconds: 80);
   static const buttonReleaseDuration = Duration(milliseconds: 200);
   static const buttonPressCurve = curveStandardAccelerate;
   static const buttonReleaseCurve = curveSpringLight;
 
-  /// 鍗＄墖灞曞紑鍔ㄧ敾
   static const cardExpandDuration = Duration(milliseconds: 350);
   static const cardExpandCurve = curveEmphasizedDecelerate;
   static const cardCollapseDuration = Duration(milliseconds: 300);
   static const cardCollapseCurve = curveEmphasizedAccelerate;
 
-  /// 椤甸潰杞満鍔ㄧ敾
   static const pageTransitionDuration = Duration(milliseconds: 400);
   static const pageTransitionCurve = curveEmphasized;
 
-  /// 鍒楄〃椤瑰叆鍦哄姩鐢?
   static const listItemDuration = Duration(milliseconds: 300);
   static const listItemCurve = curveEmphasizedDecelerate;
   static const listItemStaggerDelay = Duration(milliseconds: 50);
 
-  /// 鐘舵€佸垏鎹㈠姩鐢?
   static const stateChangeDuration = Duration(milliseconds: 250);
   static const stateChangeCurve = curveSpring;
 
-  /// 鍥炬爣鍙樻崲鍔ㄧ敾
   static const iconMorphDuration = Duration(milliseconds: 200);
   static const iconMorphCurve = curveEmphasized;
 
-  /// FAB 鍔ㄧ敾
   static const fabExpandDuration = Duration(milliseconds: 300);
   static const fabExpandCurve = curveSpringBouncy;
 
-  /// 瀵硅瘽妗嗗姩鐢?
   static const dialogEnterDuration = Duration(milliseconds: 350);
   static const dialogExitDuration = Duration(milliseconds: 250);
   static const dialogEnterCurve = curveEmphasizedDecelerate;
   static const dialogExitCurve = curveEmphasizedAccelerate;
 
-  /// 搴曢儴寮圭獥鍔ㄧ敾
   static const bottomSheetDuration = Duration(milliseconds: 400);
   static const bottomSheetCurve = curveEmphasized;
 
-  /// 瀵艰埅鏍忓姩鐢?
   static const navBarDuration = Duration(milliseconds: 300);
   static const navBarCurve = curveSpring;
 
-  /// 寮€鍏冲姩鐢?
   static const switchDuration = Duration(milliseconds: 200);
   static const switchCurve = curveSpringLight;
 
-  /// 婊戝潡鍔ㄧ敾
   static const sliderDuration = Duration(milliseconds: 150);
   static const sliderCurve = curveStandard;
 
-  // ============================================
-  // 瑙﹁鍙嶉
-  // ============================================
+  // 震动反馈全局开关
+  static bool _hapticEnabled = false;
 
-  /// 杞昏Е鍙嶉
+  /// 设置震动反馈开关
+  static void setHapticEnabled(bool enabled) {
+    _hapticEnabled = enabled;
+  }
+
+  /// 获取震动反馈开关状态
+  static bool get hapticEnabled => _hapticEnabled;
+
   static void lightHaptic() {
+    if (!_hapticEnabled) return;
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       HapticFeedback.lightImpact();
     }
   }
 
-  /// 閫夋嫨鍙嶉
   static void selectionHaptic() {
+    if (!_hapticEnabled) return;
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       HapticFeedback.selectionClick();
     }
   }
 
-  /// 涓瓑鍙嶉
   static void mediumHaptic() {
+    if (!_hapticEnabled) return;
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       HapticFeedback.mediumImpact();
     }
   }
 
-  /// 閲嶅弽棣?
   static void heavyHaptic() {
+    if (!_hapticEnabled) return;
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       HapticFeedback.heavyImpact();
     }
   }
 
-  /// 鎸姩鍙嶉
   static void vibrateHaptic() {
+    if (!_hapticEnabled) return;
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       HapticFeedback.vibrate();
     }
   }
 
-  // ============================================
-  // Expressive 褰㈢姸鍙樻崲宸ュ叿
-  // 鏀寔鍔ㄦ€佸渾瑙掑拰褰㈢姸鍙樺寲
-  // ============================================
-
-  /// 鑾峰彇 Expressive 鍦嗚鍗婂緞
-  /// 鏍规嵁鐘舵€佸姩鎬佽皟鏁村渾瑙掑ぇ灏?
   static double getExpressiveBorderRadius({
     required double baseRadius,
     bool isPressed = false,
@@ -260,7 +195,6 @@ class AnimationUtils {
     return baseRadius;
   }
 
-  /// 鑾峰彇 Expressive 缂╂斁鍊?
   static double getExpressiveScale({
     bool isPressed = false,
     bool isHovered = false,
@@ -272,7 +206,6 @@ class AnimationUtils {
     return 1.0;
   }
 
-  /// 鑾峰彇 Expressive 闃村奖
   static List<BoxShadow> getExpressiveShadow({
     required Color color,
     bool isElevated = false,
@@ -311,12 +244,6 @@ class AnimationUtils {
   }
 }
 
-// ============================================
-// 鑷畾涔夌墿鐞嗘洸绾垮疄鐜?
-// 鍩轰簬鐪熷疄鐗╃悊妯℃嫙
-// ============================================
-
-/// 寮圭哀鏇茬嚎 - 鍩轰簬闃诲凹鎸崱鐗╃悊妯″瀷
 class _SpringCurve extends Curve {
   final double damping;
   final double stiffness;
@@ -329,20 +256,17 @@ class _SpringCurve extends Curve {
     final dampingRatio = damping;
 
     if (dampingRatio < 1) {
-      // 娆犻樆灏?- 鏈夋尟鑽?
       final omegaD = omega * math.sqrt(1 - dampingRatio * dampingRatio);
       return 1 -
           math.exp(-dampingRatio * omega * t) *
               (math.cos(omegaD * t) +
                   (dampingRatio * omega / omegaD) * math.sin(omegaD * t));
     } else {
-      // 涓寸晫闃诲凹鎴栬繃闃诲凹
       return 1 - (1 + omega * t) * math.exp(-omega * t);
     }
   }
 }
 
-/// 杩囧啿鏇茬嚎 - 瓒呰繃鐩爣鍊煎悗鍥炲脊
 class _OvershootCurve extends Curve {
   final double tension;
 
@@ -355,7 +279,6 @@ class _OvershootCurve extends Curve {
   }
 }
 
-/// 棰勬湡鏇茬嚎 - 鍏堝悗閫€鍐嶅墠杩?
 class _AnticipateCurve extends Curve {
   final double tension;
 
@@ -368,7 +291,6 @@ class _AnticipateCurve extends Curve {
   }
 }
 
-/// 棰勬湡杩囧啿鏇茬嚎 - 鍏堝悗閫€鍐嶅墠杩涘苟杩囧啿
 class _AnticipateOvershootCurve extends Curve {
   final double tension;
 
@@ -386,7 +308,6 @@ class _AnticipateOvershootCurve extends Curve {
   }
 }
 
-/// 寮硅烦鏇茬嚎 - 妯℃嫙鐗╀綋钀藉湴寮硅烦
 class _BounceCurve extends Curve {
   const _BounceCurve();
 
@@ -407,7 +328,6 @@ class _BounceCurve extends Curve {
   }
 }
 
-/// 寮规€ф洸绾?- 绫讳技姗＄毊绛嬬殑寮规€ф晥鏋?
 class _ElasticCurve extends Curve {
   final double period;
 
@@ -421,11 +341,6 @@ class _ElasticCurve extends Curve {
   }
 }
 
-// ============================================
-// 楂樻€ц兘 Expressive 鍔ㄧ敾 Widgets
-// ============================================
-
-/// Expressive 娣″叆婊戝姩鍔ㄧ敾
 class ExpressiveFadeSlide extends StatefulWidget {
   final Widget child;
   final Duration duration;
@@ -505,7 +420,6 @@ class _ExpressiveFadeSlideState extends State<ExpressiveFadeSlide>
   }
 }
 
-/// Expressive 缂╂斁鍔ㄧ敾
 class ExpressiveScale extends StatefulWidget {
   final Widget child;
   final Duration duration;
@@ -566,7 +480,6 @@ class _ExpressiveScaleState extends State<ExpressiveScale>
   }
 }
 
-/// Expressive 鎸夐挳鏁堟灉 - 甯︾墿鐞嗗弽棣?
 class ExpressiveButton extends StatefulWidget {
   final Widget child;
   final VoidCallback? onPressed;
@@ -659,7 +572,6 @@ class _ExpressiveButtonState extends State<ExpressiveButton>
   }
 }
 
-/// 鍒楄〃椤逛氦閿欏叆鍦哄姩鐢?
 class StaggeredListItem extends StatefulWidget {
   final Widget child;
   final int index;
@@ -709,7 +621,6 @@ class _StaggeredListItemState extends State<StaggeredListItem>
       end: 1.0,
     ).animate(CurvedAnimation(parent: _controller, curve: widget.curve));
 
-    // 寤惰繜鍚姩鍔ㄧ敾
     Future.delayed(widget.delay * widget.index, () {
       if (mounted) {
         _controller.forward();
@@ -735,7 +646,6 @@ class _StaggeredListItemState extends State<StaggeredListItem>
   }
 }
 
-/// 鑴夊啿鍔ㄧ敾 - 鐢ㄤ簬鐘舵€佹寚绀?
 class PulseAnimation extends StatefulWidget {
   final Widget child;
   final bool isActive;
@@ -808,7 +718,6 @@ class _PulseAnimationState extends State<PulseAnimation>
   }
 }
 
-/// 鍛煎惛鐏姩鐢?- 鐢ㄤ簬鐘舵€佹寚绀?
 class BreathingAnimation extends StatefulWidget {
   final Widget child;
   final bool isActive;
@@ -875,7 +784,6 @@ class _BreathingAnimationState extends State<BreathingAnimation>
   }
 }
 
-/// 娑熸吉鎵╂暎鍔ㄧ敾 - 鐢ㄤ簬鐘舵€佸彉鍖栨寚绀?
 class RippleAnimation extends StatefulWidget {
   final Widget child;
   final bool isActive;
@@ -968,7 +876,6 @@ class _RippleAnimationState extends State<RippleAnimation>
   }
 }
 
-/// 鏁板€煎姩鐢绘樉绀?- 鐢ㄤ簬缁熻鏁版嵁
 class AnimatedNumber extends StatelessWidget {
   final double value;
   final String Function(double) formatter;
@@ -998,7 +905,6 @@ class AnimatedNumber extends StatelessWidget {
   }
 }
 
-/// 娓愬彉鑳屾櫙鍔ㄧ敾
 class AnimatedGradientBackground extends StatefulWidget {
   final List<Color> colors;
   final Duration duration;
@@ -1042,7 +948,6 @@ class _AnimatedGradientBackgroundState
   }
 }
 
-/// 鍥炬爣鍙樻崲鍔ㄧ敾 - 骞虫粦鐨勫浘鏍囧垏鎹?
 class AnimatedIconMorph extends StatelessWidget {
   final IconData icon;
   final Color? color;
@@ -1074,7 +979,6 @@ class AnimatedIconMorph extends StatelessWidget {
   }
 }
 
-/// Expressive 褰㈢姸鍙樻崲瀹瑰櫒
 class ExpressiveShapeContainer extends StatelessWidget {
   final Widget child;
   final bool isExpanded;
@@ -1121,7 +1025,6 @@ class ExpressiveShapeContainer extends StatelessWidget {
   }
 }
 
-/// Expressive 鎺掔増鍔ㄧ敾 - 鏂囧瓧澶у皬鍜屾潈閲嶇殑鍔ㄦ€佸彉鍖?
 class ExpressiveText extends StatelessWidget {
   final String text;
   final TextStyle baseStyle;
@@ -1152,7 +1055,6 @@ class ExpressiveText extends StatelessWidget {
   }
 }
 
-/// 椤甸潰杞満鍔ㄧ敾鏋勫缓鍣?
 class ExpressivePageTransition extends StatelessWidget {
   final Animation<double> animation;
   final Widget child;
@@ -1193,7 +1095,6 @@ class ExpressivePageTransition extends StatelessWidget {
   }
 }
 
-/// Expressive 棰滆壊杩囨浮鍔ㄧ敾
 class ExpressiveColorTransition extends StatelessWidget {
   final Color color;
   final Duration duration;
@@ -1219,7 +1120,6 @@ class ExpressiveColorTransition extends StatelessWidget {
   }
 }
 
-/// 寮规€ф粴鍔ㄧ墿鐞嗘晥鏋?
 class ExpressiveScrollPhysics extends ScrollPhysics {
   final double springStiffness;
   final double springDamping;
@@ -1247,7 +1147,6 @@ class ExpressiveScrollPhysics extends ScrollPhysics {
   );
 }
 
-/// 鍏变韩鍏冪礌鍔ㄧ敾 Hero 鍖呰鍣?
 class ExpressiveHero extends StatelessWidget {
   final String tag;
   final Widget child;
@@ -1293,6 +1192,300 @@ class ExpressiveHero extends StatelessWidget {
             );
           },
       child: child,
+    );
+  }
+}
+
+/// Animated switch with spring animation
+class ExpressiveSwitch extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final Color? activeColor;
+  final Color? activeTrackColor;
+  final Color? inactiveThumbColor;
+  final Color? inactiveTrackColor;
+
+  const ExpressiveSwitch({
+    super.key,
+    required this.value,
+    this.onChanged,
+    this.activeColor,
+    this.activeTrackColor,
+    this.inactiveThumbColor,
+    this.inactiveTrackColor,
+  });
+
+  @override
+  State<ExpressiveSwitch> createState() => _ExpressiveSwitchState();
+}
+
+class _ExpressiveSwitchState extends State<ExpressiveSwitch>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: AnimationUtils.switchDuration,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.9).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: AnimationUtils.curveSpringLight,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    if (widget.onChanged != null) {
+      _controller.forward().then((_) {
+        _controller.reverse();
+      });
+      AnimationUtils.selectionHaptic();
+      widget.onChanged!(!widget.value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Switch.adaptive(
+          value: widget.value,
+          onChanged: widget.onChanged,
+          activeColor: widget.activeColor,
+          activeTrackColor: widget.activeTrackColor,
+          inactiveThumbColor: widget.inactiveThumbColor,
+          inactiveTrackColor: widget.inactiveTrackColor,
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated card with press feedback
+class ExpressiveCard extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+  final Color? color;
+  final double elevation;
+  final BorderRadius? borderRadius;
+
+  const ExpressiveCard({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+    this.padding,
+    this.margin,
+    this.color,
+    this.elevation = 0,
+    this.borderRadius,
+  });
+
+  @override
+  State<ExpressiveCard> createState() => _ExpressiveCardState();
+}
+
+class _ExpressiveCardState extends State<ExpressiveCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: AnimationUtils.buttonPressDuration,
+      reverseDuration: AnimationUtils.buttonReleaseDuration,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: AnimationUtils.buttonPressCurve,
+        reverseCurve: AnimationUtils.buttonReleaseCurve,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    if (widget.onTap != null || widget.onLongPress != null) {
+      setState(() => _isPressed = true);
+      _controller.forward();
+    }
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+      _controller.reverse();
+    }
+  }
+
+  void _handleTapCancel() {
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+      _controller.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return GestureDetector(
+      onTapDown: _handleTapDown,
+      onTapUp: _handleTapUp,
+      onTapCancel: _handleTapCancel,
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: AnimatedContainer(
+          duration: AnimationUtils.stateChangeDuration,
+          curve: AnimationUtils.curveSpring,
+          margin: widget.margin,
+          padding: widget.padding,
+          decoration: BoxDecoration(
+            color: widget.color ?? colorScheme.surfaceContainerLow,
+            borderRadius: widget.borderRadius ?? BorderRadius.circular(16),
+            boxShadow: widget.elevation > 0
+                ? [
+                    BoxShadow(
+                      color: colorScheme.shadow.withValues(alpha: 0.1),
+                      blurRadius: widget.elevation * 2,
+                      offset: Offset(0, widget.elevation),
+                    ),
+                  ]
+                : null,
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated list tile with press feedback
+class ExpressiveListTile extends StatefulWidget {
+  final Widget? leading;
+  final Widget? title;
+  final Widget? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final EdgeInsetsGeometry? contentPadding;
+  final bool enabled;
+
+  const ExpressiveListTile({
+    super.key,
+    this.leading,
+    this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.onLongPress,
+    this.contentPadding,
+    this.enabled = true,
+  });
+
+  @override
+  State<ExpressiveListTile> createState() => _ExpressiveListTileState();
+}
+
+class _ExpressiveListTileState extends State<ExpressiveListTile>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 60),
+      reverseDuration: const Duration(milliseconds: 150),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: AnimationUtils.curveStandardAccelerate,
+        reverseCurve: AnimationUtils.curveSpringLight,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    if (widget.enabled &&
+        (widget.onTap != null || widget.onLongPress != null)) {
+      setState(() => _isPressed = true);
+      _controller.forward();
+      AnimationUtils.lightHaptic();
+    }
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+      _controller.reverse();
+    }
+  }
+
+  void _handleTapCancel() {
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+      _controller.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: _handleTapDown,
+      onTapUp: _handleTapUp,
+      onTapCancel: _handleTapCancel,
+      onTap: widget.enabled ? widget.onTap : null,
+      onLongPress: widget.enabled ? widget.onLongPress : null,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: ListTile(
+          leading: widget.leading,
+          title: widget.title,
+          subtitle: widget.subtitle,
+          trailing: widget.trailing,
+          contentPadding: widget.contentPadding,
+          enabled: widget.enabled,
+        ),
+      ),
     );
   }
 }

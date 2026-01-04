@@ -9,37 +9,33 @@ default = []
 embed-wintun = []
 
 [dependencies]
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-serde = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
-bytes = { workspace = true }
-tracing = { workspace = true }
-futures = { workspace = true }
-smoltcp = { workspace = true }
-ipnet = { workspace = true }
-parking_lot = { workspace = true }
-dashmap = { workspace = true }
-once_cell = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
+cidr = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+ipnet = { workspace = true }
+lru = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 rand = { workspace = true }
-lru = { workspace = true }
+serde = { workspace = true }
+smoltcp = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+veloguard-dns = { path = "../veloguard-dns" }
 veloguard-solidtcp = { workspace = true }
 
-# Use veloguard-dns crate for DNS functionality
-veloguard-dns = { path = "../veloguard-dns" }
-
-# Additional dependencies for netstack
-cidr = { workspace = true }
-
 [target.'cfg(unix)'.dependencies]
-tun-rs = { workspace = true }
 libc = { workspace = true }
+tun-rs = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+reqwest = { workspace = true }
 windows = { workspace = true }
 wintun-bindings = { workspace = true }
-reqwest = { workspace = true }
 zip = { workspace = true }

@@ -10,17 +10,17 @@ aws-lc-rs = []
 ring = []
 
 [dependencies]
-thiserror = { workspace = true }
-rand = { workspace = true }
-x25519-dalek = { workspace = true }
-curve25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
-blake2 = { workspace = true }
-sha2 = { workspace = true }
-hkdf = { workspace = true }
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
-serde = { workspace = true }
-hex = { workspace = true }
-zeroize = { workspace = true }
+blake2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
 cidr = { workspace = true }
+curve25519-dalek = { workspace = true }
+hex = { workspace = true }
+hkdf = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+x25519-dalek = { workspace = true }
+zeroize = { workspace = true }

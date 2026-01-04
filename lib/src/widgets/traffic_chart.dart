@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -100,10 +102,48 @@ class TrafficChart extends StatefulWidget {
   State<TrafficChart> createState() => _TrafficChartState();
 }
 
+/// IP 信息数据类
+class IpInfo {
+  final String ip;
+  final String? country;
+  final String? countryCode;
+  final String? city;
+  final String? isp;
+  final String? organization;
+  final bool isIpv6;
+
+  IpInfo({
+    required this.ip,
+    this.country,
+    this.countryCode,
+    this.city,
+    this.isp,
+    this.organization,
+    this.isIpv6 = false,
+  });
+
+  String get location {
+    final parts = <String>[];
+    if (city != null && city!.isNotEmpty) parts.add(city!);
+    if (country != null && country!.isNotEmpty) parts.add(country!);
+    return parts.isEmpty ? 'Unknown' : parts.join(', ');
+  }
+
+  String get flag {
+    if (countryCode == null || countryCode!.length != 2) return '🌐';
+    // Convert country code to flag emoji
+    final code = countryCode!.toUpperCase();
+    final firstLetter = code.codeUnitAt(0) - 0x41 + 0x1F1E6;
+    final secondLetter = code.codeUnitAt(1) - 0x41 + 0x1F1E6;
+    return String.fromCharCodes([firstLetter, secondLetter]);
+  }
+}
+
 class _TrafficChartState extends State<TrafficChart>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
-  String? _currentIp;
+  IpInfo? _ipv4Info;
+  IpInfo? _ipv6Info;
   bool _isLoadingIp = false;
 
   @override
@@ -118,7 +158,7 @@ class _TrafficChartState extends State<TrafficChart>
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
 
-    _fetchIp();
+    _fetchIpInfo();
   }
 
   @override
@@ -133,7 +173,7 @@ class _TrafficChartState extends State<TrafficChart>
     }
     // 代理状态变化时刷新 IP
     if (widget.isProxyRunning != oldWidget.isProxyRunning) {
-      Future.delayed(const Duration(milliseconds: 500), _fetchIp);
+      Future.delayed(const Duration(milliseconds: 500), _fetchIpInfo);
     }
   }
 
@@ -143,50 +183,121 @@ class _TrafficChartState extends State<TrafficChart>
     super.dispose();
   }
 
-  Future<void> _fetchIp() async {
+  Future<void> _fetchIpInfo() async {
     if (_isLoadingIp) return;
     setState(() => _isLoadingIp = true);
 
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 8);
+    // Fetch IPv4 and IPv6 info in parallel
+    await Future.wait([_fetchIpv4Info(), _fetchIpv6Info()]);
 
-      final request = await client.getUrl(Uri.parse('https://api.ip.sb/ip'));
-      request.headers.set('User-Agent', 'VeloGuard/1.0');
-      final response = await request.close();
+    if (mounted) {
+      setState(() => _isLoadingIp = false);
+    }
+  }
+
+  /// Create Dio client with optional proxy support
+  Dio _createDioClient({bool useProxy = false}) {
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 8),
+        headers: {'User-Agent': 'VeloGuard/1.0'},
+      ),
+    );
+
+    if (useProxy) {
+      // Route through local proxy to get exit IP
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          // Use local HTTP proxy (mixed port)
+          client.findProxy = (uri) => 'PROXY 127.0.0.1:7890';
+          client.badCertificateCallback = (cert, host, port) => true;
+          return client;
+        },
+      );
+    }
+
+    return dio;
+  }
+
+  Future<void> _fetchIpv4Info() async {
+    try {
+      // Use proxy when proxy is running to get exit IP
+      final dio = _createDioClient(useProxy: widget.isProxyRunning);
+
+      // Use ip.sb API for detailed info
+      final response = await dio.get('https://api.ip.sb/geoip');
 
       if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
+        final data = response.data as Map<String, dynamic>;
+
         if (mounted) {
           setState(() {
-            _currentIp = body.trim();
-            _isLoadingIp = false;
+            _ipv4Info = IpInfo(
+              ip: data['ip']?.toString() ?? '',
+              country: data['country']?.toString(),
+              countryCode: data['country_code']?.toString(),
+              city: data['city']?.toString(),
+              isp: data['isp']?.toString(),
+              organization: data['organization']?.toString(),
+              isIpv6: (data['ip']?.toString() ?? '').contains(':'),
+            );
           });
         }
       }
-      client.close();
+      dio.close();
     } catch (e) {
-      // 备用 API
+      // Fallback to simple IP API
       try {
-        final client = HttpClient();
-        client.connectionTimeout = const Duration(seconds: 8);
-        final request = await client.getUrl(Uri.parse('https://api.ipify.org'));
-        final response = await request.close();
+        final dio = _createDioClient(useProxy: widget.isProxyRunning);
+        final response = await dio.get('https://api.ip.sb/ip');
         if (response.statusCode == 200) {
-          final body = await response.transform(utf8.decoder).join();
+          final body = response.data.toString().trim();
           if (mounted) {
             setState(() {
-              _currentIp = body.trim();
-              _isLoadingIp = false;
+              _ipv4Info = IpInfo(ip: body);
             });
           }
         }
-        client.close();
+        dio.close();
       } catch (_) {
-        if (mounted) {
-          setState(() => _isLoadingIp = false);
+        debugPrint('Failed to fetch IPv4 info: $e');
+      }
+    }
+  }
+
+  Future<void> _fetchIpv6Info() async {
+    try {
+      // Use proxy when proxy is running to get exit IP
+      final dio = _createDioClient(useProxy: widget.isProxyRunning);
+
+      // Try IPv6-only endpoint
+      final response = await dio.get('https://api-ipv6.ip.sb/geoip');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final ip = data['ip']?.toString() ?? '';
+
+        // Only set if it's actually IPv6
+        if (ip.contains(':') && mounted) {
+          setState(() {
+            _ipv6Info = IpInfo(
+              ip: ip,
+              country: data['country']?.toString(),
+              countryCode: data['country_code']?.toString(),
+              city: data['city']?.toString(),
+              isp: data['isp']?.toString(),
+              organization: data['organization']?.toString(),
+              isIpv6: true,
+            );
+          });
         }
       }
+      dio.close();
+    } catch (e) {
+      // IPv6 not available, that's fine
+      debugPrint('IPv6 not available: $e');
     }
   }
 
@@ -244,12 +355,13 @@ class _TrafficChartState extends State<TrafficChart>
 
         SizedBox(height: spacing),
 
-        // 第二行：IP 卡片（全宽）
-        _IpStatCard(
-          ip: _currentIp,
+        // 第二行：IP 信息卡片（全宽）- 显示 IPv4/IPv6 和地理位置
+        _IpInfoCard(
+          ipv4Info: _ipv4Info,
+          ipv6Info: _ipv6Info,
           isLoading: _isLoadingIp,
           isProxyRunning: widget.isProxyRunning,
-          onRefresh: _fetchIp,
+          onRefresh: _fetchIpInfo,
           colorScheme: colorScheme,
           textTheme: textTheme,
         ),
@@ -600,17 +712,19 @@ class _TrafficStatCard extends StatelessWidget {
   }
 }
 
-/// IP 统计卡片 - 全宽横向布局
-class _IpStatCard extends StatelessWidget {
-  final String? ip;
+/// IP 信息卡片 - 显示 IPv4/IPv6 和地理位置
+class _IpInfoCard extends StatelessWidget {
+  final IpInfo? ipv4Info;
+  final IpInfo? ipv6Info;
   final bool isLoading;
   final bool isProxyRunning;
   final VoidCallback onRefresh;
   final ColorScheme colorScheme;
   final TextTheme textTheme;
 
-  const _IpStatCard({
-    required this.ip,
+  const _IpInfoCard({
+    required this.ipv4Info,
+    required this.ipv6Info,
     required this.isLoading,
     required this.isProxyRunning,
     required this.onRefresh,
@@ -623,6 +737,10 @@ class _IpStatCard extends StatelessWidget {
     final borderRadius = ResponsiveUtils.getBorderRadius(context);
     final spacing = ResponsiveUtils.getSpacing(context);
     final statusColor = isProxyRunning ? Colors.green : colorScheme.outline;
+    final l10n = AppLocalizations.of(context);
+
+    // 主要显示的 IP 信息（优先 IPv4）
+    final primaryInfo = ipv4Info ?? ipv6Info;
 
     return Card(
       elevation: 0,
@@ -632,15 +750,13 @@ class _IpStatCard extends StatelessWidget {
       ),
       child: InkWell(
         onTap: onRefresh,
-        onLongPress: ip != null
+        onLongPress: primaryInfo != null
             ? () {
-                Clipboard.setData(ClipboardData(text: ip!));
+                Clipboard.setData(ClipboardData(text: primaryInfo.ip));
                 AnimationUtils.lightHaptic();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      AppLocalizations.of(context)?.ipCopied ?? 'IP copied',
-                    ),
+                    content: Text(l10n?.ipCopied ?? 'IP copied'),
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -652,92 +768,358 @@ class _IpStatCard extends StatelessWidget {
             : null,
         borderRadius: BorderRadius.circular(borderRadius),
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: spacing * 1.5,
-            vertical: spacing,
-          ),
-          child: Row(
+          padding: EdgeInsets.all(spacing * 1.5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左侧：图标
-              Container(
-                padding: EdgeInsets.all(spacing * 0.8),
-                decoration: BoxDecoration(
-                  color: isProxyRunning
-                      ? Colors.green.withValues(alpha: 0.12)
-                      : colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(borderRadius * 0.5),
-                ),
-                child: Icon(Icons.public_rounded, size: 18, color: statusColor),
-              ),
-              SizedBox(width: spacing),
-              // 中间：IP 地址
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: AnimationUtils.stateChangeDuration,
-                  child: Text(
-                    ip ?? '--',
-                    key: ValueKey(ip),
-                    style: textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'monospace',
+              // 顶部：状态和刷新
+              Row(
+                children: [
+                  // 状态图标
+                  Container(
+                    padding: EdgeInsets.all(spacing * 0.8),
+                    decoration: BoxDecoration(
                       color: isProxyRunning
-                          ? colorScheme.primary
-                          : colorScheme.onSurface,
+                          ? Colors.green.withValues(alpha: 0.12)
+                          : colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(borderRadius * 0.5),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    child: Icon(
+                      Icons.public_rounded,
+                      size: 18,
+                      color: statusColor,
+                    ),
                   ),
-                ),
-              ),
-              SizedBox(width: spacing),
-              // 右侧：状态指示
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: spacing,
-                  vertical: spacing * 0.5,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(borderRadius * 0.5),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: statusColor,
-                      ),
+                  SizedBox(width: spacing),
+                  // 状态文字
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: spacing,
+                      vertical: spacing * 0.4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(borderRadius * 0.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: statusColor,
+                          ),
+                        ),
+                        SizedBox(width: spacing * 0.5),
+                        Text(
+                          isProxyRunning
+                              ? (l10n?.proxy ?? 'Proxy')
+                              : (l10n?.direct ?? 'Direct'),
+                          style: textTheme.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  // 地理位置和国旗
+                  if (primaryInfo != null) ...[
+                    Text(
+                      primaryInfo.flag,
+                      style: const TextStyle(fontSize: 16),
                     ),
                     SizedBox(width: spacing * 0.5),
-                    Text(
-                      isProxyRunning
-                          ? (AppLocalizations.of(context)?.proxy ?? 'Proxy')
-                          : (AppLocalizations.of(context)?.direct ?? 'Direct'),
-                      style: textTheme.labelSmall?.copyWith(
-                        color: statusColor,
-                        fontWeight: FontWeight.w500,
+                    Flexible(
+                      child: Text(
+                        primaryInfo.location,
+                        style: textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
-                ),
+                  if (isLoading) ...[
+                    SizedBox(width: spacing),
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              if (isLoading) ...[
-                SizedBox(width: spacing),
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colorScheme.primary,
-                  ),
+
+              SizedBox(height: spacing),
+
+              // IPv4 信息
+              if (ipv4Info != null)
+                _buildIpRow(
+                  context,
+                  label: 'IPv4',
+                  ip: ipv4Info!.ip,
+                  isp: ipv4Info!.isp,
+                  isProxyRunning: isProxyRunning,
+                ),
+
+              // IPv6 信息
+              if (ipv6Info != null) ...[
+                if (ipv4Info != null) SizedBox(height: spacing * 0.75),
+                _buildIpRow(
+                  context,
+                  label: 'IPv6',
+                  ip: ipv6Info!.ip,
+                  isp: ipv6Info!.isp,
+                  isProxyRunning: isProxyRunning,
                 ),
               ],
+
+              // 无 IP 时显示占位
+              if (ipv4Info == null && ipv6Info == null)
+                Text(
+                  '--',
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'monospace',
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildIpRow(
+    BuildContext context, {
+    required String label,
+    required String ip,
+    String? isp,
+    required bool isProxyRunning,
+  }) {
+    final spacing = ResponsiveUtils.getSpacing(context);
+    final isIpv6 = label == 'IPv6';
+
+    return Row(
+      children: [
+        // IP 版本标签
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: spacing * 0.75,
+            vertical: spacing * 0.25,
+          ),
+          decoration: BoxDecoration(
+            color: label == 'IPv4'
+                ? colorScheme.primaryContainer
+                : colorScheme.tertiaryContainer,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            label,
+            style: textTheme.labelSmall?.copyWith(
+              color: label == 'IPv4'
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onTertiaryContainer,
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
+            ),
+          ),
+        ),
+        SizedBox(width: spacing),
+        // IP 地址 - IPv6 使用自动滚动
+        Expanded(
+          child: isIpv6
+              ? _AutoScrollText(
+                  text: ip,
+                  isp: isp,
+                  isProxyRunning: isProxyRunning,
+                  colorScheme: colorScheme,
+                  textTheme: textTheme,
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      Text(
+                        ip,
+                        style: textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'monospace',
+                          color: isProxyRunning
+                              ? colorScheme.primary
+                              : colorScheme.onSurface,
+                        ),
+                      ),
+                      if (isp != null && isp.isNotEmpty) ...[
+                        SizedBox(width: spacing),
+                        Text(
+                          '($isp)',
+                          style: textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 自动滚动文本组件 - 用于长 IPv6 地址
+class _AutoScrollText extends StatefulWidget {
+  final String text;
+  final String? isp;
+  final bool isProxyRunning;
+  final ColorScheme colorScheme;
+  final TextTheme textTheme;
+
+  const _AutoScrollText({
+    required this.text,
+    this.isp,
+    required this.isProxyRunning,
+    required this.colorScheme,
+    required this.textTheme,
+  });
+
+  @override
+  State<_AutoScrollText> createState() => _AutoScrollTextState();
+}
+
+class _AutoScrollTextState extends State<_AutoScrollText>
+    with SingleTickerProviderStateMixin {
+  late ScrollController _scrollController;
+  late AnimationController _animationController;
+  bool _needsScroll = false;
+  double _maxScrollExtent = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkScrollNeeded();
+    });
+  }
+
+  void _checkScrollNeeded() {
+    if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_scrollController.hasClients) {
+        final maxExtent = _scrollController.position.maxScrollExtent;
+        if (maxExtent > 0) {
+          setState(() {
+            _needsScroll = true;
+            _maxScrollExtent = maxExtent;
+          });
+          _startAutoScroll();
+        }
+      }
+    });
+  }
+
+  void _startAutoScroll() {
+    if (!_needsScroll || !mounted) return;
+
+    _animationController.addListener(() {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      // 使用正弦波实现来回滚动效果
+      final progress = _animationController.value;
+      final scrollPosition =
+          _maxScrollExtent *
+          (0.5 -
+              0.5 *
+                  (1 - progress * 2).abs().clamp(0.0, 1.0) *
+                  (progress < 0.5 ? 1 : -1));
+
+      // 简单的来回滚动
+      if (progress < 0.45) {
+        // 向右滚动
+        _scrollController.jumpTo(_maxScrollExtent * (progress / 0.45));
+      } else if (progress < 0.55) {
+        // 停顿
+        _scrollController.jumpTo(_maxScrollExtent);
+      } else {
+        // 向左滚动
+        _scrollController.jumpTo(
+          _maxScrollExtent * (1 - (progress - 0.55) / 0.45),
+        );
+      }
+    });
+
+    _animationController.repeat();
+  }
+
+  @override
+  void didUpdateWidget(_AutoScrollText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.text != oldWidget.text) {
+      _animationController.stop();
+      _animationController.reset();
+      _needsScroll = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkScrollNeeded();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = ResponsiveUtils.getSpacing(context);
+
+    return SingleChildScrollView(
+      controller: _scrollController,
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          Text(
+            widget.text,
+            style: widget.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              color: widget.isProxyRunning
+                  ? widget.colorScheme.primary
+                  : widget.colorScheme.onSurface,
+            ),
+          ),
+          if (widget.isp != null && widget.isp!.isNotEmpty) ...[
+            SizedBox(width: spacing),
+            Text(
+              '(${widget.isp})',
+              style: widget.textTheme.labelSmall?.copyWith(
+                color: widget.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

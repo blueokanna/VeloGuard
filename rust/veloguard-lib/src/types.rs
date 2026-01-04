@@ -36,6 +36,7 @@ pub struct GeneralConfig {
     pub mode: String,
     pub log_level: String,
     pub ipv6: bool,
+    pub tcp_concurrent: bool,
     pub external_controller: Option<String>,
     pub external_ui: Option<String>,
     pub secret: Option<String>,

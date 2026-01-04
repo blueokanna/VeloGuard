@@ -164,21 +164,32 @@ class VeloGuardVpnService : VpnService() {
         }
         
         fun stopVpnFromOutside(context: Context) {
-            Log.d(TAG, "stopVpnFromOutside called")
+            Log.d(TAG, "=== stopVpnFromOutside called ===")
+            
+            // Set flags first to signal stop
             _isRunning.set(false)
             _vpnFd = -1
             _isStarting.set(false)
+            _connectionCount.set(0)
             
-            instance?.stopVpnInternal()
+            // Stop the instance if available
+            instance?.let { vpnInstance ->
+                Log.d(TAG, "Calling stopVpnInternal on instance...")
+                vpnInstance.stopVpnInternal()
+            }
             
+            // Also send stop intent to ensure service stops
             try {
                 val intent = Intent(context, VeloGuardVpnService::class.java).apply {
                     action = ACTION_STOP
                 }
                 context.startService(intent)
+                Log.d(TAG, "Stop intent sent to VPN service")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to send stop intent: ${e.message}")
             }
+            
+            Log.d(TAG, "=== stopVpnFromOutside complete ===")
         }
         
         fun setProxyMode(mode: ProxyMode) {
@@ -389,24 +400,29 @@ class VeloGuardVpnService : VpnService() {
     
     @Synchronized
     private fun stopVpnInternal() {
-        Log.d(TAG, "Stopping VPN internal...")
+        Log.d(TAG, "=== stopVpnInternal called ===")
         
+        // Set all flags to stopped state
         _isRunning.set(false)
         _connectionCount.set(0)
         _vpnFd = -1
         isStarting.set(false)
         
+        // Close VPN interface
         vpnInterface?.let { pfd ->
             try {
+                Log.d(TAG, "Closing VPN interface fd=${pfd.fd}...")
                 pfd.close()
-                Log.d(TAG, "VPN interface closed")
+                Log.d(TAG, "VPN interface closed successfully")
             } catch (e: Exception) {
                 Log.w(TAG, "Error closing VPN interface: ${e.message}")
             }
         }
         vpnInterface = null
         
+        // Clear Rust JNI bridge
         try {
+            Log.d(TAG, "Clearing Rust JNI bridge...")
             nativeClearRustBridge()
             _jniInitialized.set(false)
             Log.d(TAG, "Rust JNI bridge cleared")
@@ -414,6 +430,7 @@ class VeloGuardVpnService : VpnService() {
             Log.w(TAG, "Failed to clear Rust JNI bridge: ${e.message}")
         }
         
+        // Stop foreground service
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -421,8 +438,13 @@ class VeloGuardVpnService : VpnService() {
             stopForeground(true)
         }
         
+        // Stop the service
         stopSelf()
-        Log.d(TAG, "VPN service stopped")
+        
+        // Clear instance reference
+        instance = null
+        
+        Log.d(TAG, "=== VPN service stopped completely ===")
     }
 
     private fun createNotificationChannel() {

@@ -122,7 +122,7 @@ impl OutboundProxy for ShadowsocksOutbound {
         
         // Generate client salt for sending
         let mut client_salt = vec![0u8; cipher_spec.salt_len];
-        getrandom::getrandom(&mut client_salt)
+        getrandom::fill(&mut client_salt)
             .map_err(|e| Error::network(format!("Failed to generate salt: {}", e)))?;
         
         // Derive encryption key from client salt
@@ -260,7 +260,7 @@ impl OutboundProxy for ShadowsocksOutbound {
 
         // Generate client salt for sending
         let mut client_salt = vec![0u8; cipher_spec.salt_len];
-        getrandom::getrandom(&mut client_salt)
+        getrandom::fill(&mut client_salt)
             .map_err(|e| Error::network(format!("Failed to generate salt: {}", e)))?;
 
         // Derive encryption key from client salt

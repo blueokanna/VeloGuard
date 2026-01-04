@@ -134,8 +134,8 @@ class PlatformUtils {
     await windowManager.ensureInitialized();
 
     const windowOptions = WindowOptions(
-      size: Size(1280, 720), // 默认窗口大小 1280x720
-      minimumSize: Size(600, 400),
+      size: Size(800, 800), // 默认窗口大小 800x800
+      minimumSize: Size(600, 600),
       center: true,
       title: 'VeloGuard',
       titleBarStyle: TitleBarStyle.normal,

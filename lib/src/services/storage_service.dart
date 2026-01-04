@@ -38,7 +38,10 @@ class DnsSettings {
     this.fakeIpFilter = const [],
     this.defaultNameservers = const ['8.8.8.8', '1.1.1.1'],
     this.nameserverPolicy = const {},
-    this.nameservers = const ['https://dns.google/dns-query', 'https://cloudflare-dns.com/dns-query'],
+    this.nameservers = const [
+      'https://dns.google/dns-query',
+      'https://cloudflare-dns.com/dns-query',
+    ],
     this.fallback = const [],
     this.proxyNameservers = const [],
     DnsFallbackFilter? fallbackFilter,
@@ -76,13 +79,18 @@ class DnsSettings {
     dnsMode: json['dnsMode'] as String? ?? 'fake-ip',
     fakeIpRange: json['fakeIpRange'] as String? ?? '198.18.0.1/16',
     fakeIpFilter: (json['fakeIpFilter'] as List?)?.cast<String>() ?? [],
-    defaultNameservers: (json['defaultNameservers'] as List?)?.cast<String>() ?? ['8.8.8.8', '1.1.1.1'],
-    nameserverPolicy: (json['nameserverPolicy'] as Map?)?.cast<String, String>() ?? {},
+    defaultNameservers:
+        (json['defaultNameservers'] as List?)?.cast<String>() ??
+        ['8.8.8.8', '1.1.1.1'],
+    nameserverPolicy:
+        (json['nameserverPolicy'] as Map?)?.cast<String, String>() ?? {},
     nameservers: (json['nameservers'] as List?)?.cast<String>() ?? [],
     fallback: (json['fallback'] as List?)?.cast<String>() ?? [],
     proxyNameservers: (json['proxyNameservers'] as List?)?.cast<String>() ?? [],
     fallbackFilter: json['fallbackFilter'] != null
-        ? DnsFallbackFilter.fromJson(json['fallbackFilter'] as Map<String, dynamic>)
+        ? DnsFallbackFilter.fromJson(
+            json['fallbackFilter'] as Map<String, dynamic>,
+          )
         : DnsFallbackFilter(),
   );
 
@@ -151,13 +159,14 @@ class DnsFallbackFilter {
     'domain': domain,
   };
 
-  factory DnsFallbackFilter.fromJson(Map<String, dynamic> json) => DnsFallbackFilter(
-    geoip: json['geoip'] as bool? ?? true,
-    geoipCode: json['geoipCode'] as String? ?? 'CN',
-    geosite: (json['geosite'] as List?)?.cast<String>() ?? [],
-    ipCidr: (json['ipCidr'] as List?)?.cast<String>() ?? [],
-    domain: (json['domain'] as List?)?.cast<String>() ?? [],
-  );
+  factory DnsFallbackFilter.fromJson(Map<String, dynamic> json) =>
+      DnsFallbackFilter(
+        geoip: json['geoip'] as bool? ?? true,
+        geoipCode: json['geoipCode'] as String? ?? 'CN',
+        geosite: (json['geosite'] as List?)?.cast<String>() ?? [],
+        ipCidr: (json['ipCidr'] as List?)?.cast<String>() ?? [],
+        domain: (json['domain'] as List?)?.cast<String>() ?? [],
+      );
 
   DnsFallbackFilter copyWith({
     bool? geoip,
@@ -196,6 +205,7 @@ class GeneralSettings {
   final String? externalController;
   final String? externalUi;
   final String? secret;
+  final bool hapticFeedbackEnabled; // 震动反馈开关
 
   GeneralSettings({
     this.tcpKeepAliveInterval = 30,
@@ -216,6 +226,7 @@ class GeneralSettings {
     this.externalController,
     this.externalUi,
     this.secret,
+    this.hapticFeedbackEnabled = false, // 默认关闭
   });
 
   Map<String, dynamic> toJson() => {
@@ -237,13 +248,14 @@ class GeneralSettings {
     'externalController': externalController,
     'externalUi': externalUi,
     'secret': secret,
+    'hapticFeedbackEnabled': hapticFeedbackEnabled,
   };
 
   factory GeneralSettings.fromJson(Map<String, dynamic> json) {
     final allowLan = json['allowLan'] as bool? ?? false;
     final ipv6 = json['ipv6'] as bool? ?? false;
     var bindAddress = json['bindAddress'] as String? ?? '127.0.0.1';
-    
+
     // Convert '*' or invalid addresses to proper IP format
     if (bindAddress == '*') {
       if (allowLan) {
@@ -252,10 +264,12 @@ class GeneralSettings {
         bindAddress = ipv6 ? '::1' : '127.0.0.1';
       }
     }
-    
+
     return GeneralSettings(
       tcpKeepAliveInterval: json['tcpKeepAliveInterval'] as int? ?? 30,
-      speedTestUrl: json['speedTestUrl'] as String? ?? 'http://www.gstatic.com/generate_204',
+      speedTestUrl:
+          json['speedTestUrl'] as String? ??
+          'http://www.gstatic.com/generate_204',
       httpPort: json['httpPort'] as int? ?? 7890,
       socksPort: json['socksPort'] as int? ?? 7891,
       mixedPort: json['mixedPort'] as int? ?? 7897,
@@ -272,6 +286,7 @@ class GeneralSettings {
       externalController: json['externalController'] as String?,
       externalUi: json['externalUi'] as String?,
       secret: json['secret'] as String?,
+      hapticFeedbackEnabled: json['hapticFeedbackEnabled'] as bool? ?? false,
     );
   }
 
@@ -294,6 +309,7 @@ class GeneralSettings {
     String? externalController,
     String? externalUi,
     String? secret,
+    bool? hapticFeedbackEnabled,
   }) {
     return GeneralSettings(
       tcpKeepAliveInterval: tcpKeepAliveInterval ?? this.tcpKeepAliveInterval,
@@ -314,6 +330,8 @@ class GeneralSettings {
       externalController: externalController ?? this.externalController,
       externalUi: externalUi ?? this.externalUi,
       secret: secret ?? this.secret,
+      hapticFeedbackEnabled:
+          hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
     );
   }
 }

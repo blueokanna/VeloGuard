@@ -1,9 +1,9 @@
-use crate::error::{VeloGuardError, Result};
+use crate::error::{Result, VeloGuardError};
 use crate::types::*;
 use crate::{get_veloguard_instance, VELOGUARD_INSTANCE};
-use veloguard_core::Config;
 use flutter_rust_bridge::frb;
 use std::collections::HashMap;
+use veloguard_core::Config;
 
 /// Initialize VeloGuard with configuration
 #[frb]
@@ -197,19 +197,25 @@ pub async fn get_traffic_stats() -> Result<TrafficStats> {
     // Force update speed calculation
     tracker.update_speed();
 
-    // On Android, use VPN stats directly instead of syncing
+    // On Android, use VPN stats directly for total traffic
     // The VPN stats represent actual traffic through the TUN device
     #[cfg(target_os = "android")]
     {
         if let Some(processor) = crate::get_android_vpn_processor() {
             let vpn_stats = processor.get_traffic_stats();
 
-            // Use VPN stats directly - bytes_sent is upload (from device to network)
-            // bytes_received is download (from network to device)
-            // Note: VPN stats are more accurate for Android VPN mode
+            // VPN stats from TUN perspective:
+            // - bytes_received: data received FROM TUN (user device sending data OUT) = UPLOAD
+            // - bytes_sent: data sent TO TUN (data coming back to user device) = DOWNLOAD
+            // 
+            // This matches the user's perspective:
+            // - Upload = data user sends to internet
+            // - Download = data user receives from internet
             return Ok(TrafficStats {
-                upload: vpn_stats.bytes_sent,
-                download: vpn_stats.bytes_received,
+                upload: vpn_stats.bytes_received,
+                download: vpn_stats.bytes_sent,
+                // Use VPN-based speed calculation for consistency
+                // Calculate speed based on VPN traffic, not proxy relay traffic
                 upload_speed: tracker.upload_speed(),
                 download_speed: tracker.download_speed(),
             });
@@ -326,30 +332,20 @@ pub async fn get_system_info() -> Result<SystemInfo> {
 
     let version = env!("CARGO_PKG_VERSION").to_string();
 
-    // Use sysinfo to get real system info
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // Get memory information
     let memory_total = sys.total_memory();
     let memory_used = sys.used_memory();
 
-    // Get CPU information
-    // cpu_threads is the number of logical processors (what sysinfo returns)
     let cpu_threads = sys.cpus().len() as u32;
-
-    // cpu_cores is the number of physical cores
-    // sysinfo's cpus() returns logical processors (threads), so we estimate physical cores
-    // On most modern CPUs, threads = cores * 2 (hyperthreading), but this varies
-    let cpu_cores = sysinfo::System::physical_core_count()
+    // In sysinfo 0.37+, physical_core_count is a static method on System
+    let cpu_cores = System::physical_core_count()
         .map(|c| c as u32)
         .unwrap_or(cpu_threads);
 
-    let cpu_name = sys
-        .cpus()
-        .first()
-        .map(|cpu| cpu.brand().to_string())
-        .unwrap_or_else(|| "Unknown CPU".to_string());
+    // Get CPU name - try multiple methods for Android compatibility
+    let cpu_name = get_cpu_name(&sys);
 
     // Calculate average CPU usage
     let cpu_usage = if sys.cpus().is_empty() {
@@ -372,6 +368,85 @@ pub async fn get_system_info() -> Result<SystemInfo> {
         cpu_name,
         cpu_usage,
     })
+}
+
+/// Get CPU name with platform-specific handling
+fn get_cpu_name(sys: &sysinfo::System) -> String {
+    // First try sysinfo
+    let sysinfo_name = sys
+        .cpus()
+        .first()
+        .map(|cpu| cpu.brand().to_string())
+        .unwrap_or_default();
+
+    // If sysinfo returns a valid name, use it
+    if !sysinfo_name.is_empty() && sysinfo_name != "Unknown" && !sysinfo_name.contains("Unknown") {
+        return sysinfo_name;
+    }
+
+    // On Android, try to read from /proc/cpuinfo
+    #[cfg(target_os = "android")]
+    {
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            // Try to find "Hardware" line first (common on Android)
+            for line in cpuinfo.lines() {
+                if line.starts_with("Hardware") {
+                    if let Some(value) = line.split(':').nth(1) {
+                        let name = value.trim();
+                        if !name.is_empty() {
+                            return name.to_string();
+                        }
+                    }
+                }
+            }
+            // Fallback to "model name" (common on x86 Android)
+            for line in cpuinfo.lines() {
+                if line.starts_with("model name") {
+                    if let Some(value) = line.split(':').nth(1) {
+                        let name = value.trim();
+                        if !name.is_empty() {
+                            return name.to_string();
+                        }
+                    }
+                }
+            }
+            // Try "Processor" field
+            for line in cpuinfo.lines() {
+                if line.starts_with("Processor") && !line.starts_with("Processors") {
+                    if let Some(value) = line.split(':').nth(1) {
+                        let name = value.trim();
+                        if !name.is_empty() {
+                            return name.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // On Linux, also try /proc/cpuinfo
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            for line in cpuinfo.lines() {
+                if line.starts_with("model name") {
+                    if let Some(value) = line.split(':').nth(1) {
+                        let name = value.trim();
+                        if !name.is_empty() {
+                            return name.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Return sysinfo result or default
+    if !sysinfo_name.is_empty() {
+        sysinfo_name
+    } else {
+        "Unknown CPU".to_string()
+    }
 }
 
 /// Get version information
@@ -438,6 +513,7 @@ fn convert_ffi_config_to_core(ffi_config: VeloGuardConfig) -> Result<Config> {
             _ => LogLevel::Info,
         },
         ipv6: ffi_config.general.ipv6,
+        tcp_concurrent: ffi_config.general.tcp_concurrent,
         external_controller: ffi_config.general.external_controller,
         external_ui: ffi_config.general.external_ui,
         secret: ffi_config.general.secret,
@@ -868,7 +944,7 @@ pub async fn test_shadowsocks_latency(
 
     // Generate client salt for sending
     let mut client_salt = vec![0u8; cipher_spec.salt_len];
-    if let Err(e) = getrandom::getrandom(&mut client_salt) {
+    if let Err(e) = getrandom::fill(&mut client_salt) {
         return Ok(LatencyTestResult {
             proxy_name,
             latency_ms: None,
@@ -1362,6 +1438,9 @@ pub async fn get_active_connections() -> Result<Vec<ActiveConnection>> {
                     .as_millis() as u64;
 
                 if vpn_stats.tcp_connections > 0 {
+                    // VPN stats from TUN perspective:
+                    // - bytes_received: packets received FROM TUN (user device sending data) = UPLOAD
+                    // - bytes_sent: packets sent TO TUN (data returning to user device) = DOWNLOAD
                     result.push(ActiveConnection {
                         id: format!("vpn-tcp-{}", vpn_stats.tcp_connections),
                         inbound_tag: "tun".to_string(),
@@ -1371,8 +1450,8 @@ pub async fn get_active_connections() -> Result<Vec<ActiveConnection>> {
                         destination_port: 0,
                         protocol: "TCP".to_string(),
                         network: "tcp".to_string(),
-                        upload_bytes: vpn_stats.bytes_sent,
-                        download_bytes: vpn_stats.bytes_received,
+                        upload_bytes: vpn_stats.bytes_received,
+                        download_bytes: vpn_stats.bytes_sent,
                         start_time,
                         rule: "VPN".to_string(),
                         rule_payload: "TUN".to_string(),
@@ -1440,9 +1519,11 @@ pub async fn get_connection_stats() -> Result<(u64, u64, u64, u64)> {
         if let Some(processor) = crate::get_android_vpn_processor() {
             let vpn_stats = processor.get_traffic_stats();
 
-            // Use VPN stats directly for traffic (more accurate for VPN mode)
-            total_upload = vpn_stats.bytes_sent;
-            total_download = vpn_stats.bytes_received;
+            // VPN stats from TUN perspective:
+            // - bytes_received: packets received FROM TUN (user device sending data) = UPLOAD
+            // - bytes_sent: packets sent TO TUN (data returning to user device) = DOWNLOAD
+            total_upload = vpn_stats.bytes_received;
+            total_download = vpn_stats.bytes_sent;
 
             // Use VPN connection count
             let vpn_connections = (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u64;
@@ -1490,7 +1571,7 @@ pub async fn enable_tun_mode() -> Result<TunStatus> {
 pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
     #[cfg(target_os = "windows")]
     {
-        use veloguard_netstack::{TunConfig, TunDevice, WindowsVpnProcessor, WindowsRouteManager};
+        use veloguard_netstack::{TunConfig, TunDevice, WindowsRouteManager, WindowsVpnProcessor};
 
         tracing::info!("=== Enabling TUN mode on Windows with mode={} ===", mode);
 
@@ -1541,11 +1622,18 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
                         enabled: false,
                         interface_name: None,
                         mtu: None,
-                        error: Some("VeloGuard proxy service is not running. Please start it first.".to_string()),
+                        error: Some(
+                            "VeloGuard proxy service is not running. Please start it first."
+                                .to_string(),
+                        ),
                     });
                 }
                 let config = veloguard.config();
-                config.general.mixed_port.or(config.general.socks_port).unwrap_or(7890)
+                config
+                    .general
+                    .mixed_port
+                    .or(config.general.socks_port)
+                    .unwrap_or(7890)
             } else {
                 return Ok(TunStatus {
                     enabled: false,
@@ -1598,7 +1686,10 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
                 enabled: false,
                 interface_name: None,
                 mtu: None,
-                error: Some(format!("Failed to start TUN device: {}. Please run as administrator.", e)),
+                error: Some(format!(
+                    "Failed to start TUN device: {}. Please run as administrator.",
+                    e
+                )),
             });
         }
 
@@ -1642,25 +1733,44 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
             while let Some(packet) = tun_rx.recv().await {
                 packet_count += 1;
                 if packet_count <= 10 || packet_count % 100 == 0 {
-                    tracing::debug!("Processing packet #{}: {} bytes", packet_count, packet.len());
+                    tracing::debug!(
+                        "Processing packet #{}: {} bytes",
+                        packet_count,
+                        packet.len()
+                    );
                 }
                 if let Err(e) = processor_clone.process_packet(&packet).await {
                     tracing::debug!("Packet processing error: {}", e);
                 }
             }
 
-            tracing::info!("Windows TUN packet processing task stopped, processed {} packets", packet_count);
+            tracing::info!(
+                "Windows TUN packet processing task stopped, processed {} packets",
+                packet_count
+            );
         });
 
         // Set up route manager for global mode
         let mut route_manager = WindowsRouteManager::new(&config.name, tun_address);
-        
+
         // If global mode, enable routes
         if mode.to_lowercase() == "global" {
             if let Err(e) = route_manager.enable_global_mode() {
                 tracing::warn!("Failed to enable global mode routes: {}", e);
                 // Continue anyway, TUN is still working
             }
+        }
+
+        // Set DNS for TUN interface to ensure DNS queries go through our stack
+        if let Err(e) = veloguard_netstack::set_tun_dns(&config.name, &config.dns) {
+            tracing::warn!("Failed to set TUN DNS: {}", e);
+        } else {
+            tracing::info!("TUN DNS set to {:?}", config.dns);
+        }
+
+        // Flush DNS cache to ensure new DNS settings take effect
+        if let Err(e) = veloguard_netstack::flush_dns_cache() {
+            tracing::warn!("Failed to flush DNS cache: {}", e);
         }
 
         crate::set_windows_route_manager(route_manager);
@@ -2301,22 +2411,37 @@ pub async fn stop_android_vpn() -> Result<bool> {
 
         // Stop the processor first (this will stop the SolidStack)
         if let Some(processor) = crate::get_android_vpn_processor() {
+            tracing::info!("Stopping VPN processor...");
             processor.stop();
+            
+            // Reset all state in the processor
+            processor.reset();
+            
             // Clear the Fake-IP pool in SolidStack
             processor.reset_fake_ip_pool();
-            tracing::info!("VPN processor stopped and Fake-IP pool reset");
+            tracing::info!("VPN processor stopped, reset, and Fake-IP pool cleared");
+        } else {
+            tracing::info!("No VPN processor to stop");
         }
 
-        // Clear the global processor
+        // Clear the global processor reference
         crate::clear_android_vpn_processor();
+        tracing::info!("Global VPN processor reference cleared");
 
         // Clear the VPN fd
         veloguard_netstack::clear_android_vpn_fd();
+        tracing::info!("VPN fd cleared");
 
         // Clear the socket protect callback
         veloguard_solidtcp::clear_protect_callback();
+        tracing::info!("Socket protect callback cleared");
 
-        tracing::info!("Android VPN packet processing stopped completely");
+        // Reset the global connection tracker
+        let tracker = veloguard_core::connection_tracker::global_tracker();
+        tracker.reset();
+        tracing::info!("Connection tracker reset");
+
+        tracing::info!("=== Android VPN packet processing stopped completely ===");
         Ok(true)
     }
 

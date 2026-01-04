@@ -136,6 +136,10 @@ class AppLocalizations {
   String get systemDefault => _getLocalizedString('systemDefault');
   String get system => _getLocalizedString('system');
 
+  // Haptic Feedback
+  String get hapticFeedback => _getLocalizedString('hapticFeedback');
+  String get hapticFeedbackDesc => _getLocalizedString('hapticFeedbackDesc');
+
   // Configuration
   String get configuration => _getLocalizedString('configuration');
   String get basicConfig => _getLocalizedString('basicConfig');
@@ -348,6 +352,62 @@ class AppLocalizations {
   String get setSystemHttpSocksProxy =>
       _getLocalizedString('setSystemHttpSocksProxy');
   String get proxyModeDesc => _getLocalizedString('proxyModeDesc');
+
+  // Advanced Config Screen
+  String get tcpSettings => _getLocalizedString('tcpSettings');
+  String get tcpKeepAlive => _getLocalizedString('tcpKeepAlive');
+  String get tcpKeepAliveInterval =>
+      _getLocalizedString('tcpKeepAliveInterval');
+  String get tcpConcurrent => _getLocalizedString('tcpConcurrent');
+  String get tcpConcurrentDesc => _getLocalizedString('tcpConcurrentDesc');
+  String get speedTestSettings => _getLocalizedString('speedTestSettings');
+  String get speedTestUrl => _getLocalizedString('speedTestUrl');
+  String get unifiedDelay => _getLocalizedString('unifiedDelay');
+  String get unifiedDelayDesc => _getLocalizedString('unifiedDelayDesc');
+  String get dnsRelated => _getLocalizedString('dnsRelated');
+  String get appendSystemDns => _getLocalizedString('appendSystemDns');
+  String get appendSystemDnsDesc => _getLocalizedString('appendSystemDnsDesc');
+  String get processRelated => _getLocalizedString('processRelated');
+  String get findProcess => _getLocalizedString('findProcess');
+  String get findProcessDesc => _getLocalizedString('findProcessDesc');
+  String get seconds => _getLocalizedString('seconds');
+
+  // DNS Settings Screen
+  String get basicSettings => _getLocalizedString('basicSettings');
+  String get overrideDns => _getLocalizedString('overrideDns');
+  String get overrideDnsDesc => _getLocalizedString('overrideDnsDesc');
+  String get dnsStatus => _getLocalizedString('dnsStatus');
+  String get listenAddress => _getLocalizedString('listenAddress');
+  String get hostsSettings => _getLocalizedString('hostsSettings');
+  String get useHosts => _getLocalizedString('useHosts');
+  String get useHostsDesc => _getLocalizedString('useHostsDesc');
+  String get useSystemHosts => _getLocalizedString('useSystemHosts');
+  String get useSystemHostsDesc => _getLocalizedString('useSystemHostsDesc');
+  String get advancedSettings => _getLocalizedString('advancedSettings');
+  String get ipv6DnsDesc => _getLocalizedString('ipv6DnsDesc');
+  String get followRules => _getLocalizedString('followRules');
+  String get followRulesDesc => _getLocalizedString('followRulesDesc');
+  String get preferH3 => _getLocalizedString('preferH3');
+  String get preferH3Desc => _getLocalizedString('preferH3Desc');
+  String get dnsMode => _getLocalizedString('dnsMode');
+  String get normalMode => _getLocalizedString('normalMode');
+  String get fakeIpMode => _getLocalizedString('fakeIpMode');
+  String get redirHostMode => _getLocalizedString('redirHostMode');
+  String get fakeIpRange => _getLocalizedString('fakeIpRange');
+  String get fakeIpFilter => _getLocalizedString('fakeIpFilter');
+  String get dnsServers => _getLocalizedString('dnsServers');
+  String get defaultDns => _getLocalizedString('defaultDns');
+  String get servers => _getLocalizedString('servers');
+  String get fallbackServers => _getLocalizedString('fallbackServers');
+  String get proxyDns => _getLocalizedString('proxyDns');
+  String get fallbackFilter => _getLocalizedString('fallbackFilter');
+  String get enableGeoipFilter => _getLocalizedString('enableGeoipFilter');
+  String get geoipCode => _getLocalizedString('geoipCode');
+  String get geosite => _getLocalizedString('geosite');
+  String get ipCidr => _getLocalizedString('ipCidr');
+  String get nameservers => _getLocalizedString('nameservers');
+  String get addNewItem => _getLocalizedString('addNewItem');
+  String get noDataYet => _getLocalizedString('noDataYet');
   String get ruleModeDesc => _getLocalizedString('ruleModeDesc');
   String get globalModeDesc => _getLocalizedString('globalModeDesc');
   String get vpnProxy => _getLocalizedString('vpnProxy');
@@ -452,6 +512,8 @@ const Map<String, String> _deStrings = {
   'selectLanguage': 'Sprache auswählen',
   'systemDefault': 'Systemstandard',
   'system': 'System',
+  'hapticFeedback': 'Haptisches Feedback',
+  'hapticFeedbackDesc': 'Vibration bei Bedienung auslösen',
   'configuration': 'Konfiguration',
   'basicConfig': 'Grundkonfiguration',
   'basicConfigDesc': 'Port, Modus, Protokoll und andere Grundeinstellungen',
@@ -717,6 +779,8 @@ const Map<String, String> _enStrings = {
   'selectLanguage': 'Select Language',
   'systemDefault': 'System Default',
   'system': 'System',
+  'hapticFeedback': 'Haptic Feedback',
+  'hapticFeedbackDesc': 'Trigger vibration on operation',
   'configuration': 'Configuration',
   'basicConfig': 'Basic Config',
   'basicConfigDesc': 'Port, mode, log and other basic settings',
@@ -915,6 +979,59 @@ const Map<String, String> _enStrings = {
   'smartRouting': 'Smart Routing',
   'allProxy': 'All Proxy',
   'recommended': 'Recommended',
+  // Advanced Config Screen
+  'tcpSettings': 'TCP Settings',
+  'tcpKeepAlive': 'TCP Keep-Alive',
+  'tcpKeepAliveInterval': 'TCP Keep-Alive Interval',
+  'tcpConcurrent': 'TCP Concurrent',
+  'tcpConcurrentDesc': 'Enable TCP concurrent connections',
+  'speedTestSettings': 'Speed Test Settings',
+  'speedTestUrl': 'Speed Test URL',
+  'unifiedDelay': 'Unified Delay',
+  'unifiedDelayDesc': 'Use unified delay calculation',
+  'dnsRelated': 'DNS Related',
+  'appendSystemDns': 'Append System DNS',
+  'appendSystemDnsDesc': 'Append system DNS to nameserver',
+  'processRelated': 'Process Related',
+  'findProcess': 'Find Process',
+  'findProcessDesc': 'Enable process name matching rules',
+  'seconds': 's',
+  // DNS Settings Screen
+  'basicSettings': 'Basic Settings',
+  'overrideDns': 'Override DNS',
+  'overrideDnsDesc': 'Override system DNS when enabled',
+  'dnsStatus': 'DNS Status',
+  'listenAddress': 'Listen Address',
+  'hostsSettings': 'Hosts Settings',
+  'useHosts': 'Use Hosts',
+  'useHostsDesc': 'Use custom hosts mapping',
+  'useSystemHosts': 'Use System Hosts',
+  'useSystemHostsDesc': 'Read system hosts file',
+  'advancedSettings': 'Advanced Settings',
+  'ipv6DnsDesc': 'Enable IPv6 DNS resolution',
+  'followRules': 'Follow Rules',
+  'followRulesDesc': 'DNS requests follow proxy rules',
+  'preferH3': 'Prefer HTTP/3',
+  'preferH3Desc': 'DoH prefers HTTP/3',
+  'dnsMode': 'DNS Mode',
+  'normalMode': 'Normal Mode',
+  'fakeIpMode': 'Fake-IP Mode',
+  'redirHostMode': 'Redir-Host Mode',
+  'fakeIpRange': 'Fake-IP Range',
+  'fakeIpFilter': 'Fake-IP Filter',
+  'dnsServers': 'DNS Servers',
+  'defaultDns': 'Default DNS',
+  'servers': 'servers',
+  'fallbackServers': 'Fallback Servers',
+  'proxyDns': 'Proxy DNS',
+  'fallbackFilter': 'Fallback Filter',
+  'enableGeoipFilter': 'Enable GeoIP filter',
+  'geoipCode': 'GeoIP Code',
+  'geosite': 'Geosite',
+  'ipCidr': 'IP/CIDR',
+  'nameservers': 'Nameservers',
+  'addNewItem': 'Add new item...',
+  'noDataYet': 'No data yet',
 };
 
 // =============================================================================
@@ -982,6 +1099,8 @@ const Map<String, String> _esStrings = {
   'selectLanguage': 'Seleccionar idioma',
   'systemDefault': 'Predeterminado del sistema',
   'system': 'Sistema',
+  'hapticFeedback': 'Retroalimentación háptica',
+  'hapticFeedbackDesc': 'Activar vibración al operar',
   'configuration': 'Configuración',
   'basicConfig': 'Configuración básica',
   'basicConfigDesc': 'Puerto, modo, registro y otras configuraciones básicas',
@@ -1252,6 +1371,8 @@ const Map<String, String> _frStrings = {
   'selectLanguage': 'Sélectionner la langue',
   'systemDefault': 'Par défaut du système',
   'system': 'Système',
+  'hapticFeedback': 'Retour haptique',
+  'hapticFeedbackDesc': 'Déclencher une vibration lors de l\'opération',
   'configuration': 'Configuration',
   'basicConfig': 'Configuration de base',
   'basicConfigDesc': 'Port, mode, journal et autres paramètres de base',
@@ -1520,6 +1641,8 @@ const Map<String, String> _itStrings = {
   'selectLanguage': 'Seleziona lingua',
   'systemDefault': 'Predefinito di sistema',
   'system': 'Sistema',
+  'hapticFeedback': 'Feedback aptico',
+  'hapticFeedbackDesc': 'Attiva vibrazione durante l\'operazione',
   'configuration': 'Configurazione',
   'basicConfig': 'Configurazione base',
   'basicConfigDesc': 'Porta, modalità, log e altre impostazioni di base',
@@ -1786,6 +1909,8 @@ const Map<String, String> _jaStrings = {
   'selectLanguage': '言語を選択',
   'systemDefault': 'システムデフォルト',
   'system': 'システム',
+  'hapticFeedback': '触覚フィードバック',
+  'hapticFeedbackDesc': '操作時に振動を発生させる',
   'configuration': '設定',
   'basicConfig': '基本設定',
   'basicConfigDesc': 'ポート、モード、ログなどの基本設定',
@@ -2044,6 +2169,8 @@ const Map<String, String> _koStrings = {
   'selectLanguage': '언어 선택',
   'systemDefault': '시스템 기본값',
   'system': '시스템',
+  'hapticFeedback': '햅틱 피드백',
+  'hapticFeedbackDesc': '작동 시 진동 발생',
   'configuration': '구성',
   'basicConfig': '기본 설정',
   'basicConfigDesc': '포트, 모드, 로그 및 기타 기본 설정',
@@ -2303,6 +2430,8 @@ const Map<String, String> _ptStrings = {
   'selectLanguage': 'Selecionar idioma',
   'systemDefault': 'Padrão do sistema',
   'system': 'Sistema',
+  'hapticFeedback': 'Feedback tátil',
+  'hapticFeedbackDesc': 'Ativar vibração ao operar',
   'configuration': 'Configuração',
   'basicConfig': 'Configuração básica',
   'basicConfigDesc': 'Porta, modo, log e outras configurações básicas',
@@ -2570,6 +2699,8 @@ const Map<String, String> _ruStrings = {
   'selectLanguage': 'Выбрать язык',
   'systemDefault': 'Системный по умолчанию',
   'system': 'Система',
+  'hapticFeedback': 'Тактильная обратная связь',
+  'hapticFeedbackDesc': 'Вибрация при операции',
   'configuration': 'Конфигурация',
   'basicConfig': 'Базовая конфигурация',
   'basicConfigDesc': 'Порт, режим, логи и другие базовые настройки',
@@ -2835,6 +2966,8 @@ const Map<String, String> _zhCNStrings = {
   'selectLanguage': '选择语言',
   'systemDefault': '系统默认',
   'system': '跟随系统',
+  'hapticFeedback': '震动反馈',
+  'hapticFeedbackDesc': '操作时触发手机震动',
   'configuration': '配置',
   'basicConfig': '基本配置',
   'basicConfigDesc': '端口、模式、日志等基本设置',
@@ -3028,6 +3161,59 @@ const Map<String, String> _zhCNStrings = {
   'smartRouting': '智能路由',
   'allProxy': '全部代理',
   'recommended': '推荐',
+  // Advanced Config Screen
+  'tcpSettings': 'TCP 设置',
+  'tcpKeepAlive': 'TCP Keep-Alive',
+  'tcpKeepAliveInterval': 'TCP Keep-Alive 间隔',
+  'tcpConcurrent': 'TCP 并发',
+  'tcpConcurrentDesc': '启用 TCP 并发连接',
+  'speedTestSettings': '测速设置',
+  'speedTestUrl': '测速 URL',
+  'unifiedDelay': '统一延迟',
+  'unifiedDelayDesc': '使用统一的延迟计算方式',
+  'dnsRelated': 'DNS 相关',
+  'appendSystemDns': '追加系统 DNS',
+  'appendSystemDnsDesc': '将系统 DNS 追加到 nameserver',
+  'processRelated': '进程相关',
+  'findProcess': '查找进程',
+  'findProcessDesc': '启用进程名匹配规则',
+  'seconds': '秒',
+  // DNS Settings Screen
+  'basicSettings': '基础设置',
+  'overrideDns': '覆盖 DNS',
+  'overrideDnsDesc': '启用后将覆盖系统 DNS',
+  'dnsStatus': 'DNS 状态',
+  'listenAddress': '监听地址',
+  'hostsSettings': 'Hosts 设置',
+  'useHosts': '使用 Hosts',
+  'useHostsDesc': '使用自定义 Hosts 映射',
+  'useSystemHosts': '使用系统 Hosts',
+  'useSystemHostsDesc': '读取系统 hosts 文件',
+  'advancedSettings': '高级设置',
+  'ipv6DnsDesc': '启用 IPv6 DNS 解析',
+  'followRules': '遵循规则',
+  'followRulesDesc': 'DNS 请求遵循代理规则',
+  'preferH3': '优先 HTTP/3',
+  'preferH3Desc': 'DoH 优先使用 HTTP/3',
+  'dnsMode': 'DNS 模式',
+  'normalMode': '普通模式',
+  'fakeIpMode': 'Fake-IP 模式',
+  'redirHostMode': 'Redir-Host 模式',
+  'fakeIpRange': 'Fake-IP 范围',
+  'fakeIpFilter': 'Fake-IP 过滤',
+  'dnsServers': 'DNS 服务器',
+  'defaultDns': '默认 DNS',
+  'servers': '个服务器',
+  'fallbackServers': 'Fallback 服务器',
+  'proxyDns': '代理 DNS',
+  'fallbackFilter': 'Fallback 过滤器',
+  'enableGeoipFilter': '启用 GeoIP 过滤',
+  'geoipCode': 'GeoIP 代码',
+  'geosite': 'Geosite',
+  'ipCidr': 'IP/CIDR',
+  'nameservers': 'Nameservers',
+  'addNewItem': '添加新项...',
+  'noDataYet': '暂无数据',
 };
 
 // =============================================================================
@@ -3095,6 +3281,8 @@ const Map<String, String> _zhTWStrings = {
   'selectLanguage': '選擇語言',
   'systemDefault': '系統預設',
   'system': '跟隨系統',
+  'hapticFeedback': '震動反饋',
+  'hapticFeedbackDesc': '操作時觸發手機震動',
   'configuration': '設定',
   'basicConfig': '基本設定',
   'basicConfigDesc': '連接埠、模式、日誌等基本設定',

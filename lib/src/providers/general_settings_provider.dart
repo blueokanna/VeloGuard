@@ -27,6 +27,7 @@ class GeneralSettingsProvider extends ChangeNotifier {
   String? get externalController => _settings.externalController;
   String? get externalUi => _settings.externalUi;
   String? get secret => _settings.secret;
+  bool get hapticFeedbackEnabled => _settings.hapticFeedbackEnabled;
 
   GeneralSettingsProvider() {
     _loadSettings();
@@ -189,6 +190,12 @@ class GeneralSettingsProvider extends ChangeNotifier {
 
   Future<void> setSecret(String? value) async {
     _settings = _settings.copyWith(secret: value);
+    await _saveSettings();
+    notifyListeners();
+  }
+
+  Future<void> setHapticFeedbackEnabled(bool value) async {
+    _settings = _settings.copyWith(hapticFeedbackEnabled: value);
     await _saveSettings();
     notifyListeners();
   }

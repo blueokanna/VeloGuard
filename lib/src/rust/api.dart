@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `convert_ffi_config_to_core`, `decrypt`, `encrypt`, `new`, `next_nonce`, `ss_build_address_header`, `ss_cipher_spec`, `ss_derive_subkey`, `ss_recv_decrypted_chunk`, `test_via_http_proxy`
+// These functions are ignored because they are not marked as `pub`: `convert_ffi_config_to_core`, `decrypt`, `encrypt`, `get_cpu_name`, `new`, `next_nonce`, `ss_build_address_header`, `ss_cipher_spec`, `ss_derive_subkey`, `ss_recv_decrypted_chunk`, `test_via_http_proxy`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `SsAeadCipherInner`, `SsAeadCipher`, `SsCipherSpec`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:veloguard/src/services/platform_proxy_service.dart';
 import 'package:veloguard/src/providers/app_state_provider.dart';
+import 'package:veloguard/src/providers/network_settings_provider.dart';
 import 'package:veloguard/src/utils/responsive_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
@@ -17,8 +18,8 @@ class QuickActions extends StatefulWidget {
 }
 
 class _QuickActionsState extends State<QuickActions> {
-  bool _systemProxyEnabled = false;
   bool _isProxyLoading = false;
+  bool _isTunLoading = false;
   Timer? _statusCheckTimer;
 
   ProxyMode _currentProxyMode = ProxyMode.rule;
@@ -44,22 +45,22 @@ class _QuickActionsState extends State<QuickActions> {
     if (_isUpdating) return;
 
     try {
-      final proxyStatus = await PlatformProxyService.instance
-          .checkSystemProxyStatus();
-      if (mounted) {
-        setState(() {
-          _systemProxyEnabled = proxyStatus;
-          if (Platform.isAndroid || PlatformUtils.isOHOS) {
+      if (Platform.isAndroid || PlatformUtils.isOHOS) {
+        if (mounted) {
+          setState(() {
             _currentProxyMode = PlatformProxyService.instance.currentProxyMode;
-          }
-        });
+          });
+        }
       }
     } catch (e) {
       debugPrint('Failed to check proxy status: $e');
     }
   }
 
-  Future<void> _toggleSystemProxy(bool enable) async {
+  Future<void> _toggleSystemProxy(
+    bool enable,
+    NetworkSettingsProvider networkSettings,
+  ) async {
     if (_isProxyLoading || _isUpdating) return;
 
     if (Platform.isAndroid || PlatformUtils.isOHOS) {
@@ -72,44 +73,65 @@ class _QuickActionsState extends State<QuickActions> {
     });
 
     try {
-      bool success;
-      if (enable) {
-        success = await PlatformProxyService.instance.enableSystemProxy(
-          host: '127.0.0.1',
-          httpPort: 7890,
-          socksPort: 7891,
-        );
-      } else {
-        success = await PlatformProxyService.instance.disableSystemProxy();
-      }
-
-      if (success) {
-        setState(() => _systemProxyEnabled = enable);
-        AnimationUtils.mediumHaptic();
-        if (!mounted) return;
-        final l10n = AppLocalizations.of(context);
-        _showSnackBar(
-          enable
-              ? (l10n?.systemProxyEnabled ?? 'System proxy enabled')
-              : (l10n?.systemProxyDisabled ?? 'System proxy disabled'),
-        );
-      } else {
-        await _checkProxyStatus();
-        if (!mounted) return;
-        final l10n = AppLocalizations.of(context);
-        _showSnackBar(
-          enable
-              ? (l10n?.enableSystemProxyFailed ??
-                    'Failed to enable system proxy')
-              : (l10n?.disableSystemProxyFailed ??
-                    'Failed to disable system proxy'),
-          isError: true,
-        );
-      }
+      await networkSettings.setSystemProxy(enable);
+      AnimationUtils.mediumHaptic();
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      _showSnackBar(
+        enable
+            ? (l10n?.systemProxyEnabled ?? 'System proxy enabled')
+            : (l10n?.systemProxyDisabled ?? 'System proxy disabled'),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      _showSnackBar(
+        enable
+            ? (l10n?.enableSystemProxyFailed ?? 'Failed to enable system proxy')
+            : (l10n?.disableSystemProxyFailed ??
+                  'Failed to disable system proxy'),
+        isError: true,
+      );
     } finally {
       if (mounted) {
         setState(() {
           _isProxyLoading = false;
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleTunMode(
+    bool enable,
+    NetworkSettingsProvider networkSettings,
+  ) async {
+    if (_isTunLoading || _isUpdating) return;
+
+    setState(() {
+      _isTunLoading = true;
+      _isUpdating = true;
+    });
+
+    try {
+      await networkSettings.setTunEnabled(enable);
+      AnimationUtils.mediumHaptic();
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      _showSnackBar(
+        '${l10n?.tunMode ?? "TUN Mode"} ${enable ? (l10n?.enabled ?? "enabled") : (l10n?.disabled ?? "disabled")}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      _showSnackBar(
+        '${l10n?.failed ?? "Failed"}: ${l10n?.tunMode ?? "TUN Mode"}',
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTunLoading = false;
           _isUpdating = false;
         });
       }
@@ -192,7 +214,6 @@ class _QuickActionsState extends State<QuickActions> {
           currentMode: _currentProxyMode,
         ),
         SizedBox(height: spacing * 2),
-        // 模式选择按钮组(仅在服务运行时可用)
         _ProxyModeSelectorSimple(
           currentMode: _currentProxyMode,
           isEnabled: isServiceRunning && tunEnabled,
@@ -200,7 +221,6 @@ class _QuickActionsState extends State<QuickActions> {
           onModeSelected: _switchProxyMode,
         ),
         SizedBox(height: spacing * 2),
-        // 模式说明卡片
         _buildModeExplanation(colorScheme),
       ],
     );
@@ -208,23 +228,85 @@ class _QuickActionsState extends State<QuickActions> {
 
   Widget _buildDesktopLayout(ColorScheme colorScheme, double spacing) {
     final l10n = AppLocalizations.of(context);
-    return Row(
-      children: [
-        Expanded(
-          child: _ProxyCard(
-            icon: Icons.language_rounded,
-            title: l10n?.systemProxy ?? 'System Proxy',
-            subtitle: _systemProxyEnabled
-                ? (l10n?.enabled ?? 'Enabled')
-                : (l10n?.disabled ?? 'Disabled'),
-            description:
-                l10n?.setSystemHttpSocksProxy ?? 'Set system HTTP/SOCKS proxy',
-            isEnabled: _systemProxyEnabled,
-            isLoading: _isProxyLoading,
-            onToggle: _toggleSystemProxy,
+    final networkSettings = context.watch<NetworkSettingsProvider>();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 如果宽度小于 500，使用垂直布局
+        if (constraints.maxWidth < 500) {
+          return Column(
+            children: [
+              _ProxyCard(
+                icon: Icons.language_rounded,
+                title: l10n?.systemProxy ?? 'System Proxy',
+                subtitle: networkSettings.systemProxy
+                    ? (l10n?.enabled ?? 'Enabled')
+                    : (l10n?.disabled ?? 'Disabled'),
+                description:
+                    l10n?.setSystemHttpSocksProxy ??
+                    'Set system HTTP/SOCKS proxy',
+                isEnabled: networkSettings.systemProxy,
+                isLoading: _isProxyLoading,
+                onToggle: (enable) =>
+                    _toggleSystemProxy(enable, networkSettings),
+              ),
+              SizedBox(height: spacing * 1.5),
+              _ProxyCard(
+                icon: Icons.router_rounded,
+                title: l10n?.tunMode ?? 'TUN Mode',
+                subtitle: networkSettings.tunEnabled
+                    ? (l10n?.enabled ?? 'Enabled')
+                    : (l10n?.disabled ?? 'Disabled'),
+                description:
+                    l10n?.tunModeDesc ?? 'Requires administrator privileges',
+                isEnabled: networkSettings.tunEnabled,
+                isLoading: _isTunLoading,
+                onToggle: (enable) => _toggleTunMode(enable, networkSettings),
+              ),
+            ],
+          );
+        }
+
+        // 宽度足够时使用水平布局
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _ProxyCard(
+                  icon: Icons.language_rounded,
+                  title: l10n?.systemProxy ?? 'System Proxy',
+                  subtitle: networkSettings.systemProxy
+                      ? (l10n?.enabled ?? 'Enabled')
+                      : (l10n?.disabled ?? 'Disabled'),
+                  description:
+                      l10n?.setSystemHttpSocksProxy ??
+                      'Set system HTTP/SOCKS proxy',
+                  isEnabled: networkSettings.systemProxy,
+                  isLoading: _isProxyLoading,
+                  onToggle: (enable) =>
+                      _toggleSystemProxy(enable, networkSettings),
+                ),
+              ),
+              SizedBox(width: spacing * 1.5),
+              Expanded(
+                child: _ProxyCard(
+                  icon: Icons.router_rounded,
+                  title: l10n?.tunMode ?? 'TUN Mode',
+                  subtitle: networkSettings.tunEnabled
+                      ? (l10n?.enabled ?? 'Enabled')
+                      : (l10n?.disabled ?? 'Disabled'),
+                  description:
+                      l10n?.tunModeDesc ?? 'Requires administrator privileges',
+                  isEnabled: networkSettings.tunEnabled,
+                  isLoading: _isTunLoading,
+                  onToggle: (enable) => _toggleTunMode(enable, networkSettings),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -239,11 +321,9 @@ class _QuickActionsState extends State<QuickActions> {
       curve: AnimationUtils.curveEmphasized,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: colorScheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: colorScheme.outlineVariant, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,6 +470,10 @@ class _ServiceStatusCard extends StatelessWidget {
               )
             : null,
         color: isActive ? null : colorScheme.surfaceContainerHigh,
+        border: Border.all(
+          color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
+          width: isActive ? 2 : 1,
+        ),
         boxShadow: isActive
             ? [
                 BoxShadow(
@@ -557,7 +641,6 @@ class _ProxyModeSelectorSimple extends StatelessWidget {
   }
 }
 
-/// 模式选择按钮
 class _ModeButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -605,7 +688,7 @@ class _ModeButton extends StatelessWidget {
                 ? colorScheme.primary
                 : isRecommended && !isEnabled
                 ? colorScheme.primary.withValues(alpha: 0.5)
-                : colorScheme.outlineVariant.withValues(alpha: 0.5),
+                : colorScheme.outlineVariant,
             width: isActive || (isRecommended && !isEnabled) ? 2 : 1,
           ),
           boxShadow: isActive
@@ -618,95 +701,87 @@ class _ModeButton extends StatelessWidget {
                 ]
               : null,
         ),
-        child: Stack(
-          alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: AnimationUtils.durationMedium2,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? colorScheme.primary
-                        : colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(borderRadius * 0.6),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 24,
-                    color: isActive
-                        ? colorScheme.onPrimary
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: isActive
-                        ? colorScheme.onPrimaryContainer
-                        : colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  sublabel,
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: isActive
-                        ? colorScheme.onPrimaryContainer.withValues(alpha: 0.7)
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+            // 选中标记或推荐标记 - 放在顶部右侧
+            if (isActive || (isRecommended && !isEnabled))
+              Align(
+                alignment: Alignment.centerRight,
+                child: isActive
+                    ? Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.check_rounded,
+                          size: 12,
+                          color: colorScheme.onPrimary,
+                        ),
+                      )
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          l10n?.recommended ?? 'Recommended',
+                          style: textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+              ),
+            if (isActive || (isRecommended && !isEnabled))
+              const SizedBox(height: 8),
+            // 图标
+            AnimatedContainer(
+              duration: AnimationUtils.durationMedium2,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isActive
+                    ? colorScheme.primary
+                    : colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(borderRadius * 0.6),
+              ),
+              child: Icon(
+                icon,
+                size: 24,
+                color: isActive
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurfaceVariant,
+              ),
             ),
-            // 推荐标签
-            if (isRecommended && !isEnabled)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    l10n?.recommended ?? 'Recommended',
-                    style: textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 9,
-                    ),
-                  ),
-                ),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: isActive
+                    ? colorScheme.onPrimaryContainer
+                    : colorScheme.onSurface,
               ),
-            // 选中标记
-            if (isActive)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.check_rounded,
-                    size: 12,
-                    color: colorScheme.onPrimary,
-                  ),
-                ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              sublabel,
+              textAlign: TextAlign.center,
+              style: textTheme.bodySmall?.copyWith(
+                color: isActive
+                    ? colorScheme.onPrimaryContainer.withValues(alpha: 0.7)
+                    : colorScheme.onSurfaceVariant,
               ),
+            ),
           ],
         ),
       ),
@@ -714,7 +789,6 @@ class _ModeButton extends StatelessWidget {
   }
 }
 
-/// 桌面端代理卡片
 class _ProxyCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -757,6 +831,10 @@ class _ProxyCard extends StatelessWidget {
               )
             : null,
         color: isEnabled ? null : colorScheme.surfaceContainerHigh,
+        border: Border.all(
+          color: isEnabled ? colorScheme.primary : colorScheme.outlineVariant,
+          width: isEnabled ? 2 : 1,
+        ),
         boxShadow: isEnabled
             ? [
                 BoxShadow(

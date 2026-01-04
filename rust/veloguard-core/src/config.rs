@@ -107,6 +107,10 @@ pub struct GeneralConfig {
     #[serde(default)]
     pub ipv6: bool,
 
+    /// TCP concurrent connections
+    #[serde(default)]
+    pub tcp_concurrent: bool,
+
     /// External controller settings
     pub external_controller: Option<String>,
 
@@ -131,6 +135,7 @@ impl Default for GeneralConfig {
             mode: Mode::default(),
             log_level: LogLevel::default(),
             ipv6: false,
+            tcp_concurrent: false,
             external_controller: None,
             external_ui: None,
             secret: None,

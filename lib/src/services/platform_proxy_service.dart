@@ -449,23 +449,48 @@ class PlatformProxyService {
 
   Future<bool> _disableAndroidVpn() async {
     try {
-      // First cleanup Rust layer
+      debugPrint('=== _disableAndroidVpn: Starting VPN shutdown ===');
+
+      // First cleanup Rust layer - stop packet processing
       try {
+        debugPrint('_disableAndroidVpn: Stopping Rust VPN processing...');
         await rust_api.stopAndroidVpn();
         rust_api.clearAndroidVpnFd();
+        debugPrint('_disableAndroidVpn: Rust VPN state cleared');
       } catch (e) {
-        debugPrint('Failed to cleanup Rust VPN state: $e');
+        debugPrint('_disableAndroidVpn: Failed to cleanup Rust VPN state: $e');
       }
 
+      // Then stop Android VPN service
+      debugPrint('_disableAndroidVpn: Stopping Android VPN service...');
       await _channel.invokeMethod('stopVpn');
+      debugPrint('_disableAndroidVpn: Android VPN service stopped');
 
       _tunModeEnabled = false;
       _vpnFd = -1;
 
+      // Wait for VPN to fully disconnect
       await Future.delayed(const Duration(milliseconds: 500));
+
+      // Verify VPN is actually stopped
+      try {
+        final isRunning =
+            await _channel.invokeMethod('isVpnRunning') as bool? ?? false;
+        if (isRunning) {
+          debugPrint(
+            '_disableAndroidVpn: WARNING - VPN still running after stop, forcing reset...',
+          );
+          await _channel.invokeMethod('resetVpnState');
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+      } catch (e) {
+        debugPrint('_disableAndroidVpn: Error checking VPN status: $e');
+      }
+
+      debugPrint('=== _disableAndroidVpn: VPN shutdown complete ===');
       return true;
     } on PlatformException catch (e) {
-      debugPrint('Android VPN disable error: ${e.message}');
+      debugPrint('_disableAndroidVpn: PlatformException: ${e.message}');
       _tunModeEnabled = false;
       _vpnFd = -1;
       return false;

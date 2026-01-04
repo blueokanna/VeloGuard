@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:veloguard/src/providers/app_state_provider.dart';
 import 'package:veloguard/src/providers/theme_provider.dart';
 import 'package:veloguard/src/providers/locale_provider.dart';
+import 'package:veloguard/src/providers/general_settings_provider.dart';
 import 'package:veloguard/src/widgets/adaptive_list_tile.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
+import 'package:veloguard/src/utils/animation_utils.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -186,6 +189,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           );
                         },
                       ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      Consumer<GeneralSettingsProvider>(
+                        builder: (context, generalSettings, child) {
+                          return AdaptiveListTile(
+                            title: Text(l10n?.hapticFeedback ?? '震动反馈'),
+                            subtitle: Text(
+                              l10n?.hapticFeedbackDesc ?? '操作时触发手机震动',
+                            ),
+                            leading: Icon(
+                              Icons.vibration_outlined,
+                              color: colorScheme.primary,
+                            ),
+                            trailing: Switch.adaptive(
+                              value: generalSettings.hapticFeedbackEnabled,
+                              onChanged: (value) {
+                                generalSettings.setHapticFeedbackEnabled(value);
+                                AnimationUtils.setHapticEnabled(value);
+                                if (value) {
+                                  AnimationUtils.mediumHaptic();
+                                }
+                              },
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -322,23 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const Divider(height: 1, indent: 16, endIndent: 16),
                       ],
-                      // 自动关闭 VPN 设置 (Android)
-                      if (PlatformUtils.isMobile) ...[
-                        AdaptiveListTile(
-                          title: const Text('自动关闭 VPN'),
-                          subtitle: const Text('停止服务时自动关闭 VPN 连接'),
-                          leading: Icon(
-                            Icons.vpn_lock_outlined,
-                            color: colorScheme.primary,
-                          ),
-                          trailing: Switch.adaptive(
-                            value: appState.autoVpnClose,
-                            onChanged: (value) =>
-                                appState.setAutoVpnClose(value),
-                          ),
-                        ),
-                        const Divider(height: 1, indent: 16, endIndent: 16),
-                      ],
+
                       AdaptiveListTile(
                         title: Text(l10n?.viewLogs ?? '查看日志'),
                         subtitle: Text(l10n?.viewLogsDesc ?? '查看运行时日志和调试信息'),
@@ -401,7 +413,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: Text(l10n?.aboutCatClash ?? '关于 VeloGuard'),
                         subtitle: Text(l10n?.aboutCatClashDesc ?? '了解更多关于此应用'),
                         leading: Icon(
-                          Icons.pets_outlined,
+                          Icons.flash_on_outlined,
                           color: colorScheme.primary,
                         ),
                         trailing: const Icon(Icons.chevron_right),
@@ -608,7 +620,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.pets, color: colorScheme.primary, size: 32),
+              child: Icon(Icons.flash_on, color: colorScheme.primary, size: 32),
             ),
             const SizedBox(width: 16),
             Column(
@@ -697,34 +709,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.code_outlined, color: colorScheme.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n?.openSource ?? '开源项目',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          Text(
-                            l10n?.openSourceDesc ?? '使用 Flutter & Rust 构建',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                        ],
+              InkWell(
+                onTap: () async {
+                  final uri = Uri.parse(
+                    'https://github.com/blueokanna/VeloGuard',
+                  );
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.code_outlined, color: colorScheme.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              l10n?.openSource ?? '开源项目',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              l10n?.openSourceDesc ?? '使用 Flutter & Rust 构建',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      Icon(
+                        Icons.open_in_new,
+                        color: colorScheme.primary,
+                        size: 18,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

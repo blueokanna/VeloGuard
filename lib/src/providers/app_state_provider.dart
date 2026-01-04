@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veloguard/src/rust/api.dart';
+import 'package:veloguard/src/rust/api.dart' as rust_api;
 import 'package:veloguard/src/rust/types.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
@@ -318,29 +319,63 @@ class AppStateProvider extends ChangeNotifier {
       // VPN must be enabled for apps to use the proxy on Android
       if (Platform.isAndroid) {
         debugPrint('Android detected, auto enabling VPN...');
-        // Wait a bit for proxy to be fully ready
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Wait longer for proxy to be fully ready on first start
+        // This is critical - the proxy needs time to bind ports and initialize
+        // First start after installation needs more time
+        await Future.delayed(const Duration(milliseconds: 2000));
+
+        // Verify proxy is actually ready before enabling VPN
+        bool proxyReady = false;
+        for (int checkAttempt = 1; checkAttempt <= 3; checkAttempt++) {
+          try {
+            final status = await getVeloguardStatus();
+            if (status.running) {
+              proxyReady = true;
+              debugPrint('Proxy ready on check attempt $checkAttempt');
+              break;
+            }
+            debugPrint(
+              'Proxy not ready yet (attempt $checkAttempt), waiting...',
+            );
+            await Future.delayed(const Duration(milliseconds: 1000));
+          } catch (e) {
+            debugPrint(
+              'Failed to check proxy status (attempt $checkAttempt): $e',
+            );
+            await Future.delayed(const Duration(milliseconds: 1000));
+          }
+        }
+
+        if (!proxyReady) {
+          debugPrint(
+            'WARNING: Proxy may not be fully ready, but proceeding with VPN...',
+          );
+          // Give it one more chance
+          await Future.delayed(const Duration(milliseconds: 1500));
+        }
 
         // Try to enable VPN with retry
         bool vpnSuccess = false;
-        for (int attempt = 1; attempt <= 3; attempt++) {
-          debugPrint('VPN enable attempt $attempt/3...');
+        for (int attempt = 1; attempt <= 5; attempt++) {
+          debugPrint('VPN enable attempt $attempt/5...');
           vpnSuccess = await PlatformProxyService.instance.enableTunMode(
             mode: ProxyMode.rule,
           );
           if (vpnSuccess) {
             debugPrint('VPN enabled successfully on attempt $attempt');
+            // Wait for VPN to fully establish connection
+            await Future.delayed(const Duration(milliseconds: 800));
             break;
           }
-          if (attempt < 3) {
-            debugPrint('VPN enable failed, retrying in 1 second...');
-            await Future.delayed(const Duration(seconds: 1));
+          if (attempt < 5) {
+            debugPrint('VPN enable failed, retrying in 2 seconds...');
+            await Future.delayed(const Duration(milliseconds: 2000));
           }
         }
 
         if (!vpnSuccess) {
           debugPrint(
-            'Failed to enable VPN after 3 attempts - VPN permission may be required',
+            'Failed to enable VPN after 5 attempts - VPN permission may be required',
           );
           // On Android, if VPN fails, the service is essentially not useful
           // But we keep it running in case user wants to retry VPN manually
@@ -368,20 +403,33 @@ class AppStateProvider extends ChangeNotifier {
     try {
       debugPrint('Stopping VeloGuard service...');
 
+      // Android: Always disable VPN FIRST when stopping service
+      // This ensures VPN is properly disconnected before stopping the proxy
+      if (Platform.isAndroid) {
+        debugPrint('Auto disabling VPN on Android...');
+        try {
+          // Stop Rust VPN processing first
+          await rust_api.stopAndroidVpn();
+          rust_api.clearAndroidVpnFd();
+          debugPrint('Rust VPN processing stopped');
+        } catch (e) {
+          debugPrint('Error stopping Rust VPN: $e');
+        }
+
+        // Then stop Android VPN service
+        await PlatformProxyService.instance.disableTunMode();
+        debugPrint('VPN disabled automatically');
+
+        // Wait for VPN to fully disconnect
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
       // Windows: Disable system proxy if we enabled it
       if (Platform.isWindows && _systemProxyEnabledByUs) {
         debugPrint('Auto disabling system proxy...');
         await PlatformProxyService.instance.disableSystemProxy();
         _systemProxyEnabledByUs = false;
         debugPrint('System proxy disabled automatically');
-      }
-
-      // Android: Always disable VPN when stopping service
-      // Since we auto-enable VPN on service start, we should auto-disable on stop
-      if (Platform.isAndroid) {
-        debugPrint('Auto disabling VPN on Android...');
-        await PlatformProxyService.instance.disableTunMode();
-        debugPrint('VPN disabled automatically');
       }
 
       await stopVeloguard();
