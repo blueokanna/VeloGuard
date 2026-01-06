@@ -36,6 +36,7 @@ pub struct TrackedConnection {
 }
 
 impl TrackedConnection {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         inbound_tag: String,
         outbound_tag: String,

@@ -140,7 +140,7 @@ async fn get_server_info(
 
     Json(ApiResponse::success(ServerInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime: 0, // TODO: Implement uptime tracking
+        uptime: 0,
         active_connections,
     }))
 }

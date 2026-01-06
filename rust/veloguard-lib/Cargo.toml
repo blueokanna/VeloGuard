@@ -20,7 +20,7 @@ hkdf = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-md5 = { workspace = true }
+md-5 = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
@@ -36,10 +36,14 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 veloguard-core = { workspace = true }
 veloguard-netstack = { workspace = true }
-veloguard-solidtcp = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+tracing-android = "0.2"
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio-test = { workspace = true }

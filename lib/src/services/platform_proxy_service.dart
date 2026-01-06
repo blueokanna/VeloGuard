@@ -818,6 +818,46 @@ class PlatformProxyService {
     }
   }
 
+  /// Check if native library is loaded (Android only)
+  /// Returns true if the Rust native library was loaded successfully
+  Future<bool> isNativeLibraryLoaded() async {
+    if (!Platform.isAndroid) {
+      return true; // On other platforms, assume loaded
+    }
+    try {
+      final result = await _channel.invokeMethod('isNativeLibraryLoaded');
+      return result == true;
+    } catch (e) {
+      debugPrint('Failed to check native library status: $e');
+      return false;
+    }
+  }
+
+  /// Get detailed native library information (Android only)
+  /// Returns a map with library loading details for diagnostics
+  Future<Map<String, dynamic>> getNativeLibraryInfo() async {
+    if (!Platform.isAndroid) {
+      return {
+        'loaded': true,
+        'platform': Platform.operatingSystem,
+        'message': 'Native library check not applicable on this platform',
+      };
+    }
+    try {
+      final result = await _channel.invokeMethod('getNativeLibraryInfo');
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
+      }
+      return {
+        'loaded': false,
+        'error': 'Unexpected result type: ${result.runtimeType}',
+      };
+    } catch (e) {
+      debugPrint('Failed to get native library info: $e');
+      return {'loaded': false, 'error': e.toString()};
+    }
+  }
+
   Future<bool> enableUwpLoopback() async {
     if (!Platform.isWindows) return false;
     try {

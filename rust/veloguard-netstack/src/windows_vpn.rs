@@ -4,7 +4,7 @@
 //! and the SolidTCP user-space TCP/IP stack for transparent proxying.
 
 use bytes::BytesMut;
-use veloguard_solidtcp::{SolidStack, StackBuilder, StackStats};
+use crate::solidtcp::{SolidStack, StackBuilder, StackStats};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicI32, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -96,7 +96,7 @@ impl WindowsVpnProcessor {
         let count = self.packet_count.fetch_add(1, Ordering::Relaxed);
         
         // Log packet info for first 100 packets and periodically
-        if count < 100 || count % 500 == 0 {
+        if count < 100 || count.is_multiple_of(500) {
             // Parse IP version and protocol
             if packet.len() >= 20 {
                 let version = (packet[0] >> 4) & 0x0F;

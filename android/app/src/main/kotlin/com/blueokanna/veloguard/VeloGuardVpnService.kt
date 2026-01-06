@@ -41,6 +41,13 @@ class VeloGuardVpnService : VpnService() {
         private val _jniInitialized = AtomicBoolean(false)
         val jniInitialized: Boolean get() = _jniInitialized.get()
         
+        // Track native library loading status
+        private val _libraryLoaded = AtomicBoolean(false)
+        val isLibraryLoaded: Boolean get() = _libraryLoaded.get()
+        
+        private var _libraryLoadError: String? = null
+        val libraryLoadError: String? get() = _libraryLoadError
+        
         @Volatile
         private var _vpnFd: Int = -1
         val vpnFd: Int get() = _vpnFd
@@ -54,12 +61,54 @@ class VeloGuardVpnService : VpnService() {
         private val _isStarting = AtomicBoolean(false)
         
         init {
+            Log.d(TAG, "=== Native library loading started ===")
+            Log.d(TAG, "Device ABI: ${Build.SUPPORTED_ABIS.joinToString(", ")}")
+            Log.d(TAG, "Primary ABI: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"}")
+            
             try {
                 System.loadLibrary("rust_lib_veloguard")
-                Log.d(TAG, "Native library loaded successfully")
+                _libraryLoaded.set(true)
+                _libraryLoadError = null
+                Log.d(TAG, "=== Native library loaded successfully ===")
             } catch (e: UnsatisfiedLinkError) {
-                Log.e(TAG, "Failed to load native library: ${e.message}")
+                _libraryLoaded.set(false)
+                _libraryLoadError = e.message ?: "Unknown UnsatisfiedLinkError"
+                Log.e(TAG, "=== Failed to load native library ===")
+                Log.e(TAG, "Error: ${e.message}")
+                Log.e(TAG, "Stack trace:", e)
+            } catch (e: Exception) {
+                _libraryLoaded.set(false)
+                _libraryLoadError = e.message ?: "Unknown error"
+                Log.e(TAG, "=== Unexpected error loading native library ===")
+                Log.e(TAG, "Error: ${e.message}")
+                Log.e(TAG, "Stack trace:", e)
             }
+        }
+        
+        /**
+         * Get detailed library loading information for diagnostics
+         */
+        fun getLibraryInfo(context: Context): Map<String, Any> {
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val libFile = java.io.File(nativeLibDir, "librust_lib_veloguard.so")
+            
+            Log.d(TAG, "=== Library Info ===")
+            Log.d(TAG, "Native lib dir: $nativeLibDir")
+            Log.d(TAG, "Library file exists: ${libFile.exists()}")
+            Log.d(TAG, "Library file size: ${if (libFile.exists()) libFile.length() else 0}")
+            Log.d(TAG, "Library loaded: ${_libraryLoaded.get()}")
+            Log.d(TAG, "Library load error: ${_libraryLoadError ?: "none"}")
+            
+            return mapOf(
+                "loaded" to _libraryLoaded.get(),
+                "path" to nativeLibDir,
+                "fileExists" to libFile.exists(),
+                "fileSize" to (if (libFile.exists()) libFile.length() else 0L),
+                "error" to (_libraryLoadError ?: ""),
+                "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+                "primaryAbi" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"),
+                "jniInitialized" to _jniInitialized.get()
+            )
         }
         
         @Synchronized

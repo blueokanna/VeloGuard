@@ -117,15 +117,20 @@ fn init_logging_inner(level: LogLevel) -> Result<()> {
     let buffer_layer = BufferLayer;
 
     // Initialize subscriber with both layers
-    tracing_subscriber::registry()
+    // Use try_init to avoid panic if tracing is already initialized
+    let result = tracing_subscriber::registry()
         .with(fmt_layer)
         .with(buffer_layer)
-        .init();
+        .try_init();
 
-    // Add initial log entry
-    add_log(format!("[INFO] Logging initialized at level: {:?}", level));
-    
-    tracing::info!("Logging initialized at level: {:?}", level);
+    // If tracing was already initialized, that's fine - just log to buffer
+    if result.is_err() {
+        add_log(format!("[INFO] Tracing already initialized, using existing subscriber"));
+    } else {
+        // Add initial log entry
+        add_log(format!("[INFO] Logging initialized at level: {:?}", level));
+        tracing::info!("Logging initialized at level: {:?}", level);
+    }
     Ok(())
 }
 
@@ -168,9 +173,7 @@ struct LogVisitor {
 
 impl tracing::field::Visit for LogVisitor {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "message" {
-            self.message = value.to_string();
-        } else if self.message.is_empty() {
+        if field.name() == "message" || self.message.is_empty() {
             self.message = value.to_string();
         } else {
             self.message.push_str(&format!(" {}={}", field.name(), value));
@@ -178,9 +181,7 @@ impl tracing::field::Visit for LogVisitor {
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = format!("{:?}", value);
-        } else if self.message.is_empty() {
+        if field.name() == "message" || self.message.is_empty() {
             self.message = format!("{:?}", value);
         } else {
             self.message.push_str(&format!(" {}={:?}", field.name(), value));

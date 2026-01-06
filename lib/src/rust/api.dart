@@ -11,6 +11,124 @@ import 'types.dart';
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `SsAeadCipherInner`, `SsAeadCipher`, `SsCipherSpec`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
+/// Start proxy from YAML configuration string
+/// This is the primary API for starting the proxy with a YAML config
+Future<void> startProxyFromYaml({required String yamlConfig}) =>
+    RustLib.instance.api.crateApiStartProxyFromYaml(yamlConfig: yamlConfig);
+
+/// Start proxy from configuration file path
+Future<void> startProxyFromFile({required String configPath}) =>
+    RustLib.instance.api.crateApiStartProxyFromFile(configPath: configPath);
+
+/// Stop the proxy
+Future<void> stopProxy() => RustLib.instance.api.crateApiStopProxy();
+
+/// Check if proxy is running
+Future<bool> isProxyRunning() => RustLib.instance.api.crateApiIsProxyRunning();
+
+/// Reload configuration from YAML string
+Future<void> reloadConfigFromYaml({required String yamlConfig}) =>
+    RustLib.instance.api.crateApiReloadConfigFromYaml(yamlConfig: yamlConfig);
+
+/// Reload configuration from file path
+Future<void> reloadConfigFromFile({required String configPath}) =>
+    RustLib.instance.api.crateApiReloadConfigFromFile(configPath: configPath);
+
+/// Get traffic statistics DTO
+Future<TrafficStatsDto> getTrafficStatsDto() =>
+    RustLib.instance.api.crateApiGetTrafficStatsDto();
+
+/// Get all connections as DTOs
+Future<List<ConnectionDto>> getConnectionsDto() =>
+    RustLib.instance.api.crateApiGetConnectionsDto();
+
+/// Close a specific connection by ID
+Future<void> closeConnectionById({required String id}) =>
+    RustLib.instance.api.crateApiCloseConnectionById(id: id);
+
+/// Close all active connections
+Future<void> closeAllConnectionsDto() =>
+    RustLib.instance.api.crateApiCloseAllConnectionsDto();
+
+/// Get all proxies as DTOs
+Future<List<ProxyInfoDto>> getProxies() =>
+    RustLib.instance.api.crateApiGetProxies();
+
+/// Get all proxy groups as DTOs
+Future<List<ProxyGroupDto>> getProxyGroups() =>
+    RustLib.instance.api.crateApiGetProxyGroups();
+
+/// Select a proxy within a group
+Future<void> selectProxy({
+  required String groupTag,
+  required String proxyTag,
+}) => RustLib.instance.api.crateApiSelectProxy(
+  groupTag: groupTag,
+  proxyTag: proxyTag,
+);
+
+/// Test latency for a specific proxy
+Future<BigInt> testProxyLatencyDto({
+  required String tag,
+  required String testUrl,
+  required BigInt timeoutMs,
+}) => RustLib.instance.api.crateApiTestProxyLatencyDto(
+  tag: tag,
+  testUrl: testUrl,
+  timeoutMs: timeoutMs,
+);
+
+/// Test latency for all proxies
+Future<List<ProxyLatencyDto>> testAllProxiesLatency({
+  required String testUrl,
+  required BigInt timeoutMs,
+}) => RustLib.instance.api.crateApiTestAllProxiesLatency(
+  testUrl: testUrl,
+  timeoutMs: timeoutMs,
+);
+
+/// Get all routing rules as DTOs
+Future<List<RuleDto>> getRules() => RustLib.instance.api.crateApiGetRules();
+
+/// Get DNS configuration as DTO
+Future<DnsConfigDto> getDnsConfig() =>
+    RustLib.instance.api.crateApiGetDnsConfig();
+
+/// Set proxy mode (0=config, 1=global, 2=direct, 3=rule)
+Future<void> setProxyMode({required int mode}) =>
+    RustLib.instance.api.crateApiSetProxyMode(mode: mode);
+
+/// Get current proxy mode (0=config, 1=global, 2=direct, 3=rule)
+Future<int> getProxyMode() => RustLib.instance.api.crateApiGetProxyMode();
+
+/// Set VPN file descriptor (Android only)
+Future<void> setVpnFd({required int fd}) =>
+    RustLib.instance.api.crateApiSetVpnFd(fd: fd);
+
+/// Clear VPN file descriptor (Android only)
+Future<void> clearVpnFd() => RustLib.instance.api.crateApiClearVpnFd();
+
+/// Set socket protect callback (Android only)
+/// This callback is used to protect sockets from being routed through the VPN
+Future<void> setProtectSocketCallbackEnabled({required bool enabled}) => RustLib
+    .instance
+    .api
+    .crateApiSetProtectSocketCallbackEnabled(enabled: enabled);
+
+/// Start TUN mode (Windows only)
+Future<void> startTunMode({
+  required String tunName,
+  required String tunAddress,
+  required String tunNetmask,
+}) => RustLib.instance.api.crateApiStartTunMode(
+  tunName: tunName,
+  tunAddress: tunAddress,
+  tunNetmask: tunNetmask,
+);
+
+/// Stop TUN mode (Windows only)
+Future<void> stopTunMode() => RustLib.instance.api.crateApiStopTunMode();
+
 /// Initialize VeloGuard with configuration
 Future<void> initializeVeloguard({required String configJson}) =>
     RustLib.instance.api.crateApiInitializeVeloguard(configJson: configJson);

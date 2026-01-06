@@ -192,14 +192,9 @@ where
     // Return error only if both failed with non-connection errors
     match (result_a, result_b) {
         (Ok(_), Ok(_)) => Ok(()),
-        (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
-            if e.kind() == std::io::ErrorKind::ConnectionReset 
-                || e.kind() == std::io::ErrorKind::BrokenPipe
-                || e.to_string().contains("connection") {
-                Ok(())
-            } else {
-                Ok(()) // Still return Ok for partial success
-            }
+        (Ok(_), Err(_)) | (Err(_), Ok(_)) => {
+            // One direction completed successfully, consider it a success
+            Ok(())
         }
         (Err(e1), Err(e2)) => {
             // Both failed - check if it's a normal connection close
@@ -230,14 +225,14 @@ where
             let _ = bw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay A->B completed: {} bytes", bytes);
-                ()
+                
             })
         }
         result = tokio::io::copy(&mut br, &mut aw) => {
             let _ = aw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay B->A completed: {} bytes", bytes);
-                ()
+                
             })
         }
     };

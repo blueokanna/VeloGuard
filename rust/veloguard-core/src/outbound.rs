@@ -1,5 +1,5 @@
 use crate::config::{Config, OutboundConfig, OutboundType};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -14,6 +14,7 @@ mod shadowsocks;
 mod socks5;
 mod trojan;
 mod tuic;
+mod vless;
 mod vmess;
 mod wireguard;
 
@@ -27,6 +28,7 @@ pub use shadowsocks::ShadowsocksOutbound;
 pub use socks5::Socks5Outbound;
 pub use trojan::TrojanOutbound;
 pub use tuic::TuicOutbound;
+pub use vless::VlessOutbound;
 pub use vmess::VmessOutbound;
 pub use wireguard::WireguardOutbound;
 
@@ -68,6 +70,38 @@ impl TargetAddr {
         match self {
             TargetAddr::Domain(domain, _) => domain.clone(),
             TargetAddr::Ip(addr) => addr.ip().to_string(),
+        }
+    }
+}
+
+impl From<TargetAddr> for veloguard_protocol::Address {
+    fn from(target: TargetAddr) -> Self {
+        match target {
+            TargetAddr::Domain(domain, port) => veloguard_protocol::Address::Domain(domain, port),
+            TargetAddr::Ip(addr) => veloguard_protocol::Address::from_socket_addr(addr),
+        }
+    }
+}
+
+impl From<&TargetAddr> for veloguard_protocol::Address {
+    fn from(target: &TargetAddr) -> Self {
+        match target {
+            TargetAddr::Domain(domain, port) => veloguard_protocol::Address::Domain(domain.clone(), *port),
+            TargetAddr::Ip(addr) => veloguard_protocol::Address::from_socket_addr(*addr),
+        }
+    }
+}
+
+impl From<veloguard_protocol::Address> for TargetAddr {
+    fn from(addr: veloguard_protocol::Address) -> Self {
+        match addr {
+            veloguard_protocol::Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
+            veloguard_protocol::Address::Ipv4(ip, port) => {
+                TargetAddr::Ip(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(ip, port)))
+            }
+            veloguard_protocol::Address::Ipv6(ip, port) => {
+                TargetAddr::Ip(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0)))
+            }
         }
     }
 }
@@ -162,6 +196,9 @@ impl OutboundManager {
                     OutboundType::Vmess => {
                         Some(Arc::new(VmessOutbound::new(outbound_config.clone())?))
                     }
+                    OutboundType::Vless => {
+                        Some(Arc::new(VlessOutbound::new(outbound_config.clone())?))
+                    }
                     OutboundType::Trojan => {
                         Some(Arc::new(TrojanOutbound::new(outbound_config.clone())?))
                     }
@@ -175,7 +212,6 @@ impl OutboundManager {
                         Some(Arc::new(Hysteria2Outbound::new(outbound_config.clone())?))
                     }
                     OutboundType::Quic => {
-                        // TODO: Implement QUIC outbound proxy
                         tracing::warn!("QUIC outbound not yet implemented, using direct");
                         Some(Arc::new(DirectOutbound::new(outbound_config.clone())))
                     }
@@ -231,7 +267,6 @@ impl OutboundManager {
     }
 
     pub async fn reload(&self) -> Result<()> {
-        // TODO: Implement outbound reload logic
         Ok(())
     }
 
@@ -264,5 +299,39 @@ impl OutboundManager {
     /// Get proxy registry (for proxy groups)
     pub fn registry(&self) -> ProxyRegistry {
         self.proxies.clone()
+    }
+    
+    /// Set the selected proxy in a selector group
+    pub async fn set_selector_proxy(&self, group_tag: &str, proxy_tag: &str) -> Result<()> {
+        let proxies = self.proxies.read().await;
+        
+        if proxies.get(group_tag).is_some() {
+            // Store the selection in a global map that SelectorOutbound checks
+            use parking_lot::RwLock as ParkingRwLock;
+            use std::collections::HashMap;
+            use std::sync::OnceLock;
+            
+            static SELECTOR_SELECTIONS: OnceLock<ParkingRwLock<HashMap<String, String>>> = OnceLock::new();
+            
+            let selections = SELECTOR_SELECTIONS.get_or_init(|| ParkingRwLock::new(HashMap::new()));
+            selections.write().insert(group_tag.to_string(), proxy_tag.to_string());
+            
+            tracing::info!("Selector '{}' selection set to '{}'", group_tag, proxy_tag);
+            Ok(())
+        } else {
+            Err(Error::config(format!("Proxy group '{}' not found", group_tag)))
+        }
+    }
+    
+    /// Get the selected proxy in a selector group
+    pub fn get_selector_proxy(&self, group_tag: &str) -> Option<String> {
+        use parking_lot::RwLock as ParkingRwLock;
+        use std::collections::HashMap;
+        use std::sync::OnceLock;
+        
+        static SELECTOR_SELECTIONS: OnceLock<ParkingRwLock<HashMap<String, String>>> = OnceLock::new();
+        
+        let selections = SELECTOR_SELECTIONS.get_or_init(|| ParkingRwLock::new(HashMap::new()));
+        selections.read().get(group_tag).cloned()
     }
 }

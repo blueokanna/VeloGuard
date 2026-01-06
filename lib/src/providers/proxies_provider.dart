@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/rust/api.dart' as rust_api;
+import 'package:veloguard/main.dart' show isRustLibInitialized;
 
 /// Latency test result
 class LatencyResult {
@@ -223,7 +224,12 @@ class ProxiesProvider extends ChangeNotifier {
     _saveSelections();
     notifyListeners();
 
-    // Call Rust API to change proxy selection
+    // Call Rust API to change proxy selection (only if RustLib is initialized)
+    if (!isRustLibInitialized) {
+      debugPrint('Skipping Rust API call: RustLib not initialized');
+      return;
+    }
+
     try {
       await rust_api.selectProxyInGroup(
         groupName: groupName,
@@ -315,6 +321,15 @@ class ProxiesProvider extends ChangeNotifier {
     String proxyName,
     ParsedProxy proxy,
   ) async {
+    // Check if RustLib is initialized
+    if (!isRustLibInitialized) {
+      return LatencyResult(
+        proxyName: proxyName,
+        isSuccess: false,
+        error: 'Rust library not initialized',
+      );
+    }
+
     try {
       final server = proxy.server;
       if (server == null) {

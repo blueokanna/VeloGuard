@@ -221,10 +221,8 @@ impl RouteManager {
         Ok(())
     }
 
-    // Unix stubs
     #[cfg(unix)]
     pub fn setup_routes(&mut self, _tun_gateway: Ipv4Addr) -> Result<()> {
-        // TODO: Implement for Linux/macOS
         warn!("Route management not yet implemented for this platform");
         Ok(())
     }

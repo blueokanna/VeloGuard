@@ -14,7 +14,7 @@ class DnsSettings {
   final bool ipv6;
   final bool followRules;
   final bool preferH3;
-  final String dnsMode; // 'normal', 'fake-ip', 'redir-host'
+  final String dnsMode;
   final String fakeIpRange;
   final List<String> fakeIpFilter;
   final List<String> defaultNameservers;

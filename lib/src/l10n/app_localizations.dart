@@ -416,6 +416,30 @@ class AppLocalizations {
   String get smartRouting => _getLocalizedString('smartRouting');
   String get allProxy => _getLocalizedString('allProxy');
   String get recommended => _getLocalizedString('recommended');
+
+  // Rust Init Error Dialog
+  String get rustInitErrorTitle => _getLocalizedString('rustInitErrorTitle');
+  String get rustInitErrorMessage =>
+      _getLocalizedString('rustInitErrorMessage');
+  String get rustInitErrorAffectedFeatures =>
+      _getLocalizedString('rustInitErrorAffectedFeatures');
+  String get rustInitErrorFeatureVpn =>
+      _getLocalizedString('rustInitErrorFeatureVpn');
+  String get rustInitErrorFeatureProxy =>
+      _getLocalizedString('rustInitErrorFeatureProxy');
+  String get rustInitErrorFeatureProfiles =>
+      _getLocalizedString('rustInitErrorFeatureProfiles');
+  String get rustInitErrorSuggestions =>
+      _getLocalizedString('rustInitErrorSuggestions');
+  String get rustInitErrorSuggestion1 =>
+      _getLocalizedString('rustInitErrorSuggestion1');
+  String get rustInitErrorSuggestion2 =>
+      _getLocalizedString('rustInitErrorSuggestion2');
+  String get rustInitErrorSuggestion3 =>
+      _getLocalizedString('rustInitErrorSuggestion3');
+  String get rustInitErrorRetry => _getLocalizedString('rustInitErrorRetry');
+  String get rustInitErrorContinue =>
+      _getLocalizedString('rustInitErrorContinue');
 }
 
 class _AppLocalizationsDelegate
@@ -1032,6 +1056,20 @@ const Map<String, String> _enStrings = {
   'nameservers': 'Nameservers',
   'addNewItem': 'Add new item...',
   'noDataYet': 'No data yet',
+  // Rust Init Error Dialog
+  'rustInitErrorTitle': 'Initialization Error',
+  'rustInitErrorMessage':
+      'The native library failed to load. Some features will not be available.',
+  'rustInitErrorAffectedFeatures': 'Affected Features',
+  'rustInitErrorFeatureVpn': '• VPN connection',
+  'rustInitErrorFeatureProxy': '• Proxy functionality',
+  'rustInitErrorFeatureProfiles': '• Profile activation',
+  'rustInitErrorSuggestions': 'Suggestions',
+  'rustInitErrorSuggestion1': '• Restart the app',
+  'rustInitErrorSuggestion2': '• Update to the latest version',
+  'rustInitErrorSuggestion3': '• Check device compatibility',
+  'rustInitErrorRetry': 'Retry',
+  'rustInitErrorContinue': 'Continue Anyway',
 };
 
 // =============================================================================

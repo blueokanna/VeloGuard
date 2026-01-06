@@ -8,6 +8,7 @@ import 'package:veloguard/src/rust/types.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/services/platform_proxy_service.dart';
+import 'package:veloguard/main.dart' show isRustLibInitialized;
 
 class AppStateProvider extends ChangeNotifier {
   // App state
@@ -115,6 +116,12 @@ class AppStateProvider extends ChangeNotifier {
 
   // Initialize VeloGuard from active profile on startup
   Future<void> _initializeFromActiveProfile() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot initialize from profile: RustLib not initialized');
+      _isInitialized = false;
+      return;
+    }
+
     try {
       final activeProfileId = await StorageService.instance
           .getActiveProfileId();
@@ -173,6 +180,10 @@ class AppStateProvider extends ChangeNotifier {
 
   // Load version information
   Future<void> _loadVersionInfo() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Skipping version info load: RustLib not initialized');
+      return;
+    }
     try {
       _version = await getVersion();
       _buildInfo = await getBuildInfo();
@@ -220,6 +231,10 @@ class AppStateProvider extends ChangeNotifier {
 
   // Load system information
   Future<void> _loadSystemInfo() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Skipping system info load: RustLib not initialized');
+      return;
+    }
     try {
       _systemInfo = await getSystemInfo();
       notifyListeners();
@@ -237,6 +252,11 @@ class AppStateProvider extends ChangeNotifier {
 
   // Service management
   Future<bool> startService() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot start service: RustLib not initialized');
+      return false;
+    }
+
     _isLoading = true;
     notifyListeners();
 
@@ -479,6 +499,11 @@ class AppStateProvider extends ChangeNotifier {
 
   // Status refresh
   Future<void> _refreshStatus() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Skipping status refresh: RustLib not initialized');
+      return;
+    }
+
     try {
       _proxyStatus = await getVeloguardStatus();
       _trafficStats = await getTrafficStats();
@@ -548,6 +573,10 @@ class AppStateProvider extends ChangeNotifier {
 
   // Configuration management
   Future<bool> testConfiguration(String configJson) async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot test config: RustLib not initialized');
+      return false;
+    }
     try {
       return await testConfig(configJson: configJson);
     } catch (e) {
@@ -557,6 +586,11 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> loadConfiguration(String configJson) async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot load config: RustLib not initialized');
+      return;
+    }
+
     _isLoading = true;
     notifyListeners();
 
@@ -572,6 +606,11 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> reloadConfiguration(String configJson) async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot reload config: RustLib not initialized');
+      return;
+    }
+
     _isLoading = true;
     notifyListeners();
 
@@ -588,6 +627,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Connection management
   Future<void> closeConnectionById(String connectionId) async {
+    if (!isRustLibInitialized) return;
     try {
       await closeConnection(connectionId: connectionId);
       await _refreshStatus();
@@ -598,6 +638,7 @@ class AppStateProvider extends ChangeNotifier {
 
   /// Close an active connection by ID (using connection tracker)
   Future<bool> closeActiveConnectionById(String connectionId) async {
+    if (!isRustLibInitialized) return false;
     try {
       final result = await closeActiveConnection(connectionId: connectionId);
       await _refreshStatus();
@@ -609,6 +650,7 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> closeAllActiveConnections() async {
+    if (!isRustLibInitialized) return;
     // Use the new Rust API to close all connections at once
     try {
       await closeAllConnections();
@@ -629,6 +671,10 @@ class AppStateProvider extends ChangeNotifier {
 
   // Log level management
   Future<void> updateLogLevel(String level) async {
+    if (!isRustLibInitialized) {
+      debugPrint('Cannot update log level: RustLib not initialized');
+      return;
+    }
     try {
       await setLogLevel(level: level);
       _logLevel = level;

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/rust/api.dart';
+import 'package:veloguard/main.dart' show isRustLibInitialized;
 
 class ProfilesProvider extends ChangeNotifier {
   List<ProfileConfig> _profiles = [];
@@ -326,31 +327,91 @@ class ProfilesProvider extends ChangeNotifier {
     }
   }
 
+  /// Select a profile without starting the proxy
+  /// This just marks the profile as active and loads its config
+  /// The proxy will be started separately from the home screen
   Future<bool> selectProfile(String id) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Get profile config
       final configContent = await StorageService.instance.getProfileConfig(id);
       if (configContent == null) {
         throw Exception('Profile config not found');
+      }
+
+      _activeProfileId = id;
+      await StorageService.instance.setActiveProfileId(id);
+
+      debugPrint(
+        'Profile $id selected. Ready to start proxy from home screen.',
+      );
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to select profile: $e');
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Initialize the proxy with the active profile config
+  /// This should be called when user wants to start the proxy
+  Future<bool> initializeActiveProfile() async {
+    if (_activeProfileId == null) {
+      _error = 'No profile selected';
+      notifyListeners();
+      return false;
+    }
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // Get profile config
+      final configContent = await StorageService.instance.getProfileConfig(
+        _activeProfileId!,
+      );
+      if (configContent == null) {
+        throw Exception('Profile config not found');
+      }
+
+      // Check if RustLib is initialized
+      if (!isRustLibInitialized) {
+        _error = 'Native library not loaded. Cannot start proxy.';
+        notifyListeners();
+        return false;
       }
 
       // Convert Clash YAML to VeloGuard JSON format
       final jsonConfig = ConfigConverter.convertClashYamlToJson(configContent);
 
       // Initialize VeloGuard with the converted config
-      await initializeVeloguard(configJson: jsonConfig);
+      try {
+        await initializeVeloguard(configJson: jsonConfig);
+      } catch (e) {
+        // If initialization fails, try using YAML directly
+        debugPrint('JSON initialization failed, trying YAML: $e');
+        try {
+          await startProxyFromYaml(yamlConfig: configContent);
+        } catch (yamlError) {
+          debugPrint('YAML initialization also failed: $yamlError');
+          throw Exception('Failed to initialize proxy: $e');
+        }
+      }
 
-      _activeProfileId = id;
-      await StorageService.instance.setActiveProfileId(id);
-
+      debugPrint('Proxy initialized with profile $_activeProfileId');
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('Failed to select profile: $e');
+      debugPrint('Failed to initialize proxy: $e');
       _error = e.toString();
       notifyListeners();
       return false;

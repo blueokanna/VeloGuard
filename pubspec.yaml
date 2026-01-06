@@ -63,6 +63,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_launcher_icons: ^0.14.3
+  ffigen: ^20.1.1
 
 flutter_launcher_icons:
   android: true

@@ -2,14 +2,23 @@ use crate::config::OutboundConfig;
 use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundProxy, ProxyRegistry, TargetAddr};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use parking_lot::RwLock as ParkingRwLock;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+// Global selector selections - shared with OutboundManager
+static SELECTOR_SELECTIONS: OnceLock<ParkingRwLock<HashMap<String, String>>> = OnceLock::new();
+
+fn get_global_selections() -> &'static ParkingRwLock<HashMap<String, String>> {
+    SELECTOR_SELECTIONS.get_or_init(|| ParkingRwLock::new(HashMap::new()))
+}
 
 /// Selector proxy group - allows manual selection of outbound
 /// Also used for url-test, fallback, load-balance, and relay groups
 pub struct SelectorOutbound {
     config: OutboundConfig,
     outbounds: Vec<String>,
-    selected: RwLock<String>,
+    default_selected: String,
     registry: ProxyRegistry,
 }
 
@@ -43,32 +52,38 @@ impl SelectorOutbound {
         };
         
         // If no outbounds specified, default to DIRECT
-        let selected = outbounds.first().cloned().unwrap_or_else(|| "DIRECT".to_string());
+        let default_selected = outbounds.first().cloned().unwrap_or_else(|| "DIRECT".to_string());
         
-        tracing::info!("Selector '{}' created with {} outbounds: {:?}, selected: {}", 
-            config.tag, outbounds.len(), outbounds, selected);
+        tracing::info!("Selector '{}' created with {} outbounds: {:?}, default: {}", 
+            config.tag, outbounds.len(), outbounds, default_selected);
         
         Ok(Self {
             config,
             outbounds,
-            selected: RwLock::new(selected),
+            default_selected,
             registry,
         })
     }
     
     /// Get the currently selected outbound tag
-    pub async fn get_selected(&self) -> String {
-        self.selected.read().await.clone()
+    /// First checks global selections, then falls back to default
+    pub fn get_selected(&self) -> String {
+        let selections = get_global_selections();
+        selections.read()
+            .get(&self.config.tag)
+            .cloned()
+            .unwrap_or_else(|| self.default_selected.clone())
     }
     
-    /// Set the selected outbound
-    pub async fn set_selected(&self, tag: &str) -> Result<()> {
+    /// Set the selected outbound (updates global selection)
+    pub fn set_selected(&self, tag: &str) -> Result<()> {
         if self.outbounds.contains(&tag.to_string()) || tag == "DIRECT" || tag == "REJECT" {
-            *self.selected.write().await = tag.to_string();
+            let selections = get_global_selections();
+            selections.write().insert(self.config.tag.clone(), tag.to_string());
             tracing::info!("Selector '{}' switched to '{}'", self.config.tag, tag);
             Ok(())
         } else {
-            Err(Error::config(format!("Outbound '{}' not in selector group", tag)))
+            Err(Error::config(format!("Outbound '{}' not in selector group '{}'", tag, self.config.tag)))
         }
     }
     
@@ -88,7 +103,8 @@ impl SelectorOutbound {
             return Err(Error::config("Selector chain too deep"));
         }
         
-        let selected = self.selected.read().await.clone();
+        let selected = self.get_selected();
+        tracing::debug!("Selector '{}' resolving to '{}'", self.config.tag, selected);
         
         if let Some(proxy) = self.find_proxy(&selected).await {
             // Check if the selected proxy is also a selector (nested group)

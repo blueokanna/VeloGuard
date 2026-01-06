@@ -34,16 +34,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  ConnectionDto dco_decode_connection_dto(dynamic raw);
+
+  @protected
   ConnectionInfo dco_decode_connection_info(dynamic raw);
+
+  @protected
+  DnsConfigDto dco_decode_dns_config_dto(dynamic raw);
 
   @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
   LatencyTestResult dco_decode_latency_test_result(dynamic raw);
@@ -55,6 +70,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ActiveConnection> dco_decode_list_active_connection(dynamic raw);
 
   @protected
+  List<ConnectionDto> dco_decode_list_connection_dto(dynamic raw);
+
+  @protected
   List<ConnectionInfo> dco_decode_list_connection_info(dynamic raw);
 
   @protected
@@ -64,13 +82,40 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<ProxyGroupDto> dco_decode_list_proxy_group_dto(dynamic raw);
+
+  @protected
+  List<ProxyInfoDto> dco_decode_list_proxy_info_dto(dynamic raw);
+
+  @protected
+  List<ProxyLatencyDto> dco_decode_list_proxy_latency_dto(dynamic raw);
+
+  @protected
   List<(String, int)> dco_decode_list_record_string_u_16(dynamic raw);
+
+  @protected
+  List<RuleDto> dco_decode_list_rule_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  ProxyGroupDto dco_decode_proxy_group_dto(dynamic raw);
+
+  @protected
+  ProxyInfoDto dco_decode_proxy_info_dto(dynamic raw);
+
+  @protected
+  ProxyLatencyDto dco_decode_proxy_latency_dto(dynamic raw);
 
   @protected
   ProxyStatus dco_decode_proxy_status(dynamic raw);
@@ -88,10 +133,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_record_u_64_u_64_u_64_u_64_usize_usize(dynamic raw);
 
   @protected
+  RuleDto dco_decode_rule_dto(dynamic raw);
+
+  @protected
   SystemInfo dco_decode_system_info(dynamic raw);
 
   @protected
   TrafficStats dco_decode_traffic_stats(dynamic raw);
+
+  @protected
+  TrafficStatsDto dco_decode_traffic_stats_dto(dynamic raw);
 
   @protected
   TunStatus dco_decode_tun_status(dynamic raw);
@@ -127,16 +178,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  ConnectionDto sse_decode_connection_dto(SseDeserializer deserializer);
+
+  @protected
   ConnectionInfo sse_decode_connection_info(SseDeserializer deserializer);
+
+  @protected
+  DnsConfigDto sse_decode_dns_config_dto(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
   LatencyTestResult sse_decode_latency_test_result(
@@ -148,6 +214,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ActiveConnection> sse_decode_list_active_connection(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ConnectionDto> sse_decode_list_connection_dto(
     SseDeserializer deserializer,
   );
 
@@ -165,15 +236,48 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<ProxyGroupDto> sse_decode_list_proxy_group_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ProxyInfoDto> sse_decode_list_proxy_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ProxyLatencyDto> sse_decode_list_proxy_latency_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<(String, int)> sse_decode_list_record_string_u_16(
     SseDeserializer deserializer,
   );
 
   @protected
+  List<RuleDto> sse_decode_list_rule_dto(SseDeserializer deserializer);
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  ProxyGroupDto sse_decode_proxy_group_dto(SseDeserializer deserializer);
+
+  @protected
+  ProxyInfoDto sse_decode_proxy_info_dto(SseDeserializer deserializer);
+
+  @protected
+  ProxyLatencyDto sse_decode_proxy_latency_dto(SseDeserializer deserializer);
 
   @protected
   ProxyStatus sse_decode_proxy_status(SseDeserializer deserializer);
@@ -193,10 +297,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RuleDto sse_decode_rule_dto(SseDeserializer deserializer);
+
+  @protected
   SystemInfo sse_decode_system_info(SseDeserializer deserializer);
 
   @protected
   TrafficStats sse_decode_traffic_stats(SseDeserializer deserializer);
+
+  @protected
+  TrafficStatsDto sse_decode_traffic_stats_dto(SseDeserializer deserializer);
 
   @protected
   TunStatus sse_decode_tun_status(SseDeserializer deserializer);
@@ -220,6 +330,383 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
+  String cst_encode_AnyhowException(AnyhowException raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  String cst_encode_String(String raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw;
+  }
+
+  @protected
+  JSAny cst_encode_active_connection(ActiveConnection raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.id),
+      cst_encode_String(raw.inboundTag),
+      cst_encode_String(raw.outboundTag),
+      cst_encode_String(raw.host),
+      cst_encode_opt_String(raw.destinationIp),
+      cst_encode_u_16(raw.destinationPort),
+      cst_encode_String(raw.protocol),
+      cst_encode_String(raw.network),
+      cst_encode_u_64(raw.uploadBytes),
+      cst_encode_u_64(raw.downloadBytes),
+      cst_encode_u_64(raw.startTime),
+      cst_encode_String(raw.rule),
+      cst_encode_String(raw.rulePayload),
+      cst_encode_opt_String(raw.processName),
+    ].jsify()!;
+  }
+
+  @protected
+  int cst_encode_box_autoadd_u_16(int raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return cst_encode_u_16(raw);
+  }
+
+  @protected
+  int cst_encode_box_autoadd_u_32(int raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return cst_encode_u_32(raw);
+  }
+
+  @protected
+  JSAny cst_encode_box_autoadd_u_64(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return cst_encode_u_64(raw);
+  }
+
+  @protected
+  JSAny cst_encode_connection_dto(ConnectionDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.id),
+      cst_encode_String(raw.srcAddr),
+      cst_encode_String(raw.dstAddr),
+      cst_encode_opt_String(raw.dstDomain),
+      cst_encode_String(raw.protocol),
+      cst_encode_String(raw.outbound),
+      cst_encode_u_64(raw.upload),
+      cst_encode_u_64(raw.download),
+      cst_encode_i_64(raw.startTime),
+      cst_encode_opt_String(raw.rule),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_connection_info(ConnectionInfo raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.id),
+      cst_encode_String(raw.host),
+      cst_encode_String(raw.destination),
+      cst_encode_u_64(raw.upload),
+      cst_encode_u_64(raw.download),
+      cst_encode_u_64(raw.startTime),
+      cst_encode_String(raw.rule),
+      cst_encode_list_String(raw.chains),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_dns_config_dto(DnsConfigDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_bool(raw.enable),
+      cst_encode_String(raw.listen),
+      cst_encode_String(raw.enhancedMode),
+      cst_encode_list_String(raw.nameservers),
+      cst_encode_list_String(raw.fallback),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_i_64(PlatformInt64 raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return castNativeBigInt(raw);
+  }
+
+  @protected
+  JSAny cst_encode_latency_test_result(LatencyTestResult raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.proxyName),
+      cst_encode_opt_box_autoadd_u_32(raw.latencyMs),
+      cst_encode_bool(raw.success),
+      cst_encode_opt_String(raw.error),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_String(List<String> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_String).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_active_connection(List<ActiveConnection> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_active_connection).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_connection_dto(List<ConnectionDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_connection_dto).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_connection_info(List<ConnectionInfo> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_connection_info).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_latency_test_result(List<LatencyTestResult> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_latency_test_result).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_prim_u_8_strict(Uint8List raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_proxy_group_dto(List<ProxyGroupDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_proxy_group_dto).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_proxy_info_dto(List<ProxyInfoDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_proxy_info_dto).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_proxy_latency_dto(List<ProxyLatencyDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_proxy_latency_dto).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_record_string_u_16(List<(String, int)> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_record_string_u_16).toList().jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_list_rule_dto(List<RuleDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.map(cst_encode_rule_dto).toList().jsify()!;
+  }
+
+  @protected
+  String? cst_encode_opt_String(String? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? null : cst_encode_String(raw);
+  }
+
+  @protected
+  int? cst_encode_opt_box_autoadd_u_16(int? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? null : cst_encode_box_autoadd_u_16(raw);
+  }
+
+  @protected
+  int? cst_encode_opt_box_autoadd_u_32(int? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? null : cst_encode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  JSAny? cst_encode_opt_box_autoadd_u_64(BigInt? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? null : cst_encode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  JSAny cst_encode_proxy_group_dto(ProxyGroupDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.tag),
+      cst_encode_String(raw.groupType),
+      cst_encode_list_String(raw.proxies),
+      cst_encode_String(raw.selected),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_proxy_info_dto(ProxyInfoDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.tag),
+      cst_encode_String(raw.protocolType),
+      cst_encode_opt_String(raw.server),
+      cst_encode_opt_box_autoadd_u_16(raw.port),
+      cst_encode_opt_box_autoadd_u_64(raw.latencyMs),
+      cst_encode_bool(raw.alive),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_proxy_latency_dto(ProxyLatencyDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.tag),
+      cst_encode_opt_box_autoadd_u_64(raw.latencyMs),
+      cst_encode_opt_String(raw.error),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_proxy_status(ProxyStatus raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_bool(raw.running),
+      cst_encode_u_32(raw.inboundCount),
+      cst_encode_u_32(raw.outboundCount),
+      cst_encode_u_32(raw.connectionCount),
+      cst_encode_u_64(raw.memoryUsage),
+      cst_encode_u_64(raw.uptime),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_record_string_u_16((String, int) raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [cst_encode_String(raw.$1), cst_encode_u_16(raw.$2)].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_record_u_64_u_64_u_64_u_64(
+    (BigInt, BigInt, BigInt, BigInt) raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_u_64(raw.$1),
+      cst_encode_u_64(raw.$2),
+      cst_encode_u_64(raw.$3),
+      cst_encode_u_64(raw.$4),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_record_u_64_u_64_u_64_u_64_usize_usize(
+    (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_u_64(raw.$1),
+      cst_encode_u_64(raw.$2),
+      cst_encode_u_64(raw.$3),
+      cst_encode_u_64(raw.$4),
+      cst_encode_usize(raw.$5),
+      cst_encode_usize(raw.$6),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_rule_dto(RuleDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.ruleType),
+      cst_encode_String(raw.payload),
+      cst_encode_String(raw.outbound),
+      cst_encode_u_64(raw.matchedCount),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_system_info(SystemInfo raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_String(raw.platform),
+      cst_encode_String(raw.version),
+      cst_encode_u_64(raw.memoryTotal),
+      cst_encode_u_64(raw.memoryUsed),
+      cst_encode_u_32(raw.cpuCores),
+      cst_encode_u_32(raw.cpuThreads),
+      cst_encode_String(raw.cpuName),
+      cst_encode_f_64(raw.cpuUsage),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_traffic_stats(TrafficStats raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_u_64(raw.upload),
+      cst_encode_u_64(raw.download),
+      cst_encode_u_64(raw.uploadSpeed),
+      cst_encode_u_64(raw.downloadSpeed),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_traffic_stats_dto(TrafficStatsDto raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_u_64(raw.upload),
+      cst_encode_u_64(raw.download),
+      cst_encode_u_64(raw.totalUpload),
+      cst_encode_u_64(raw.totalDownload),
+      cst_encode_u_32(raw.connectionCount),
+      cst_encode_u_64(raw.uptimeSecs),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_tun_status(TunStatus raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return [
+      cst_encode_bool(raw.enabled),
+      cst_encode_opt_String(raw.interfaceName),
+      cst_encode_opt_box_autoadd_u_32(raw.mtu),
+      cst_encode_opt_String(raw.error),
+    ].jsify()!;
+  }
+
+  @protected
+  JSAny cst_encode_u_64(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return castNativeBigInt(raw);
+  }
+
+  @protected
+  JSAny cst_encode_usize(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return castNativeBigInt(raw);
+  }
+
+  @protected
+  bool cst_encode_bool(bool raw);
+
+  @protected
+  double cst_encode_f_64(double raw);
+
+  @protected
+  int cst_encode_i_32(int raw);
+
+  @protected
+  int cst_encode_u_16(int raw);
+
+  @protected
+  int cst_encode_u_32(int raw);
+
+  @protected
+  int cst_encode_u_8(int raw);
+
+  @protected
+  void cst_encode_unit(void raw);
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -238,7 +725,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_connection_dto(ConnectionDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_connection_info(
@@ -247,10 +743,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_dns_config_dto(DnsConfigDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
   void sse_encode_latency_test_result(
@@ -264,6 +766,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_active_connection(
     List<ActiveConnection> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_connection_dto(
+    List<ConnectionDto> self,
     SseSerializer serializer,
   );
 
@@ -286,16 +794,55 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_proxy_group_dto(
+    List<ProxyGroupDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_proxy_info_dto(
+    List<ProxyInfoDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_proxy_latency_dto(
+    List<ProxyLatencyDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_record_string_u_16(
     List<(String, int)> self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_list_rule_dto(List<RuleDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_group_dto(ProxyGroupDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_info_dto(ProxyInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_latency_dto(
+    ProxyLatencyDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_proxy_status(ProxyStatus self, SseSerializer serializer);
@@ -319,10 +866,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_rule_dto(RuleDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_system_info(SystemInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_traffic_stats(TrafficStats self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_traffic_stats_dto(
+    TrafficStatsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_tun_status(TunStatus self, SseSerializer serializer);
@@ -350,6 +906,332 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
 class RustLibWire implements BaseWire {
   RustLibWire.fromExternalLibrary(ExternalLibrary lib);
+
+  void wire__crate__api__clear_android_vpn_fd(NativePortType port_) =>
+      wasmModule.wire__crate__api__clear_android_vpn_fd(port_);
+
+  void wire__crate__api__clear_vpn_fd(NativePortType port_) =>
+      wasmModule.wire__crate__api__clear_vpn_fd(port_);
+
+  void wire__crate__api__close_active_connection(
+    NativePortType port_,
+    String connection_id,
+  ) => wasmModule.wire__crate__api__close_active_connection(
+    port_,
+    connection_id,
+  );
+
+  void wire__crate__api__close_all_connections(NativePortType port_) =>
+      wasmModule.wire__crate__api__close_all_connections(port_);
+
+  void wire__crate__api__close_all_connections_dto(NativePortType port_) =>
+      wasmModule.wire__crate__api__close_all_connections_dto(port_);
+
+  void wire__crate__api__close_connection(
+    NativePortType port_,
+    String connection_id,
+  ) => wasmModule.wire__crate__api__close_connection(port_, connection_id);
+
+  void wire__crate__api__close_connection_by_id(
+    NativePortType port_,
+    String id,
+  ) => wasmModule.wire__crate__api__close_connection_by_id(port_, id);
+
+  void wire__crate__api__disable_tun_mode(NativePortType port_) =>
+      wasmModule.wire__crate__api__disable_tun_mode(port_);
+
+  void wire__crate__api__enable_tun_mode(NativePortType port_) =>
+      wasmModule.wire__crate__api__enable_tun_mode(port_);
+
+  void wire__crate__api__enable_tun_mode_with_mode(
+    NativePortType port_,
+    String mode,
+  ) => wasmModule.wire__crate__api__enable_tun_mode_with_mode(port_, mode);
+
+  void wire__crate__api__enable_uwp_loopback(NativePortType port_) =>
+      wasmModule.wire__crate__api__enable_uwp_loopback(port_);
+
+  void wire__crate__api__ensure_wintun_dll(NativePortType port_) =>
+      wasmModule.wire__crate__api__ensure_wintun_dll(port_);
+
+  void wire__crate__api__get_active_connections(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_active_connections(port_);
+
+  void wire__crate__api__get_android_proxy_mode(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_android_proxy_mode(port_);
+
+  void wire__crate__api__get_android_vpn_fd(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_android_vpn_fd(port_);
+
+  void wire__crate__api__get_build_info(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_build_info(port_);
+
+  void wire__crate__api__get_connection_stats(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_connection_stats(port_);
+
+  void wire__crate__api__get_connections(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_connections(port_);
+
+  void wire__crate__api__get_connections_dto(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_connections_dto(port_);
+
+  void wire__crate__api__get_dns_config(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_dns_config(port_);
+
+  void wire__crate__api__get_logs(NativePortType port_, int? lines) =>
+      wasmModule.wire__crate__api__get_logs(port_, lines);
+
+  void wire__crate__api__get_proxies(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_proxies(port_);
+
+  void wire__crate__api__get_proxy_groups(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_proxy_groups(port_);
+
+  void wire__crate__api__get_proxy_mode(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_proxy_mode(port_);
+
+  void wire__crate__api__get_rules(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_rules(port_);
+
+  void wire__crate__api__get_selected_proxy_in_group(
+    NativePortType port_,
+    String group_name,
+  ) => wasmModule.wire__crate__api__get_selected_proxy_in_group(
+    port_,
+    group_name,
+  );
+
+  void wire__crate__api__get_system_info(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_system_info(port_);
+
+  void wire__crate__api__get_traffic_stats(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_traffic_stats(port_);
+
+  void wire__crate__api__get_traffic_stats_dto(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_traffic_stats_dto(port_);
+
+  void wire__crate__api__get_tun_status(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_tun_status(port_);
+
+  void wire__crate__api__get_veloguard_status(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_veloguard_status(port_);
+
+  void wire__crate__api__get_version(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_version(port_);
+
+  void wire__crate__api__get_windows_proxy_mode_str(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_windows_proxy_mode_str(port_);
+
+  void wire__crate__api__get_windows_tun_stats(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_windows_tun_stats(port_);
+
+  void wire__crate__api__get_wintun_dll_path(NativePortType port_) =>
+      wasmModule.wire__crate__api__get_wintun_dll_path(port_);
+
+  void wire__crate__api__init_app(NativePortType port_) =>
+      wasmModule.wire__crate__api__init_app(port_);
+
+  void wire__crate__api__initialize_veloguard(
+    NativePortType port_,
+    String config_json,
+  ) => wasmModule.wire__crate__api__initialize_veloguard(port_, config_json);
+
+  void wire__crate__api__is_proxy_running(NativePortType port_) =>
+      wasmModule.wire__crate__api__is_proxy_running(port_);
+
+  void wire__crate__api__is_wintun_available(NativePortType port_) =>
+      wasmModule.wire__crate__api__is_wintun_available(port_);
+
+  void wire__crate__api__open_uwp_loopback_utility(NativePortType port_) =>
+      wasmModule.wire__crate__api__open_uwp_loopback_utility(port_);
+
+  void wire__crate__api__reload_config_from_file(
+    NativePortType port_,
+    String config_path,
+  ) => wasmModule.wire__crate__api__reload_config_from_file(port_, config_path);
+
+  void wire__crate__api__reload_config_from_yaml(
+    NativePortType port_,
+    String yaml_config,
+  ) => wasmModule.wire__crate__api__reload_config_from_yaml(port_, yaml_config);
+
+  void wire__crate__api__reload_veloguard(
+    NativePortType port_,
+    String config_json,
+  ) => wasmModule.wire__crate__api__reload_veloguard(port_, config_json);
+
+  void wire__crate__api__select_proxy(
+    NativePortType port_,
+    String group_tag,
+    String proxy_tag,
+  ) => wasmModule.wire__crate__api__select_proxy(port_, group_tag, proxy_tag);
+
+  void wire__crate__api__select_proxy_in_group(
+    NativePortType port_,
+    String group_name,
+    String proxy_name,
+  ) => wasmModule.wire__crate__api__select_proxy_in_group(
+    port_,
+    group_name,
+    proxy_name,
+  );
+
+  void wire__crate__api__set_android_proxy_mode(
+    NativePortType port_,
+    String mode,
+  ) => wasmModule.wire__crate__api__set_android_proxy_mode(port_, mode);
+
+  void wire__crate__api__set_android_vpn_fd(NativePortType port_, int fd) =>
+      wasmModule.wire__crate__api__set_android_vpn_fd(port_, fd);
+
+  void wire__crate__api__set_log_level(NativePortType port_, String level) =>
+      wasmModule.wire__crate__api__set_log_level(port_, level);
+
+  void wire__crate__api__set_protect_socket_callback_enabled(
+    NativePortType port_,
+    bool enabled,
+  ) => wasmModule.wire__crate__api__set_protect_socket_callback_enabled(
+    port_,
+    enabled,
+  );
+
+  void wire__crate__api__set_proxy_mode(NativePortType port_, int mode) =>
+      wasmModule.wire__crate__api__set_proxy_mode(port_, mode);
+
+  void wire__crate__api__set_vpn_fd(NativePortType port_, int fd) =>
+      wasmModule.wire__crate__api__set_vpn_fd(port_, fd);
+
+  void wire__crate__api__set_windows_proxy_mode(
+    NativePortType port_,
+    String mode,
+  ) => wasmModule.wire__crate__api__set_windows_proxy_mode(port_, mode);
+
+  void wire__crate__api__start_android_vpn(NativePortType port_) =>
+      wasmModule.wire__crate__api__start_android_vpn(port_);
+
+  void wire__crate__api__start_proxy_from_file(
+    NativePortType port_,
+    String config_path,
+  ) => wasmModule.wire__crate__api__start_proxy_from_file(port_, config_path);
+
+  void wire__crate__api__start_proxy_from_yaml(
+    NativePortType port_,
+    String yaml_config,
+  ) => wasmModule.wire__crate__api__start_proxy_from_yaml(port_, yaml_config);
+
+  void wire__crate__api__start_tun_mode(
+    NativePortType port_,
+    String tun_name,
+    String tun_address,
+    String tun_netmask,
+  ) => wasmModule.wire__crate__api__start_tun_mode(
+    port_,
+    tun_name,
+    tun_address,
+    tun_netmask,
+  );
+
+  void wire__crate__api__start_veloguard(NativePortType port_) =>
+      wasmModule.wire__crate__api__start_veloguard(port_);
+
+  void wire__crate__api__stop_android_vpn(NativePortType port_) =>
+      wasmModule.wire__crate__api__stop_android_vpn(port_);
+
+  void wire__crate__api__stop_proxy(NativePortType port_) =>
+      wasmModule.wire__crate__api__stop_proxy(port_);
+
+  void wire__crate__api__stop_tun_mode(NativePortType port_) =>
+      wasmModule.wire__crate__api__stop_tun_mode(port_);
+
+  void wire__crate__api__stop_veloguard(NativePortType port_) =>
+      wasmModule.wire__crate__api__stop_veloguard(port_);
+
+  void wire__crate__api__test_all_proxies_latency(
+    NativePortType port_,
+    String test_url,
+    JSAny timeout_ms,
+  ) => wasmModule.wire__crate__api__test_all_proxies_latency(
+    port_,
+    test_url,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_config(
+    NativePortType port_,
+    String config_json,
+  ) => wasmModule.wire__crate__api__test_config(port_, config_json);
+
+  void wire__crate__api__test_outbound_latency(
+    NativePortType port_,
+    String outbound_name,
+    int timeout_ms,
+  ) => wasmModule.wire__crate__api__test_outbound_latency(
+    port_,
+    outbound_name,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_proxies_latency(
+    NativePortType port_,
+    JSAny proxies,
+    int timeout_ms,
+  ) => wasmModule.wire__crate__api__test_proxies_latency(
+    port_,
+    proxies,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_proxy_latency(
+    NativePortType port_,
+    String server,
+    int port,
+    int timeout_ms,
+  ) => wasmModule.wire__crate__api__test_proxy_latency(
+    port_,
+    server,
+    port,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_proxy_latency_dto(
+    NativePortType port_,
+    String tag,
+    String test_url,
+    JSAny timeout_ms,
+  ) => wasmModule.wire__crate__api__test_proxy_latency_dto(
+    port_,
+    tag,
+    test_url,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_shadowsocks_latency(
+    NativePortType port_,
+    String server,
+    int port,
+    String password,
+    String cipher,
+    int timeout_ms,
+  ) => wasmModule.wire__crate__api__test_shadowsocks_latency(
+    port_,
+    server,
+    port,
+    password,
+    cipher,
+    timeout_ms,
+  );
+
+  void wire__crate__api__test_tcp_connectivity(
+    NativePortType port_,
+    String server,
+    int port,
+    int timeout_ms,
+  ) => wasmModule.wire__crate__api__test_tcp_connectivity(
+    port_,
+    server,
+    port,
+    timeout_ms,
+  );
 }
 
 @JS('wasm_bindgen')
@@ -357,4 +1239,249 @@ external RustLibWasmModule get wasmModule;
 
 @JS()
 @anonymous
-extension type RustLibWasmModule._(JSObject _) implements JSObject {}
+extension type RustLibWasmModule._(JSObject _) implements JSObject {
+  external void wire__crate__api__clear_android_vpn_fd(NativePortType port_);
+
+  external void wire__crate__api__clear_vpn_fd(NativePortType port_);
+
+  external void wire__crate__api__close_active_connection(
+    NativePortType port_,
+    String connection_id,
+  );
+
+  external void wire__crate__api__close_all_connections(NativePortType port_);
+
+  external void wire__crate__api__close_all_connections_dto(
+    NativePortType port_,
+  );
+
+  external void wire__crate__api__close_connection(
+    NativePortType port_,
+    String connection_id,
+  );
+
+  external void wire__crate__api__close_connection_by_id(
+    NativePortType port_,
+    String id,
+  );
+
+  external void wire__crate__api__disable_tun_mode(NativePortType port_);
+
+  external void wire__crate__api__enable_tun_mode(NativePortType port_);
+
+  external void wire__crate__api__enable_tun_mode_with_mode(
+    NativePortType port_,
+    String mode,
+  );
+
+  external void wire__crate__api__enable_uwp_loopback(NativePortType port_);
+
+  external void wire__crate__api__ensure_wintun_dll(NativePortType port_);
+
+  external void wire__crate__api__get_active_connections(NativePortType port_);
+
+  external void wire__crate__api__get_android_proxy_mode(NativePortType port_);
+
+  external void wire__crate__api__get_android_vpn_fd(NativePortType port_);
+
+  external void wire__crate__api__get_build_info(NativePortType port_);
+
+  external void wire__crate__api__get_connection_stats(NativePortType port_);
+
+  external void wire__crate__api__get_connections(NativePortType port_);
+
+  external void wire__crate__api__get_connections_dto(NativePortType port_);
+
+  external void wire__crate__api__get_dns_config(NativePortType port_);
+
+  external void wire__crate__api__get_logs(NativePortType port_, int? lines);
+
+  external void wire__crate__api__get_proxies(NativePortType port_);
+
+  external void wire__crate__api__get_proxy_groups(NativePortType port_);
+
+  external void wire__crate__api__get_proxy_mode(NativePortType port_);
+
+  external void wire__crate__api__get_rules(NativePortType port_);
+
+  external void wire__crate__api__get_selected_proxy_in_group(
+    NativePortType port_,
+    String group_name,
+  );
+
+  external void wire__crate__api__get_system_info(NativePortType port_);
+
+  external void wire__crate__api__get_traffic_stats(NativePortType port_);
+
+  external void wire__crate__api__get_traffic_stats_dto(NativePortType port_);
+
+  external void wire__crate__api__get_tun_status(NativePortType port_);
+
+  external void wire__crate__api__get_veloguard_status(NativePortType port_);
+
+  external void wire__crate__api__get_version(NativePortType port_);
+
+  external void wire__crate__api__get_windows_proxy_mode_str(
+    NativePortType port_,
+  );
+
+  external void wire__crate__api__get_windows_tun_stats(NativePortType port_);
+
+  external void wire__crate__api__get_wintun_dll_path(NativePortType port_);
+
+  external void wire__crate__api__init_app(NativePortType port_);
+
+  external void wire__crate__api__initialize_veloguard(
+    NativePortType port_,
+    String config_json,
+  );
+
+  external void wire__crate__api__is_proxy_running(NativePortType port_);
+
+  external void wire__crate__api__is_wintun_available(NativePortType port_);
+
+  external void wire__crate__api__open_uwp_loopback_utility(
+    NativePortType port_,
+  );
+
+  external void wire__crate__api__reload_config_from_file(
+    NativePortType port_,
+    String config_path,
+  );
+
+  external void wire__crate__api__reload_config_from_yaml(
+    NativePortType port_,
+    String yaml_config,
+  );
+
+  external void wire__crate__api__reload_veloguard(
+    NativePortType port_,
+    String config_json,
+  );
+
+  external void wire__crate__api__select_proxy(
+    NativePortType port_,
+    String group_tag,
+    String proxy_tag,
+  );
+
+  external void wire__crate__api__select_proxy_in_group(
+    NativePortType port_,
+    String group_name,
+    String proxy_name,
+  );
+
+  external void wire__crate__api__set_android_proxy_mode(
+    NativePortType port_,
+    String mode,
+  );
+
+  external void wire__crate__api__set_android_vpn_fd(
+    NativePortType port_,
+    int fd,
+  );
+
+  external void wire__crate__api__set_log_level(
+    NativePortType port_,
+    String level,
+  );
+
+  external void wire__crate__api__set_protect_socket_callback_enabled(
+    NativePortType port_,
+    bool enabled,
+  );
+
+  external void wire__crate__api__set_proxy_mode(
+    NativePortType port_,
+    int mode,
+  );
+
+  external void wire__crate__api__set_vpn_fd(NativePortType port_, int fd);
+
+  external void wire__crate__api__set_windows_proxy_mode(
+    NativePortType port_,
+    String mode,
+  );
+
+  external void wire__crate__api__start_android_vpn(NativePortType port_);
+
+  external void wire__crate__api__start_proxy_from_file(
+    NativePortType port_,
+    String config_path,
+  );
+
+  external void wire__crate__api__start_proxy_from_yaml(
+    NativePortType port_,
+    String yaml_config,
+  );
+
+  external void wire__crate__api__start_tun_mode(
+    NativePortType port_,
+    String tun_name,
+    String tun_address,
+    String tun_netmask,
+  );
+
+  external void wire__crate__api__start_veloguard(NativePortType port_);
+
+  external void wire__crate__api__stop_android_vpn(NativePortType port_);
+
+  external void wire__crate__api__stop_proxy(NativePortType port_);
+
+  external void wire__crate__api__stop_tun_mode(NativePortType port_);
+
+  external void wire__crate__api__stop_veloguard(NativePortType port_);
+
+  external void wire__crate__api__test_all_proxies_latency(
+    NativePortType port_,
+    String test_url,
+    JSAny timeout_ms,
+  );
+
+  external void wire__crate__api__test_config(
+    NativePortType port_,
+    String config_json,
+  );
+
+  external void wire__crate__api__test_outbound_latency(
+    NativePortType port_,
+    String outbound_name,
+    int timeout_ms,
+  );
+
+  external void wire__crate__api__test_proxies_latency(
+    NativePortType port_,
+    JSAny proxies,
+    int timeout_ms,
+  );
+
+  external void wire__crate__api__test_proxy_latency(
+    NativePortType port_,
+    String server,
+    int port,
+    int timeout_ms,
+  );
+
+  external void wire__crate__api__test_proxy_latency_dto(
+    NativePortType port_,
+    String tag,
+    String test_url,
+    JSAny timeout_ms,
+  );
+
+  external void wire__crate__api__test_shadowsocks_latency(
+    NativePortType port_,
+    String server,
+    int port,
+    String password,
+    String cipher,
+    int timeout_ms,
+  );
+
+  external void wire__crate__api__test_tcp_connectivity(
+    NativePortType port_,
+    String server,
+    int port,
+    int timeout_ms,
+  );
+}

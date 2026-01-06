@@ -3,7 +3,764 @@ use crate::types::*;
 use crate::{get_veloguard_instance, VELOGUARD_INSTANCE};
 use flutter_rust_bridge::frb;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use veloguard_core::Config;
+
+static TRACING_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize the VeloGuard FFI bridge
+/// This function is called automatically by flutter_rust_bridge when RustLib.init() is called
+#[frb(init)]
+pub fn init_app() {
+    flutter_rust_bridge::setup_default_user_utils();
+    
+    // Only initialize tracing once, using atomic bool for thread safety
+    if TRACING_INITIALIZED.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        // Try to initialize tracing, ignore errors if already initialized elsewhere
+        let _ = init_tracing_safe();
+    }
+}
+
+/// Safely initialize tracing, returning Ok even if already initialized
+fn init_tracing_safe() -> std::result::Result<(), ()> {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    
+    // Enable debug logging for VPN-related modules
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(
+            "debug,veloguard_core=debug,veloguard_lib=debug,veloguard_netstack=debug,hyper=warn,tokio=warn,rustls=warn"
+        ));
+    
+    #[cfg(target_os = "android")]
+    {
+        // Use tracing-android to output logs to Android logcat
+        let android_layer = tracing_android::layer("VeloGuard")
+            .expect("Failed to create Android tracing layer");
+        
+        let result = tracing_subscriber::registry()
+            .with(filter)
+            .with(android_layer)
+            .try_init();
+        
+        if result.is_ok() {
+            tracing::info!("VeloGuard FFI bridge initialized (Android) - logs visible in logcat");
+        }
+        result.map_err(|_| ())
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        use tracing_subscriber::fmt;
+        
+        let result = tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer()
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true))
+            .try_init();
+        
+        if result.is_ok() {
+            tracing::info!("VeloGuard FFI bridge initialized");
+        }
+        result.map_err(|_| ())
+    }
+}
+
+// ============== Proxy Control API (Design Document Compliant) ==============
+
+/// Start proxy from YAML configuration string
+/// This is the primary API for starting the proxy with a YAML config
+#[frb]
+pub async fn start_proxy_from_yaml(yaml_config: String) -> std::result::Result<(), String> {
+    tracing::info!("Starting proxy from YAML config...");
+
+    // Parse YAML config
+    let config: Config =
+        serde_yaml::from_str(&yaml_config).map_err(|e| format!("Invalid YAML config: {}", e))?;
+
+    // Stop and clean up any existing instance first
+    {
+        let mut instance = VELOGUARD_INSTANCE.write().await;
+        if let Some(ref veloguard) = *instance {
+            tracing::info!("Stopping existing VeloGuard instance before re-initialization");
+            if let Err(e) = veloguard.stop().await {
+                tracing::warn!("Error stopping existing instance: {}", e);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+        *instance = None;
+    }
+
+    // Create VeloGuard instance
+    let veloguard = veloguard_core::VeloGuard::new(config)
+        .await
+        .map_err(|e| format!("Failed to create VeloGuard: {}", e))?;
+
+    // Start the proxy
+    veloguard
+        .start()
+        .await
+        .map_err(|e| format!("Failed to start proxy: {}", e))?;
+
+    // Store instance
+    let mut instance = VELOGUARD_INSTANCE.write().await;
+    *instance = Some(veloguard);
+
+    tracing::info!("Proxy started successfully from YAML config");
+    Ok(())
+}
+
+/// Start proxy from configuration file path
+#[frb]
+pub async fn start_proxy_from_file(config_path: String) -> std::result::Result<(), String> {
+    tracing::info!("Starting proxy from file: {}", config_path);
+
+    // Read file content
+    let yaml_content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
+
+    // Use the YAML parser
+    start_proxy_from_yaml(yaml_content).await
+}
+
+/// Stop the proxy
+#[frb]
+pub async fn stop_proxy() -> std::result::Result<(), String> {
+    tracing::info!("Stopping proxy...");
+
+    // Reset the global connection tracker
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    tracker.reset();
+
+    // Get and stop the instance
+    {
+        let instance = get_veloguard_instance()
+            .await
+            .map_err(|e| format!("Failed to get instance: {}", e))?;
+        let veloguard_guard = instance.read().await;
+
+        if let Some(veloguard) = veloguard_guard.as_ref() {
+            veloguard
+                .stop()
+                .await
+                .map_err(|e| format!("Failed to stop proxy: {}", e))?;
+        } else {
+            tracing::warn!("Proxy was not running");
+            return Ok(());
+        }
+    }
+
+    // Wait for cleanup
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Clear the instance
+    {
+        let mut instance = VELOGUARD_INSTANCE.write().await;
+        *instance = None;
+    }
+
+    tracing::info!("Proxy stopped successfully");
+    Ok(())
+}
+
+/// Check if proxy is running
+#[frb]
+pub async fn is_proxy_running() -> std::result::Result<bool, String> {
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let veloguard_guard = instance.read().await;
+
+    if let Some(veloguard) = veloguard_guard.as_ref() {
+        veloguard
+            .is_running()
+            .await
+            .map_err(|e| format!("Failed to check running status: {}", e))
+    } else {
+        Ok(false)
+    }
+}
+
+/// Reload configuration from YAML string
+#[frb]
+pub async fn reload_config_from_yaml(yaml_config: String) -> std::result::Result<(), String> {
+    tracing::info!("Reloading config from YAML...");
+
+    // Parse YAML config
+    let config: Config =
+        serde_yaml::from_str(&yaml_config).map_err(|e| format!("Invalid YAML config: {}", e))?;
+
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let mut veloguard_guard = instance.write().await;
+
+    if let Some(veloguard) = veloguard_guard.as_mut() {
+        veloguard
+            .reload(config)
+            .await
+            .map_err(|e| format!("Failed to reload config: {}", e))?;
+        tracing::info!("Config reloaded successfully");
+        Ok(())
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Reload configuration from file path
+#[frb]
+pub async fn reload_config_from_file(config_path: String) -> std::result::Result<(), String> {
+    tracing::info!("Reloading config from file: {}", config_path);
+
+    // Read file content
+    let yaml_content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
+
+    reload_config_from_yaml(yaml_content).await
+}
+
+// ============== Traffic Statistics API (Design Document Compliant) ==============
+
+/// Get traffic statistics DTO
+#[frb]
+pub async fn get_traffic_stats_dto() -> std::result::Result<TrafficStatsDto, String> {
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    tracker.update_speed();
+
+    #[cfg(target_os = "android")]
+    {
+        if let Some(processor) = crate::get_android_vpn_processor() {
+            let vpn_stats = processor.get_traffic_stats();
+            return Ok(TrafficStatsDto {
+                upload: vpn_stats.bytes_received,
+                download: vpn_stats.bytes_sent,
+                total_upload: vpn_stats.bytes_received,
+                total_download: vpn_stats.bytes_sent,
+                connection_count: (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u32,
+                uptime_secs: 0, // Will be filled from VeloGuard instance
+            });
+        }
+    }
+
+    // Get uptime from VeloGuard instance
+    let uptime_secs = {
+        let instance = get_veloguard_instance()
+            .await
+            .map_err(|e| format!("Failed to get instance: {}", e))?;
+        let guard = instance.read().await;
+        guard.as_ref().map(|v| v.uptime_secs()).unwrap_or(0)
+    };
+
+    Ok(TrafficStatsDto {
+        upload: tracker.total_upload(),
+        download: tracker.total_download(),
+        total_upload: tracker.total_upload(),
+        total_download: tracker.total_download(),
+        connection_count: tracker.active_count() as u32,
+        uptime_secs,
+    })
+}
+
+/// Get all connections as DTOs
+#[frb]
+pub async fn get_connections_dto() -> std::result::Result<Vec<ConnectionDto>, String> {
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    let connections = tracker.get_all();
+
+    let result: Vec<ConnectionDto> = connections
+        .iter()
+        .map(|conn| ConnectionDto {
+            id: conn.id.clone(),
+            src_addr: format!("{}:{}", conn.host, conn.destination_port),
+            dst_addr: conn.destination_ip.clone().unwrap_or_default(),
+            dst_domain: Some(conn.host.clone()),
+            protocol: conn.protocol.clone(),
+            outbound: conn.outbound_tag.clone(),
+            upload: conn.get_upload(),
+            download: conn.get_download(),
+            start_time: conn.start_timestamp as i64,
+            rule: Some(conn.rule.clone()),
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// Close a specific connection by ID
+#[frb]
+pub async fn close_connection_by_id(id: String) -> std::result::Result<(), String> {
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    if tracker.close_connection(&id) {
+        tracing::info!("Connection {} closed", id);
+        Ok(())
+    } else {
+        Err(format!("Connection {} not found", id))
+    }
+}
+
+/// Close all active connections
+#[frb]
+pub async fn close_all_connections_dto() -> std::result::Result<(), String> {
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    tracker.close_all();
+    tracing::info!("All connections closed");
+    Ok(())
+}
+
+// ============== Proxy Management API (Design Document Compliant) ==============
+
+/// Get all proxies as DTOs
+#[frb]
+pub async fn get_proxies() -> std::result::Result<Vec<ProxyInfoDto>, String> {
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let config = veloguard.config();
+        let proxy_manager = veloguard.proxy_manager();
+        let outbound_manager = proxy_manager.outbound_manager();
+
+        let mut result = Vec::new();
+        for outbound_config in &config.outbounds {
+            let tag = &outbound_config.tag;
+            let protocol_type = format!("{:?}", outbound_config.outbound_type).to_lowercase();
+
+            // Get server info from config
+            let (server, port) = if let Some(proxy) = outbound_manager.get_proxy(tag) {
+                proxy
+                    .server_addr()
+                    .map(|(s, p)| (Some(s), Some(p)))
+                    .unwrap_or((outbound_config.server.clone(), outbound_config.port))
+            } else {
+                (outbound_config.server.clone(), outbound_config.port)
+            };
+
+            result.push(ProxyInfoDto {
+                tag: tag.clone(),
+                protocol_type,
+                server,
+                port,
+                latency_ms: None,
+                alive: true,
+            });
+        }
+
+        Ok(result)
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Get all proxy groups as DTOs
+#[frb]
+pub async fn get_proxy_groups() -> std::result::Result<Vec<ProxyGroupDto>, String> {
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let config = veloguard.config();
+        let mut groups = Vec::new();
+
+        for outbound in &config.outbounds {
+            let group_type = match outbound.outbound_type {
+                veloguard_core::OutboundType::Selector => "selector",
+                veloguard_core::OutboundType::Urltest => "url-test",
+                veloguard_core::OutboundType::Fallback => "fallback",
+                veloguard_core::OutboundType::Loadbalance => "load-balance",
+                veloguard_core::OutboundType::Relay => "relay",
+                _ => continue, // Skip non-group outbounds
+            };
+
+            // Get proxies list from options
+            let proxies: Vec<String> = outbound
+                .options
+                .get("proxies")
+                .and_then(|v| v.as_sequence())
+                .map(|seq| {
+                    seq.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Get selected proxy (first one by default)
+            let selected = proxies.first().cloned().unwrap_or_default();
+
+            groups.push(ProxyGroupDto {
+                tag: outbound.tag.clone(),
+                group_type: group_type.to_string(),
+                proxies,
+                selected,
+            });
+        }
+
+        Ok(groups)
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Select a proxy within a group
+#[frb]
+pub async fn select_proxy(group_tag: String, proxy_tag: String) -> std::result::Result<(), String> {
+    tracing::info!("Selecting proxy: group='{}', proxy='{}'", group_tag, proxy_tag);
+    
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let proxy_manager = veloguard.proxy_manager();
+        let outbound_manager = proxy_manager.outbound_manager();
+
+        // Check if the group exists
+        if outbound_manager.get_proxy(&group_tag).is_none() {
+            return Err(format!("Proxy group '{}' not found", group_tag));
+        }
+
+        // Set the selection in OutboundManager (which updates the global selection)
+        outbound_manager
+            .set_selector_proxy(&group_tag, &proxy_tag)
+            .await
+            .map_err(|e| format!("Failed to set proxy selection: {}", e))?;
+
+        tracing::info!("Proxy selection updated: {} -> {}", group_tag, proxy_tag);
+        Ok(())
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Test latency for a specific proxy
+#[frb]
+pub async fn test_proxy_latency_dto(
+    tag: String,
+    test_url: String,
+    timeout_ms: u64,
+) -> std::result::Result<u64, String> {
+    use tokio::time::Duration;
+
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let proxy_manager = veloguard.proxy_manager();
+
+        if let Some(proxy) = proxy_manager.outbound_manager().get_proxy(&tag) {
+            let timeout = Duration::from_millis(timeout_ms);
+            match proxy.test_http_latency(&test_url, timeout).await {
+                Ok(duration) => Ok(duration.as_millis() as u64),
+                Err(e) => Err(format!("Latency test failed: {}", e)),
+            }
+        } else {
+            Err(format!("Proxy '{}' not found", tag))
+        }
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Test latency for all proxies
+#[frb]
+pub async fn test_all_proxies_latency(
+    test_url: String,
+    timeout_ms: u64,
+) -> std::result::Result<Vec<ProxyLatencyDto>, String> {
+    use futures::future::join_all;
+    use tokio::time::Duration;
+
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let proxy_manager = veloguard.proxy_manager();
+        let outbound_manager = proxy_manager.outbound_manager();
+        let tags = outbound_manager.get_all_tags();
+        let timeout = Duration::from_millis(timeout_ms);
+
+        let mut futures = Vec::new();
+        for tag in tags {
+            if let Some(proxy) = outbound_manager.get_proxy(&tag) {
+                let url = test_url.clone();
+                futures.push(async move {
+                    match proxy.test_http_latency(&url, timeout).await {
+                        Ok(duration) => ProxyLatencyDto {
+                            tag,
+                            latency_ms: Some(duration.as_millis() as u64),
+                            error: None,
+                        },
+                        Err(e) => ProxyLatencyDto {
+                            tag,
+                            latency_ms: None,
+                            error: Some(e.to_string()),
+                        },
+                    }
+                });
+            }
+        }
+
+        let results = join_all(futures).await;
+        Ok(results)
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+// ============== Configuration Query API (Design Document Compliant) ==============
+
+/// Get all routing rules as DTOs
+#[frb]
+pub async fn get_rules() -> std::result::Result<Vec<RuleDto>, String> {
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let config = veloguard.config();
+
+        let rules: Vec<RuleDto> = config
+            .rules
+            .iter()
+            .map(|rule| RuleDto {
+                rule_type: format!("{:?}", rule.rule_type).to_lowercase(),
+                payload: rule.payload.clone(),
+                outbound: rule.outbound.clone(),
+                matched_count: 0,
+            })
+            .collect();
+
+        Ok(rules)
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Get DNS configuration as DTO
+#[frb]
+pub async fn get_dns_config() -> std::result::Result<DnsConfigDto, String> {
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let guard = instance.read().await;
+
+    if let Some(veloguard) = guard.as_ref() {
+        let config = veloguard.config();
+
+        Ok(DnsConfigDto {
+            enable: config.dns.enable,
+            listen: config.dns.listen.clone(),
+            enhanced_mode: format!("{:?}", config.dns.enhanced_mode).to_lowercase(),
+            nameservers: config.dns.nameservers.clone(),
+            fallback: config.dns.fallback.clone(),
+        })
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Set proxy mode (0=config, 1=global, 2=direct, 3=rule)
+#[frb]
+pub async fn set_proxy_mode(mode: i32) -> std::result::Result<(), String> {
+    veloguard_core::set_runtime_proxy_mode(mode);
+
+    #[cfg(target_os = "android")]
+    {
+        veloguard_netstack::set_android_proxy_mode(mode);
+    }
+
+    #[cfg(windows)]
+    {
+        veloguard_netstack::set_windows_proxy_mode(mode);
+    }
+
+    let mode_str = match mode {
+        1 => "global",
+        2 => "direct",
+        3 => "rule",
+        _ => "config",
+    };
+    tracing::info!("Proxy mode set to {} ({})", mode_str, mode);
+    Ok(())
+}
+
+/// Get current proxy mode (0=config, 1=global, 2=direct, 3=rule)
+#[frb]
+pub async fn get_proxy_mode() -> std::result::Result<i32, String> {
+    Ok(veloguard_core::get_runtime_proxy_mode())
+}
+
+// ============== Platform-Specific API (Design Document Compliant) ==============
+
+/// Set VPN file descriptor (Android only)
+#[frb]
+pub fn set_vpn_fd(fd: i32) {
+    #[cfg(target_os = "android")]
+    {
+        veloguard_netstack::set_android_vpn_fd(fd);
+        tracing::info!("VPN fd set to {}", fd);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = fd;
+        tracing::warn!("set_vpn_fd called on non-Android platform");
+    }
+}
+
+/// Clear VPN file descriptor (Android only)
+#[frb]
+pub fn clear_vpn_fd() {
+    #[cfg(target_os = "android")]
+    {
+        veloguard_netstack::clear_android_vpn_fd();
+        tracing::info!("VPN fd cleared");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        tracing::warn!("clear_vpn_fd called on non-Android platform");
+    }
+}
+
+/// Set socket protect callback (Android only)
+/// This callback is used to protect sockets from being routed through the VPN
+#[frb]
+pub fn set_protect_socket_callback_enabled(enabled: bool) {
+    #[cfg(target_os = "android")]
+    {
+        if enabled {
+            // The actual callback is set via JNI in android_jni.rs
+            tracing::info!("Socket protect callback enabled");
+        } else {
+            veloguard_netstack::clear_protect_callback();
+            tracing::info!("Socket protect callback disabled");
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = enabled;
+        tracing::warn!("set_protect_socket_callback called on non-Android platform");
+    }
+}
+
+/// Start TUN mode (Windows only)
+#[frb]
+pub async fn start_tun_mode(
+    tun_name: String,
+    tun_address: String,
+    tun_netmask: String,
+) -> std::result::Result<(), String> {
+    #[cfg(windows)]
+    {
+        use veloguard_netstack::{TunConfig, TunDevice};
+
+        tracing::info!(
+            "Starting TUN mode: name={}, address={}, netmask={}",
+            tun_name,
+            tun_address,
+            tun_netmask
+        );
+
+        // Parse addresses
+        let address: std::net::Ipv4Addr = tun_address
+            .parse()
+            .map_err(|e| format!("Invalid TUN address: {}", e))?;
+        let netmask: std::net::Ipv4Addr = tun_netmask
+            .parse()
+            .map_err(|e| format!("Invalid TUN netmask: {}", e))?;
+
+        // Ensure wintun.dll is available
+        veloguard_netstack::ensure_wintun()
+            .await
+            .map_err(|e| format!("Failed to load wintun.dll: {}", e))?;
+
+        // Create TUN config
+        let config = TunConfig {
+            name: tun_name,
+            address,
+            netmask,
+            mtu: 1500,
+            gateway: Some(address),
+            dns: vec![std::net::Ipv4Addr::new(198, 18, 0, 2)],
+        };
+
+        // Create and start TUN device
+        let mut tun = TunDevice::with_config(config)
+            .await
+            .map_err(|e| format!("Failed to create TUN device: {}", e))?;
+
+        tun.start()
+            .await
+            .map_err(|e| format!("Failed to start TUN device: {}", e))?;
+
+        // Store TUN device globally
+        crate::set_windows_tun_device(tun);
+
+        tracing::info!("TUN mode started successfully");
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (tun_name, tun_address, tun_netmask);
+        Err("TUN mode is only supported on Windows".to_string())
+    }
+}
+
+/// Stop TUN mode (Windows only)
+#[frb]
+pub async fn stop_tun_mode() -> std::result::Result<(), String> {
+    #[cfg(windows)]
+    {
+        tracing::info!("Stopping TUN mode...");
+
+        // Stop VPN processor
+        if let Some(processor) = crate::get_windows_vpn_processor() {
+            processor.stop();
+            processor.reset();
+        }
+        crate::clear_windows_vpn_processor();
+
+        // Disable routes
+        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
+            let _ = route_manager.disable_global_mode();
+        }
+        crate::clear_windows_route_manager();
+
+        // Stop TUN device
+        if let Some(mut tun_device) = crate::take_windows_tun_device() {
+            tun_device
+                .stop()
+                .await
+                .map_err(|e| format!("Failed to stop TUN device: {}", e))?;
+        }
+
+        // Reset proxy mode
+        veloguard_core::set_runtime_proxy_mode(0);
+        veloguard_netstack::set_windows_proxy_mode(0);
+
+        tracing::info!("TUN mode stopped successfully");
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err("TUN mode is only supported on Windows".to_string())
+    }
+}
 
 /// Initialize VeloGuard with configuration
 #[frb]
@@ -207,7 +964,7 @@ pub async fn get_traffic_stats() -> Result<TrafficStats> {
             // VPN stats from TUN perspective:
             // - bytes_received: data received FROM TUN (user device sending data OUT) = UPLOAD
             // - bytes_sent: data sent TO TUN (data coming back to user device) = DOWNLOAD
-            // 
+            //
             // This matches the user's perspective:
             // - Upload = data user sends to internet
             // - Download = data user receives from internet
@@ -252,7 +1009,6 @@ pub async fn get_connections() -> Result<Vec<ConnectionInfo>> {
     let veloguard_guard = instance.read().await;
 
     if let Some(veloguard) = veloguard_guard.as_ref() {
-        // TODO: Implement real connection tracking in core and expose it here
         let _ = veloguard.traffic_stats().active_connections();
         Ok(vec![])
     } else {
@@ -263,7 +1019,6 @@ pub async fn get_connections() -> Result<Vec<ConnectionInfo>> {
 /// Close a specific connection
 #[frb]
 pub async fn close_connection(_connection_id: String) -> Result<()> {
-    // TODO: Implement connection closing
     Ok(())
 }
 
@@ -1138,16 +1893,17 @@ fn ss_derive_subkey(
     key_len: usize,
 ) -> std::result::Result<Vec<u8>, String> {
     use hkdf::Hkdf;
+    use md5::{Digest, Md5};
     use sha1::Sha1;
 
     // First derive key from password using EVP_BytesToKey (OpenSSL-style)
     let mut key = Vec::new();
     let mut prev: Vec<u8> = Vec::new();
     while key.len() < key_len {
-        let mut data = prev.clone();
-        data.extend_from_slice(password.as_bytes());
-        let hash = md5::compute(&data);
-        prev = hash.to_vec();
+        let mut hasher = Md5::new();
+        hasher.update(&prev);
+        hasher.update(password.as_bytes());
+        prev = hasher.finalize().to_vec();
         key.extend_from_slice(&prev);
     }
     key.truncate(key_len);
@@ -1176,6 +1932,7 @@ fn ss_build_address_header(host: &str, port: u16) -> Vec<u8> {
 }
 
 /// AEAD cipher for Shadowsocks - supports AES-128-GCM and AES-256-GCM
+#[allow(clippy::large_enum_variant)]
 enum SsAeadCipherInner {
     Aes256Gcm(aes_gcm::Aes256Gcm),
     Aes128Gcm(aes_gcm::Aes128Gcm),
@@ -1334,39 +2091,24 @@ pub async fn test_proxies_latency(
 /// proxy_name: The name of the proxy to select within the group
 #[frb]
 pub async fn select_proxy_in_group(group_name: String, proxy_name: String) -> Result<bool> {
+    tracing::info!("Selecting proxy in group: group='{}', proxy='{}'", group_name, proxy_name);
+    
     let instance = get_veloguard_instance().await?;
     let veloguard_guard = instance.read().await;
 
     if let Some(veloguard) = veloguard_guard.as_ref() {
         let proxy_manager = veloguard.proxy_manager();
+        let outbound_manager = proxy_manager.outbound_manager();
 
-        // Get the selector group
-        if let Some(proxy) = proxy_manager.outbound_manager().get_proxy(&group_name) {
-            // Try to downcast to SelectorOutbound
-            // Since we can't directly downcast trait objects, we use a workaround:
-            // Check if the proxy is a selector by trying to set the selection
-            // The SelectorOutbound::set_selected method validates the proxy name
-
-            // For now, we'll use a different approach - store selections in a global map
-            // and have the routing logic check this map
-            use parking_lot::RwLock;
-            use std::collections::HashMap;
-            use std::sync::OnceLock;
-
-            static PROXY_SELECTIONS: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
-
-            let selections = PROXY_SELECTIONS.get_or_init(|| RwLock::new(HashMap::new()));
-            selections
-                .write()
-                .insert(group_name.clone(), proxy_name.clone());
+        // Check if the group exists
+        if outbound_manager.get_proxy(&group_name).is_some() {
+            // Set the selection using OutboundManager
+            outbound_manager
+                .set_selector_proxy(&group_name, &proxy_name)
+                .await
+                .map_err(VeloGuardError::from)?;
 
             tracing::info!("Proxy selection updated: {} -> {}", group_name, proxy_name);
-
-            // Also try to update the actual SelectorOutbound if possible
-            // This requires the proxy to expose a method for selection
-            // For now, we just store the selection and log it
-            let _ = proxy; // Acknowledge we have the proxy
-
             Ok(true)
         } else {
             tracing::warn!("Proxy group '{}' not found", group_name);
@@ -1382,16 +2124,18 @@ pub async fn select_proxy_in_group(group_name: String, proxy_name: String) -> Re
 /// Get the currently selected proxy in a group
 #[frb]
 pub async fn get_selected_proxy_in_group(group_name: String) -> Result<Option<String>> {
-    use parking_lot::RwLock;
-    use std::collections::HashMap;
-    use std::sync::OnceLock;
+    let instance = get_veloguard_instance().await?;
+    let veloguard_guard = instance.read().await;
 
-    static PROXY_SELECTIONS: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
-
-    let selections = PROXY_SELECTIONS.get_or_init(|| RwLock::new(HashMap::new()));
-    let guard = selections.read();
-
-    Ok(guard.get(&group_name).cloned())
+    if let Some(veloguard) = veloguard_guard.as_ref() {
+        let proxy_manager = veloguard.proxy_manager();
+        let outbound_manager = proxy_manager.outbound_manager();
+        
+        Ok(outbound_manager.get_selector_proxy(&group_name))
+    } else {
+        // If not initialized, return None
+        Ok(None)
+    }
 }
 
 // ============== Connection Tracking ==============
@@ -1732,7 +2476,7 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
 
             while let Some(packet) = tun_rx.recv().await {
                 packet_count += 1;
-                if packet_count <= 10 || packet_count % 100 == 0 {
+                if packet_count <= 10 || packet_count.is_multiple_of(100) {
                     tracing::debug!(
                         "Processing packet #{}: {} bytes",
                         packet_count,
@@ -2185,7 +2929,7 @@ pub async fn start_android_vpn() -> Result<bool> {
         }
 
         // Check if protect callback is set
-        if veloguard_solidtcp::has_protect_callback() {
+        if veloguard_netstack::has_protect_callback() {
             tracing::info!("Socket protect callback is SET");
         } else {
             tracing::error!("Socket protect callback is NOT SET! This will cause routing loops.");
@@ -2413,10 +3157,10 @@ pub async fn stop_android_vpn() -> Result<bool> {
         if let Some(processor) = crate::get_android_vpn_processor() {
             tracing::info!("Stopping VPN processor...");
             processor.stop();
-            
+
             // Reset all state in the processor
             processor.reset();
-            
+
             // Clear the Fake-IP pool in SolidStack
             processor.reset_fake_ip_pool();
             tracing::info!("VPN processor stopped, reset, and Fake-IP pool cleared");
@@ -2433,7 +3177,7 @@ pub async fn stop_android_vpn() -> Result<bool> {
         tracing::info!("VPN fd cleared");
 
         // Clear the socket protect callback
-        veloguard_solidtcp::clear_protect_callback();
+        veloguard_netstack::clear_protect_callback();
         tracing::info!("Socket protect callback cleared");
 
         // Reset the global connection tracker

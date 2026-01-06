@@ -83,14 +83,14 @@ impl FakeIpPool {
     pub fn should_filter(&self, domain: &str) -> bool {
         let domain_lower = domain.to_lowercase();
         for pattern in &self.filter {
-            if pattern.starts_with("*.") {
+            if let Some(rest) = pattern.strip_prefix("*.") {
                 let suffix = &pattern[1..]; // ".example.com"
-                if domain_lower.ends_with(suffix) || domain_lower == &pattern[2..] {
+                if domain_lower.ends_with(suffix) || domain_lower == rest {
                     return true;
                 }
-            } else if pattern.starts_with('+') {
-                let suffix = &pattern[1..]; // ".example.com"
-                if domain_lower.ends_with(suffix) || domain_lower == &pattern[2..] {
+            } else if let Some(suffix) = pattern.strip_prefix('+') {
+                // ".example.com"
+                if domain_lower.ends_with(suffix) || domain_lower == suffix.strip_prefix('.').unwrap_or(suffix) {
                     return true;
                 }
             } else if domain_lower == pattern.to_lowercase() {

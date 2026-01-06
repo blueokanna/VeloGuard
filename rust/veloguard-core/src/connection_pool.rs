@@ -66,7 +66,7 @@ impl ConnectionPool {
 
     /// Get a connection from the pool
     pub async fn get_connection(&self, target: &str) -> Result<Arc<Mutex<PooledConnection>>> {
-        let mut pool = self.pools.entry(target.to_string()).or_insert_with(Vec::new);
+        let mut pool = self.pools.entry(target.to_string()).or_default();
 
         // Clean up expired connections
         self.cleanup_expired_connections(&mut pool).await;

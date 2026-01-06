@@ -1,5 +1,6 @@
 //! DNS resolver with caching and routing
 
+use crate::bogon::contains_bogon;
 use crate::cache::DnsCache;
 use crate::client::{create_clients, DnsClient};
 use crate::config::DnsConfig;
@@ -198,8 +199,7 @@ impl DnsResolver {
 
         // Check domain filter
         for pattern in &filter.domain {
-            if pattern.starts_with('+') {
-                let suffix = &pattern[1..];
+            if let Some(suffix) = pattern.strip_prefix('+') {
                 if name.ends_with(suffix) || name == &suffix[1..] {
                     return true;
                 }
@@ -208,12 +208,18 @@ impl DnsResolver {
             }
         }
 
-        // Check IP CIDR filter (bogon detection)
+        // Check for bogon IPs using the bogon detection module
+        if contains_bogon(ips) {
+            debug!("Bogon IP detected in response for {}: {:?}", name, ips);
+            return true;
+        }
+
+        // Check IP CIDR filter (additional custom ranges)
         for ip in ips {
             for cidr in &filter.ipcidr {
                 if let Ok(network) = cidr.parse::<ipnet::IpNet>() {
                     if network.contains(ip) {
-                        debug!("Bogon IP detected: {} in {}", ip, cidr);
+                        debug!("IP {} matches fallback CIDR filter {}", ip, cidr);
                         return true;
                     }
                 }
@@ -265,6 +271,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore] // Requires network
     async fn test_resolver_basic() {
         let config = DnsConfig {
             nameservers: vec!["8.8.8.8".to_string()],

@@ -1,3 +1,5 @@
+#[macro_use]
+pub mod macros;
 pub mod config;
 pub mod proxy;
 pub mod routing;
@@ -7,12 +9,21 @@ pub mod dns;
 pub mod netstack;
 pub mod error;
 pub mod logging;
+pub mod jaeger_tracing;
 pub mod tls;
 pub mod connection_pool;
 pub mod health_check;
 pub mod traffic_stats;
 pub mod connection_tracker;
 pub mod api;
+pub mod geoip;
+pub mod rule_provider;
+pub mod proxy_provider;
+pub mod provider_updater;
+pub mod process;
+
+#[cfg(test)]
+mod tests;
 
 pub use config::*;
 pub use proxy::*;

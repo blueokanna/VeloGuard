@@ -32,12 +32,12 @@ use flutter_rust_bridge::{Handler, IntoIntoDart};
 // Section: boilerplate
 
 flutter_rust_bridge::frb_generated_boilerplate!(
-    default_stream_sink_codec = SseCodec,
-    default_rust_opaque = RustOpaqueMoi,
-    default_rust_auto_opaque = RustAutoOpaqueMoi,
+    default_stream_sink_codec = DcoCodec,
+    default_rust_opaque = RustOpaqueNom,
+    default_rust_auto_opaque = RustAutoOpaqueNom,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1116204188;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1477366539;
 
 // Section: executor
 
@@ -47,29 +47,16 @@ flutter_rust_bridge::frb_generated_default_handler!();
 
 fn wire__crate__api__clear_android_vpn_fd_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "clear_android_vpn_fd",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::clear_android_vpn_fd();
                     })?;
@@ -79,32 +66,39 @@ fn wire__crate__api__clear_android_vpn_fd_impl(
         },
     )
 }
+fn wire__crate__api__clear_vpn_fd_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "clear_vpn_fd",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| {
+                transform_result_dco::<_, _, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::clear_vpn_fd();
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__close_active_connection_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    connection_id: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "close_active_connection",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_connection_id = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_connection_id = connection_id.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::close_active_connection(api_connection_id).await?;
@@ -118,29 +112,16 @@ fn wire__crate__api__close_active_connection_impl(
 }
 fn wire__crate__api__close_all_connections_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "close_all_connections",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::close_all_connections().await?;
                         Ok(output_ok)
@@ -151,32 +132,42 @@ fn wire__crate__api__close_all_connections_impl(
         },
     )
 }
+fn wire__crate__api__close_all_connections_dto_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "close_all_connections_dto",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::close_all_connections_dto().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__close_connection_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    _connection_id: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "close_connection",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api__connection_id = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api__connection_id = _connection_id.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::close_connection(api__connection_id).await?;
                         Ok(output_ok)
@@ -187,31 +178,40 @@ fn wire__crate__api__close_connection_impl(
         },
     )
 }
-fn wire__crate__api__disable_tun_mode_impl(
+fn wire__crate__api__close_connection_by_id_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    id: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "close_connection_by_id",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_id = id.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::close_connection_by_id(api_id).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__disable_tun_mode_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "disable_tun_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::disable_tun_mode().await?;
                         Ok(output_ok)
@@ -222,31 +222,16 @@ fn wire__crate__api__disable_tun_mode_impl(
         },
     )
 }
-fn wire__crate__api__enable_tun_mode_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+fn wire__crate__api__enable_tun_mode_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "enable_tun_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::enable_tun_mode().await?;
                         Ok(output_ok)
@@ -259,30 +244,18 @@ fn wire__crate__api__enable_tun_mode_impl(
 }
 fn wire__crate__api__enable_tun_mode_with_mode_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    mode: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "enable_tun_mode_with_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_mode = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_mode = mode.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::enable_tun_mode_with_mode(api_mode).await?;
                         Ok(output_ok)
@@ -295,29 +268,16 @@ fn wire__crate__api__enable_tun_mode_with_mode_impl(
 }
 fn wire__crate__api__enable_uwp_loopback_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "enable_uwp_loopback",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::enable_uwp_loopback().await?;
                         Ok(output_ok)
@@ -330,29 +290,16 @@ fn wire__crate__api__enable_uwp_loopback_impl(
 }
 fn wire__crate__api__ensure_wintun_dll_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "ensure_wintun_dll",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::ensure_wintun_dll().await?;
                         Ok(output_ok)
@@ -365,29 +312,16 @@ fn wire__crate__api__ensure_wintun_dll_impl(
 }
 fn wire__crate__api__get_active_connections_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_active_connections",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_active_connections().await?;
                         Ok(output_ok)
@@ -400,29 +334,16 @@ fn wire__crate__api__get_active_connections_impl(
 }
 fn wire__crate__api__get_android_proxy_mode_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_android_proxy_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_android_proxy_mode())?;
                     Ok(output_ok)
                 })())
@@ -432,29 +353,16 @@ fn wire__crate__api__get_android_proxy_mode_impl(
 }
 fn wire__crate__api__get_android_vpn_fd_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_android_vpn_fd",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_android_vpn_fd())?;
                     Ok(output_ok)
                 })())
@@ -462,31 +370,16 @@ fn wire__crate__api__get_android_vpn_fd_impl(
         },
     )
 }
-fn wire__crate__api__get_build_info_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+fn wire__crate__api__get_build_info_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_build_info",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_build_info())?;
                     Ok(output_ok)
                 })())
@@ -496,29 +389,16 @@ fn wire__crate__api__get_build_info_impl(
 }
 fn wire__crate__api__get_connection_stats_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_connection_stats",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_connection_stats().await?;
                         Ok(output_ok)
@@ -529,31 +409,16 @@ fn wire__crate__api__get_connection_stats_impl(
         },
     )
 }
-fn wire__crate__api__get_connections_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+fn wire__crate__api__get_connections_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_connections",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_connections().await?;
                         Ok(output_ok)
@@ -564,32 +429,62 @@ fn wire__crate__api__get_connections_impl(
         },
     )
 }
+fn wire__crate__api__get_connections_dto_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_connections_dto",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_connections_dto().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__get_dns_config_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_dns_config",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_dns_config().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__get_logs_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    lines: impl CstDecode<Option<u32>>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_logs",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_lines = <Option<u32>>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_lines = lines.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_logs(api_lines).await?;
                         Ok(output_ok)
@@ -600,32 +495,100 @@ fn wire__crate__api__get_logs_impl(
         },
     )
 }
+fn wire__crate__api__get_proxies_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_proxies",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_proxies().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__get_proxy_groups_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_proxy_groups",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_proxy_groups().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__get_proxy_mode_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_proxy_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_proxy_mode().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__get_rules_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_rules",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_rules().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__get_selected_proxy_in_group_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    group_name: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_selected_proxy_in_group",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_group_name = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_group_name = group_name.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::get_selected_proxy_in_group(api_group_name).await?;
@@ -637,31 +600,16 @@ fn wire__crate__api__get_selected_proxy_in_group_impl(
         },
     )
 }
-fn wire__crate__api__get_system_info_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+fn wire__crate__api__get_system_info_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_system_info",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_system_info().await?;
                         Ok(output_ok)
@@ -674,29 +622,16 @@ fn wire__crate__api__get_system_info_impl(
 }
 fn wire__crate__api__get_traffic_stats_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_traffic_stats",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_traffic_stats().await?;
                         Ok(output_ok)
@@ -707,31 +642,38 @@ fn wire__crate__api__get_traffic_stats_impl(
         },
     )
 }
-fn wire__crate__api__get_tun_status_impl(
+fn wire__crate__api__get_traffic_stats_dto_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_traffic_stats_dto",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_traffic_stats_dto().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__get_tun_status_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_tun_status",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_tun_status().await?;
                         Ok(output_ok)
@@ -744,29 +686,16 @@ fn wire__crate__api__get_tun_status_impl(
 }
 fn wire__crate__api__get_veloguard_status_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_veloguard_status",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::get_veloguard_status().await?;
                         Ok(output_ok)
@@ -777,31 +706,16 @@ fn wire__crate__api__get_veloguard_status_impl(
         },
     )
 }
-fn wire__crate__api__get_version_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+fn wire__crate__api__get_version_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_version",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_version())?;
                     Ok(output_ok)
                 })())
@@ -811,29 +725,16 @@ fn wire__crate__api__get_version_impl(
 }
 fn wire__crate__api__get_windows_proxy_mode_str_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_windows_proxy_mode_str",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_windows_proxy_mode_str())?;
                     Ok(output_ok)
                 })())
@@ -843,29 +744,16 @@ fn wire__crate__api__get_windows_proxy_mode_str_impl(
 }
 fn wire__crate__api__get_windows_tun_stats_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_windows_tun_stats",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok = crate::api::get_windows_tun_stats()?;
                         Ok(output_ok)
@@ -877,30 +765,36 @@ fn wire__crate__api__get_windows_tun_stats_impl(
 }
 fn wire__crate__api__get_wintun_dll_path_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "get_wintun_dll_path",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::get_wintun_dll_path())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__init_app_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "init_app",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| {
+                transform_result_dco::<_, _, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::init_app();
+                    })?;
                     Ok(output_ok)
                 })())
             }
@@ -909,30 +803,18 @@ fn wire__crate__api__get_wintun_dll_path_impl(
 }
 fn wire__crate__api__initialize_veloguard_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    config_json: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "initialize_veloguard",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_config_json = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_config_json = config_json.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::initialize_veloguard(api_config_json).await?;
                         Ok(output_ok)
@@ -943,31 +825,38 @@ fn wire__crate__api__initialize_veloguard_impl(
         },
     )
 }
+fn wire__crate__api__is_proxy_running_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "is_proxy_running",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::is_proxy_running().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__is_wintun_available_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "is_wintun_available",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(crate::api::is_wintun_available())?;
                     Ok(output_ok)
                 })())
@@ -977,29 +866,16 @@ fn wire__crate__api__is_wintun_available_impl(
 }
 fn wire__crate__api__open_uwp_loopback_utility_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "open_uwp_loopback_utility",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::open_uwp_loopback_utility().await?;
                         Ok(output_ok)
@@ -1010,32 +886,70 @@ fn wire__crate__api__open_uwp_loopback_utility_impl(
         },
     )
 }
+fn wire__crate__api__reload_config_from_file_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    config_path: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "reload_config_from_file",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_config_path = config_path.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::reload_config_from_file(api_config_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__reload_config_from_yaml_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    yaml_config: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "reload_config_from_yaml",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_yaml_config = yaml_config.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::reload_config_from_yaml(api_yaml_config).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__reload_veloguard_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    config_json: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "reload_veloguard",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_config_json = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_config_json = config_json.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::reload_veloguard(api_config_json).await?;
                         Ok(output_ok)
@@ -1046,33 +960,49 @@ fn wire__crate__api__reload_veloguard_impl(
         },
     )
 }
+fn wire__crate__api__select_proxy_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    group_tag: impl CstDecode<String>,
+    proxy_tag: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "select_proxy",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_group_tag = group_tag.cst_decode();
+            let api_proxy_tag = proxy_tag.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::select_proxy(api_group_tag, api_proxy_tag).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__select_proxy_in_group_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    group_name: impl CstDecode<String>,
+    proxy_name: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "select_proxy_in_group",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_group_name = <String>::sse_decode(&mut deserializer);
-            let api_proxy_name = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_group_name = group_name.cst_decode();
+            let api_proxy_name = proxy_name.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::select_proxy_in_group(api_group_name, api_proxy_name)
@@ -1087,30 +1017,18 @@ fn wire__crate__api__select_proxy_in_group_impl(
 }
 fn wire__crate__api__set_android_proxy_mode_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    mode: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "set_android_proxy_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_mode = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_mode = mode.cst_decode();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::set_android_proxy_mode(api_mode);
                     })?;
@@ -1122,30 +1040,18 @@ fn wire__crate__api__set_android_proxy_mode_impl(
 }
 fn wire__crate__api__set_android_vpn_fd_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    fd: impl CstDecode<i32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "set_android_vpn_fd",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_fd = <i32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_fd = fd.cst_decode();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
+                transform_result_dco::<_, _, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok({
                         crate::api::set_android_vpn_fd(api_fd);
                     })?;
@@ -1157,30 +1063,18 @@ fn wire__crate__api__set_android_vpn_fd_impl(
 }
 fn wire__crate__api__set_log_level_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    level: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "set_log_level",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_level = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_level = level.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::set_log_level(api_level).await?;
                         Ok(output_ok)
@@ -1191,32 +1085,90 @@ fn wire__crate__api__set_log_level_impl(
         },
     )
 }
+fn wire__crate__api__set_protect_socket_callback_enabled_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    enabled: impl CstDecode<bool>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_protect_socket_callback_enabled",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_enabled = enabled.cst_decode();
+            move |context| {
+                transform_result_dco::<_, _, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::set_protect_socket_callback_enabled(api_enabled);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__set_proxy_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    mode: impl CstDecode<i32>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_proxy_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_mode = mode.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::set_proxy_mode(api_mode).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__set_vpn_fd_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    fd: impl CstDecode<i32>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_vpn_fd",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_fd = fd.cst_decode();
+            move |context| {
+                transform_result_dco::<_, _, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok({
+                        crate::api::set_vpn_fd(api_fd);
+                    })?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__set_windows_proxy_mode_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    mode: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "set_windows_proxy_mode",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_mode = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_mode = mode.cst_decode();
             move |context| {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
                         let output_ok = crate::api::set_windows_proxy_mode(api_mode)?;
                         Ok(output_ok)
@@ -1228,29 +1180,16 @@ fn wire__crate__api__set_windows_proxy_mode_impl(
 }
 fn wire__crate__api__start_android_vpn_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "start_android_vpn",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::start_android_vpn().await?;
                         Ok(output_ok)
@@ -1261,31 +1200,97 @@ fn wire__crate__api__start_android_vpn_impl(
         },
     )
 }
-fn wire__crate__api__start_veloguard_impl(
+fn wire__crate__api__start_proxy_from_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    config_path: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_proxy_from_file",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_config_path = config_path.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::start_proxy_from_file(api_config_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__start_proxy_from_yaml_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    yaml_config: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_proxy_from_yaml",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_yaml_config = yaml_config.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::start_proxy_from_yaml(api_yaml_config).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__start_tun_mode_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    tun_name: impl CstDecode<String>,
+    tun_address: impl CstDecode<String>,
+    tun_netmask: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_tun_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_tun_name = tun_name.cst_decode();
+            let api_tun_address = tun_address.cst_decode();
+            let api_tun_netmask = tun_netmask.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::start_tun_mode(
+                            api_tun_name,
+                            api_tun_address,
+                            api_tun_netmask,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__start_veloguard_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "start_veloguard",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::start_veloguard().await?;
                         Ok(output_ok)
@@ -1296,31 +1301,16 @@ fn wire__crate__api__start_veloguard_impl(
         },
     )
 }
-fn wire__crate__api__stop_android_vpn_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+fn wire__crate__api__stop_android_vpn_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "stop_android_vpn",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::stop_android_vpn().await?;
                         Ok(output_ok)
@@ -1331,31 +1321,56 @@ fn wire__crate__api__stop_android_vpn_impl(
         },
     )
 }
-fn wire__crate__api__stop_veloguard_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+fn wire__crate__api__stop_proxy_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "stop_proxy",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::stop_proxy().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__stop_tun_mode_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "stop_tun_mode",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::stop_tun_mode().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__stop_veloguard_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "stop_veloguard",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::stop_veloguard().await?;
                         Ok(output_ok)
@@ -1366,32 +1381,48 @@ fn wire__crate__api__stop_veloguard_impl(
         },
     )
 }
+fn wire__crate__api__test_all_proxies_latency_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    test_url: impl CstDecode<String>,
+    timeout_ms: impl CstDecode<u64>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "test_all_proxies_latency",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_test_url = test_url.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::test_all_proxies_latency(api_test_url, api_timeout_ms)
+                                .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__test_config_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    config_json: impl CstDecode<String>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_config",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_config_json = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_config_json = config_json.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::test_config(api_config_json).await?;
                         Ok(output_ok)
@@ -1404,31 +1435,20 @@ fn wire__crate__api__test_config_impl(
 }
 fn wire__crate__api__test_outbound_latency_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    outbound_name: impl CstDecode<String>,
+    timeout_ms: impl CstDecode<u32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_outbound_latency",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_outbound_name = <String>::sse_decode(&mut deserializer);
-            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_outbound_name = outbound_name.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::test_outbound_latency(api_outbound_name, api_timeout_ms)
@@ -1443,31 +1463,20 @@ fn wire__crate__api__test_outbound_latency_impl(
 }
 fn wire__crate__api__test_proxies_latency_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    proxies: impl CstDecode<Vec<(String, u16)>>,
+    timeout_ms: impl CstDecode<u32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_proxies_latency",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_proxies = <Vec<(String, u16)>>::sse_decode(&mut deserializer);
-            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_proxies = proxies.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::test_proxies_latency(api_proxies, api_timeout_ms).await?;
@@ -1481,32 +1490,22 @@ fn wire__crate__api__test_proxies_latency_impl(
 }
 fn wire__crate__api__test_proxy_latency_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    server: impl CstDecode<String>,
+    port: impl CstDecode<u16>,
+    timeout_ms: impl CstDecode<u32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_proxy_latency",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_server = <String>::sse_decode(&mut deserializer);
-            let api_port = <u16>::sse_decode(&mut deserializer);
-            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_server = server.cst_decode();
+            let api_port = port.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::test_proxy_latency(api_server, api_port, api_timeout_ms)
@@ -1519,36 +1518,61 @@ fn wire__crate__api__test_proxy_latency_impl(
         },
     )
 }
+fn wire__crate__api__test_proxy_latency_dto_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    tag: impl CstDecode<String>,
+    test_url: impl CstDecode<String>,
+    timeout_ms: impl CstDecode<u64>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "test_proxy_latency_dto",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_tag = tag.cst_decode();
+            let api_test_url = test_url.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::test_proxy_latency_dto(
+                            api_tag,
+                            api_test_url,
+                            api_timeout_ms,
+                        )
+                        .await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__test_shadowsocks_latency_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    server: impl CstDecode<String>,
+    port: impl CstDecode<u16>,
+    password: impl CstDecode<String>,
+    cipher: impl CstDecode<String>,
+    timeout_ms: impl CstDecode<u32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_shadowsocks_latency",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_server = <String>::sse_decode(&mut deserializer);
-            let api_port = <u16>::sse_decode(&mut deserializer);
-            let api_password = <String>::sse_decode(&mut deserializer);
-            let api_cipher = <String>::sse_decode(&mut deserializer);
-            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_server = server.cst_decode();
+            let api_port = port.cst_decode();
+            let api_password = password.cst_decode();
+            let api_cipher = cipher.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::test_shadowsocks_latency(
                             api_server,
@@ -1568,32 +1592,22 @@ fn wire__crate__api__test_shadowsocks_latency_impl(
 }
 fn wire__crate__api__test_tcp_connectivity_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
+    server: impl CstDecode<String>,
+    port: impl CstDecode<u16>,
+    timeout_ms: impl CstDecode<u32>,
 ) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
             debug_name: "test_tcp_connectivity",
             port: Some(port_),
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_server = <String>::sse_decode(&mut deserializer);
-            let api_port = <u16>::sse_decode(&mut deserializer);
-            let api_timeout_ms = <u32>::sse_decode(&mut deserializer);
-            deserializer.end();
+            let api_server = server.cst_decode();
+            let api_port = port.cst_decode();
+            let api_timeout_ms = timeout_ms.cst_decode();
             move |context| async move {
-                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok =
                             crate::api::test_tcp_connectivity(api_server, api_port, api_timeout_ms)
@@ -1609,6 +1623,60 @@ fn wire__crate__api__test_tcp_connectivity_impl(
 
 // Section: dart2rust
 
+impl CstDecode<bool> for bool {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> bool {
+        self
+    }
+}
+impl CstDecode<f64> for f64 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> f64 {
+        self
+    }
+}
+impl CstDecode<i32> for i32 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> i32 {
+        self
+    }
+}
+impl CstDecode<i64> for i64 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> i64 {
+        self
+    }
+}
+impl CstDecode<u16> for u16 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> u16 {
+        self
+    }
+}
+impl CstDecode<u32> for u32 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> u32 {
+        self
+    }
+}
+impl CstDecode<u64> for u64 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> u64 {
+        self
+    }
+}
+impl CstDecode<u8> for u8 {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> u8 {
+        self
+    }
+}
+impl CstDecode<usize> for usize {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    fn cst_decode(self) -> usize {
+        self
+    }
+}
 impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1668,6 +1736,34 @@ impl SseDecode for bool {
     }
 }
 
+impl SseDecode for crate::types::ConnectionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_srcAddr = <String>::sse_decode(deserializer);
+        let mut var_dstAddr = <String>::sse_decode(deserializer);
+        let mut var_dstDomain = <Option<String>>::sse_decode(deserializer);
+        let mut var_protocol = <String>::sse_decode(deserializer);
+        let mut var_outbound = <String>::sse_decode(deserializer);
+        let mut var_upload = <u64>::sse_decode(deserializer);
+        let mut var_download = <u64>::sse_decode(deserializer);
+        let mut var_startTime = <i64>::sse_decode(deserializer);
+        let mut var_rule = <Option<String>>::sse_decode(deserializer);
+        return crate::types::ConnectionDto {
+            id: var_id,
+            src_addr: var_srcAddr,
+            dst_addr: var_dstAddr,
+            dst_domain: var_dstDomain,
+            protocol: var_protocol,
+            outbound: var_outbound,
+            upload: var_upload,
+            download: var_download,
+            start_time: var_startTime,
+            rule: var_rule,
+        };
+    }
+}
+
 impl SseDecode for crate::types::ConnectionInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1692,6 +1788,24 @@ impl SseDecode for crate::types::ConnectionInfo {
     }
 }
 
+impl SseDecode for crate::types::DnsConfigDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_enable = <bool>::sse_decode(deserializer);
+        let mut var_listen = <String>::sse_decode(deserializer);
+        let mut var_enhancedMode = <String>::sse_decode(deserializer);
+        let mut var_nameservers = <Vec<String>>::sse_decode(deserializer);
+        let mut var_fallback = <Vec<String>>::sse_decode(deserializer);
+        return crate::types::DnsConfigDto {
+            enable: var_enable,
+            listen: var_listen,
+            enhanced_mode: var_enhancedMode,
+            nameservers: var_nameservers,
+            fallback: var_fallback,
+        };
+    }
+}
+
 impl SseDecode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1703,6 +1817,13 @@ impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_i32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i64::<NativeEndian>().unwrap()
     }
 }
 
@@ -1746,6 +1867,18 @@ impl SseDecode for Vec<crate::types::ActiveConnection> {
     }
 }
 
+impl SseDecode for Vec<crate::types::ConnectionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::types::ConnectionDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::types::ConnectionInfo> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1782,6 +1915,42 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Vec<crate::types::ProxyGroupDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::types::ProxyGroupDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::types::ProxyInfoDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::types::ProxyInfoDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::types::ProxyLatencyDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::types::ProxyLatencyDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<(String, u16)> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1789,6 +1958,18 @@ impl SseDecode for Vec<(String, u16)> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<(String, u16)>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::types::RuleDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::types::RuleDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -1805,6 +1986,17 @@ impl SseDecode for Option<String> {
     }
 }
 
+impl SseDecode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u16>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1813,6 +2005,67 @@ impl SseDecode for Option<u32> {
         } else {
             return None;
         }
+    }
+}
+
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for crate::types::ProxyGroupDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_tag = <String>::sse_decode(deserializer);
+        let mut var_groupType = <String>::sse_decode(deserializer);
+        let mut var_proxies = <Vec<String>>::sse_decode(deserializer);
+        let mut var_selected = <String>::sse_decode(deserializer);
+        return crate::types::ProxyGroupDto {
+            tag: var_tag,
+            group_type: var_groupType,
+            proxies: var_proxies,
+            selected: var_selected,
+        };
+    }
+}
+
+impl SseDecode for crate::types::ProxyInfoDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_tag = <String>::sse_decode(deserializer);
+        let mut var_protocolType = <String>::sse_decode(deserializer);
+        let mut var_server = <Option<String>>::sse_decode(deserializer);
+        let mut var_port = <Option<u16>>::sse_decode(deserializer);
+        let mut var_latencyMs = <Option<u64>>::sse_decode(deserializer);
+        let mut var_alive = <bool>::sse_decode(deserializer);
+        return crate::types::ProxyInfoDto {
+            tag: var_tag,
+            protocol_type: var_protocolType,
+            server: var_server,
+            port: var_port,
+            latency_ms: var_latencyMs,
+            alive: var_alive,
+        };
+    }
+}
+
+impl SseDecode for crate::types::ProxyLatencyDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_tag = <String>::sse_decode(deserializer);
+        let mut var_latencyMs = <Option<u64>>::sse_decode(deserializer);
+        let mut var_error = <Option<String>>::sse_decode(deserializer);
+        return crate::types::ProxyLatencyDto {
+            tag: var_tag,
+            latency_ms: var_latencyMs,
+            error: var_error,
+        };
     }
 }
 
@@ -1871,6 +2124,22 @@ impl SseDecode for (u64, u64, u64, u64, usize, usize) {
     }
 }
 
+impl SseDecode for crate::types::RuleDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ruleType = <String>::sse_decode(deserializer);
+        let mut var_payload = <String>::sse_decode(deserializer);
+        let mut var_outbound = <String>::sse_decode(deserializer);
+        let mut var_matchedCount = <u64>::sse_decode(deserializer);
+        return crate::types::RuleDto {
+            rule_type: var_ruleType,
+            payload: var_payload,
+            outbound: var_outbound,
+            matched_count: var_matchedCount,
+        };
+    }
+}
+
 impl SseDecode for crate::types::SystemInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1907,6 +2176,26 @@ impl SseDecode for crate::types::TrafficStats {
             download: var_download,
             upload_speed: var_uploadSpeed,
             download_speed: var_downloadSpeed,
+        };
+    }
+}
+
+impl SseDecode for crate::types::TrafficStatsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_upload = <u64>::sse_decode(deserializer);
+        let mut var_download = <u64>::sse_decode(deserializer);
+        let mut var_totalUpload = <u64>::sse_decode(deserializer);
+        let mut var_totalDownload = <u64>::sse_decode(deserializer);
+        let mut var_connectionCount = <u32>::sse_decode(deserializer);
+        let mut var_uptimeSecs = <u64>::sse_decode(deserializer);
+        return crate::types::TrafficStatsDto {
+            upload: var_upload,
+            download: var_download,
+            total_upload: var_totalUpload,
+            total_download: var_totalDownload,
+            connection_count: var_connectionCount,
+            uptime_secs: var_uptimeSecs,
         };
     }
 }
@@ -1976,50 +2265,6 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        1 => wire__crate__api__clear_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__close_active_connection_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__close_all_connections_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__close_connection_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__disable_tun_mode_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__enable_tun_mode_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__enable_tun_mode_with_mode_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__enable_uwp_loopback_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__ensure_wintun_dll_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__get_active_connections_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__get_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__get_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__get_build_info_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__get_connection_stats_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__get_connections_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__get_logs_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__get_selected_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__get_system_info_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__get_traffic_stats_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__get_tun_status_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__get_veloguard_status_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__get_version_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__get_windows_proxy_mode_str_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__get_windows_tun_stats_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__get_wintun_dll_path_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__initialize_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__is_wintun_available_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__open_uwp_loopback_utility_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__reload_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__select_proxy_in_group_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__set_android_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__set_android_vpn_fd_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__set_log_level_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__set_windows_proxy_mode_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__start_android_vpn_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__start_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__stop_android_vpn_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__stop_veloguard_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__test_config_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__test_outbound_latency_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__test_proxies_latency_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__test_proxy_latency_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__test_shadowsocks_latency_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__test_tcp_connectivity_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2072,6 +2317,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::types::ActiveConnection>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::ConnectionDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.src_addr.into_into_dart().into_dart(),
+            self.dst_addr.into_into_dart().into_dart(),
+            self.dst_domain.into_into_dart().into_dart(),
+            self.protocol.into_into_dart().into_dart(),
+            self.outbound.into_into_dart().into_dart(),
+            self.upload.into_into_dart().into_dart(),
+            self.download.into_into_dart().into_dart(),
+            self.start_time.into_into_dart().into_dart(),
+            self.rule.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::ConnectionDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::ConnectionDto>
+    for crate::types::ConnectionDto
+{
+    fn into_into_dart(self) -> crate::types::ConnectionDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::types::ConnectionInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2092,6 +2363,25 @@ impl flutter_rust_bridge::IntoIntoDart<crate::types::ConnectionInfo>
     for crate::types::ConnectionInfo
 {
     fn into_into_dart(self) -> crate::types::ConnectionInfo {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::DnsConfigDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.enable.into_into_dart().into_dart(),
+            self.listen.into_into_dart().into_dart(),
+            self.enhanced_mode.into_into_dart().into_dart(),
+            self.nameservers.into_into_dart().into_dart(),
+            self.fallback.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::DnsConfigDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::DnsConfigDto> for crate::types::DnsConfigDto {
+    fn into_into_dart(self) -> crate::types::DnsConfigDto {
         self
     }
 }
@@ -2119,6 +2409,65 @@ impl flutter_rust_bridge::IntoIntoDart<crate::types::LatencyTestResult>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::ProxyGroupDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.tag.into_into_dart().into_dart(),
+            self.group_type.into_into_dart().into_dart(),
+            self.proxies.into_into_dart().into_dart(),
+            self.selected.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::ProxyGroupDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::ProxyGroupDto>
+    for crate::types::ProxyGroupDto
+{
+    fn into_into_dart(self) -> crate::types::ProxyGroupDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::ProxyInfoDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.tag.into_into_dart().into_dart(),
+            self.protocol_type.into_into_dart().into_dart(),
+            self.server.into_into_dart().into_dart(),
+            self.port.into_into_dart().into_dart(),
+            self.latency_ms.into_into_dart().into_dart(),
+            self.alive.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::ProxyInfoDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::ProxyInfoDto> for crate::types::ProxyInfoDto {
+    fn into_into_dart(self) -> crate::types::ProxyInfoDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::ProxyLatencyDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.tag.into_into_dart().into_dart(),
+            self.latency_ms.into_into_dart().into_dart(),
+            self.error.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::ProxyLatencyDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::ProxyLatencyDto>
+    for crate::types::ProxyLatencyDto
+{
+    fn into_into_dart(self) -> crate::types::ProxyLatencyDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::types::ProxyStatus {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2135,6 +2484,24 @@ impl flutter_rust_bridge::IntoDart for crate::types::ProxyStatus {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::ProxyStatus {}
 impl flutter_rust_bridge::IntoIntoDart<crate::types::ProxyStatus> for crate::types::ProxyStatus {
     fn into_into_dart(self) -> crate::types::ProxyStatus {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::RuleDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.rule_type.into_into_dart().into_dart(),
+            self.payload.into_into_dart().into_dart(),
+            self.outbound.into_into_dart().into_dart(),
+            self.matched_count.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::RuleDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::RuleDto> for crate::types::RuleDto {
+    fn into_into_dart(self) -> crate::types::RuleDto {
         self
     }
 }
@@ -2175,6 +2542,28 @@ impl flutter_rust_bridge::IntoDart for crate::types::TrafficStats {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::TrafficStats {}
 impl flutter_rust_bridge::IntoIntoDart<crate::types::TrafficStats> for crate::types::TrafficStats {
     fn into_into_dart(self) -> crate::types::TrafficStats {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::types::TrafficStatsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.upload.into_into_dart().into_dart(),
+            self.download.into_into_dart().into_dart(),
+            self.total_upload.into_into_dart().into_dart(),
+            self.total_download.into_into_dart().into_dart(),
+            self.connection_count.into_into_dart().into_dart(),
+            self.uptime_secs.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::types::TrafficStatsDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::types::TrafficStatsDto>
+    for crate::types::TrafficStatsDto
+{
+    fn into_into_dart(self) -> crate::types::TrafficStatsDto {
         self
     }
 }
@@ -2238,6 +2627,22 @@ impl SseEncode for bool {
     }
 }
 
+impl SseEncode for crate::types::ConnectionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.src_addr, serializer);
+        <String>::sse_encode(self.dst_addr, serializer);
+        <Option<String>>::sse_encode(self.dst_domain, serializer);
+        <String>::sse_encode(self.protocol, serializer);
+        <String>::sse_encode(self.outbound, serializer);
+        <u64>::sse_encode(self.upload, serializer);
+        <u64>::sse_encode(self.download, serializer);
+        <i64>::sse_encode(self.start_time, serializer);
+        <Option<String>>::sse_encode(self.rule, serializer);
+    }
+}
+
 impl SseEncode for crate::types::ConnectionInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2252,6 +2657,17 @@ impl SseEncode for crate::types::ConnectionInfo {
     }
 }
 
+impl SseEncode for crate::types::DnsConfigDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.enable, serializer);
+        <String>::sse_encode(self.listen, serializer);
+        <String>::sse_encode(self.enhanced_mode, serializer);
+        <Vec<String>>::sse_encode(self.nameservers, serializer);
+        <Vec<String>>::sse_encode(self.fallback, serializer);
+    }
+}
+
 impl SseEncode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2263,6 +2679,13 @@ impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i64::<NativeEndian>(self).unwrap();
     }
 }
 
@@ -2292,6 +2715,16 @@ impl SseEncode for Vec<crate::types::ActiveConnection> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::types::ActiveConnection>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::types::ConnectionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::types::ConnectionDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -2326,12 +2759,52 @@ impl SseEncode for Vec<u8> {
     }
 }
 
+impl SseEncode for Vec<crate::types::ProxyGroupDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::types::ProxyGroupDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::types::ProxyInfoDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::types::ProxyInfoDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::types::ProxyLatencyDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::types::ProxyLatencyDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<(String, u16)> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <(String, u16)>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::types::RuleDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::types::RuleDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -2346,6 +2819,16 @@ impl SseEncode for Option<String> {
     }
 }
 
+impl SseEncode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u16>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2353,6 +2836,47 @@ impl SseEncode for Option<u32> {
         if let Some(value) = self {
             <u32>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for crate::types::ProxyGroupDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.tag, serializer);
+        <String>::sse_encode(self.group_type, serializer);
+        <Vec<String>>::sse_encode(self.proxies, serializer);
+        <String>::sse_encode(self.selected, serializer);
+    }
+}
+
+impl SseEncode for crate::types::ProxyInfoDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.tag, serializer);
+        <String>::sse_encode(self.protocol_type, serializer);
+        <Option<String>>::sse_encode(self.server, serializer);
+        <Option<u16>>::sse_encode(self.port, serializer);
+        <Option<u64>>::sse_encode(self.latency_ms, serializer);
+        <bool>::sse_encode(self.alive, serializer);
+    }
+}
+
+impl SseEncode for crate::types::ProxyLatencyDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.tag, serializer);
+        <Option<u64>>::sse_encode(self.latency_ms, serializer);
+        <Option<String>>::sse_encode(self.error, serializer);
     }
 }
 
@@ -2398,6 +2922,16 @@ impl SseEncode for (u64, u64, u64, u64, usize, usize) {
     }
 }
 
+impl SseEncode for crate::types::RuleDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.rule_type, serializer);
+        <String>::sse_encode(self.payload, serializer);
+        <String>::sse_encode(self.outbound, serializer);
+        <u64>::sse_encode(self.matched_count, serializer);
+    }
+}
+
 impl SseEncode for crate::types::SystemInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2419,6 +2953,18 @@ impl SseEncode for crate::types::TrafficStats {
         <u64>::sse_encode(self.download, serializer);
         <u64>::sse_encode(self.upload_speed, serializer);
         <u64>::sse_encode(self.download_speed, serializer);
+    }
+}
+
+impl SseEncode for crate::types::TrafficStatsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.upload, serializer);
+        <u64>::sse_encode(self.download, serializer);
+        <u64>::sse_encode(self.total_upload, serializer);
+        <u64>::sse_encode(self.total_download, serializer);
+        <u32>::sse_encode(self.connection_count, serializer);
+        <u64>::sse_encode(self.uptime_secs, serializer);
     }
 }
 
@@ -2492,6 +3038,1491 @@ mod io {
     // Section: boilerplate
 
     flutter_rust_bridge::frb_generated_boilerplate_io!();
+
+    // Section: dart2rust
+
+    impl CstDecode<flutter_rust_bridge::for_generated::anyhow::Error>
+        for *mut wire_cst_list_prim_u_8_strict
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> flutter_rust_bridge::for_generated::anyhow::Error {
+            unimplemented!()
+        }
+    }
+    impl CstDecode<String> for *mut wire_cst_list_prim_u_8_strict {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> String {
+            let vec: Vec<u8> = self.cst_decode();
+            String::from_utf8(vec).unwrap()
+        }
+    }
+    impl CstDecode<crate::types::ActiveConnection> for wire_cst_active_connection {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ActiveConnection {
+            crate::types::ActiveConnection {
+                id: self.id.cst_decode(),
+                inbound_tag: self.inbound_tag.cst_decode(),
+                outbound_tag: self.outbound_tag.cst_decode(),
+                host: self.host.cst_decode(),
+                destination_ip: self.destination_ip.cst_decode(),
+                destination_port: self.destination_port.cst_decode(),
+                protocol: self.protocol.cst_decode(),
+                network: self.network.cst_decode(),
+                upload_bytes: self.upload_bytes.cst_decode(),
+                download_bytes: self.download_bytes.cst_decode(),
+                start_time: self.start_time.cst_decode(),
+                rule: self.rule.cst_decode(),
+                rule_payload: self.rule_payload.cst_decode(),
+                process_name: self.process_name.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<u16> for *mut u16 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u16 {
+            unsafe { *flutter_rust_bridge::for_generated::box_from_leak_ptr(self) }
+        }
+    }
+    impl CstDecode<u32> for *mut u32 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u32 {
+            unsafe { *flutter_rust_bridge::for_generated::box_from_leak_ptr(self) }
+        }
+    }
+    impl CstDecode<u64> for *mut u64 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u64 {
+            unsafe { *flutter_rust_bridge::for_generated::box_from_leak_ptr(self) }
+        }
+    }
+    impl CstDecode<crate::types::ConnectionDto> for wire_cst_connection_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ConnectionDto {
+            crate::types::ConnectionDto {
+                id: self.id.cst_decode(),
+                src_addr: self.src_addr.cst_decode(),
+                dst_addr: self.dst_addr.cst_decode(),
+                dst_domain: self.dst_domain.cst_decode(),
+                protocol: self.protocol.cst_decode(),
+                outbound: self.outbound.cst_decode(),
+                upload: self.upload.cst_decode(),
+                download: self.download.cst_decode(),
+                start_time: self.start_time.cst_decode(),
+                rule: self.rule.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ConnectionInfo> for wire_cst_connection_info {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ConnectionInfo {
+            crate::types::ConnectionInfo {
+                id: self.id.cst_decode(),
+                host: self.host.cst_decode(),
+                destination: self.destination.cst_decode(),
+                upload: self.upload.cst_decode(),
+                download: self.download.cst_decode(),
+                start_time: self.start_time.cst_decode(),
+                rule: self.rule.cst_decode(),
+                chains: self.chains.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::DnsConfigDto> for wire_cst_dns_config_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::DnsConfigDto {
+            crate::types::DnsConfigDto {
+                enable: self.enable.cst_decode(),
+                listen: self.listen.cst_decode(),
+                enhanced_mode: self.enhanced_mode.cst_decode(),
+                nameservers: self.nameservers.cst_decode(),
+                fallback: self.fallback.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::LatencyTestResult> for wire_cst_latency_test_result {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::LatencyTestResult {
+            crate::types::LatencyTestResult {
+                proxy_name: self.proxy_name.cst_decode(),
+                latency_ms: self.latency_ms.cst_decode(),
+                success: self.success.cst_decode(),
+                error: self.error.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<Vec<String>> for *mut wire_cst_list_String {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<String> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ActiveConnection>> for *mut wire_cst_list_active_connection {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ActiveConnection> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ConnectionDto>> for *mut wire_cst_list_connection_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ConnectionDto> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ConnectionInfo>> for *mut wire_cst_list_connection_info {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ConnectionInfo> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::LatencyTestResult>> for *mut wire_cst_list_latency_test_result {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::LatencyTestResult> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<u8>> for *mut wire_cst_list_prim_u_8_strict {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<u8> {
+            unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            }
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyGroupDto>> for *mut wire_cst_list_proxy_group_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyGroupDto> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyInfoDto>> for *mut wire_cst_list_proxy_info_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyInfoDto> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyLatencyDto>> for *mut wire_cst_list_proxy_latency_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyLatencyDto> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<(String, u16)>> for *mut wire_cst_list_record_string_u_16 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<(String, u16)> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::RuleDto>> for *mut wire_cst_list_rule_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::RuleDto> {
+            let vec = unsafe {
+                let wrap = flutter_rust_bridge::for_generated::box_from_leak_ptr(self);
+                flutter_rust_bridge::for_generated::vec_from_leak_ptr(wrap.ptr, wrap.len)
+            };
+            vec.into_iter().map(CstDecode::cst_decode).collect()
+        }
+    }
+    impl CstDecode<crate::types::ProxyGroupDto> for wire_cst_proxy_group_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyGroupDto {
+            crate::types::ProxyGroupDto {
+                tag: self.tag.cst_decode(),
+                group_type: self.group_type.cst_decode(),
+                proxies: self.proxies.cst_decode(),
+                selected: self.selected.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyInfoDto> for wire_cst_proxy_info_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyInfoDto {
+            crate::types::ProxyInfoDto {
+                tag: self.tag.cst_decode(),
+                protocol_type: self.protocol_type.cst_decode(),
+                server: self.server.cst_decode(),
+                port: self.port.cst_decode(),
+                latency_ms: self.latency_ms.cst_decode(),
+                alive: self.alive.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyLatencyDto> for wire_cst_proxy_latency_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyLatencyDto {
+            crate::types::ProxyLatencyDto {
+                tag: self.tag.cst_decode(),
+                latency_ms: self.latency_ms.cst_decode(),
+                error: self.error.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyStatus> for wire_cst_proxy_status {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyStatus {
+            crate::types::ProxyStatus {
+                running: self.running.cst_decode(),
+                inbound_count: self.inbound_count.cst_decode(),
+                outbound_count: self.outbound_count.cst_decode(),
+                connection_count: self.connection_count.cst_decode(),
+                memory_usage: self.memory_usage.cst_decode(),
+                uptime: self.uptime.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<(String, u16)> for wire_cst_record_string_u_16 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (String, u16) {
+            (self.field0.cst_decode(), self.field1.cst_decode())
+        }
+    }
+    impl CstDecode<(u64, u64, u64, u64)> for wire_cst_record_u_64_u_64_u_64_u_64 {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (u64, u64, u64, u64) {
+            (
+                self.field0.cst_decode(),
+                self.field1.cst_decode(),
+                self.field2.cst_decode(),
+                self.field3.cst_decode(),
+            )
+        }
+    }
+    impl CstDecode<(u64, u64, u64, u64, usize, usize)>
+        for wire_cst_record_u_64_u_64_u_64_u_64_usize_usize
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (u64, u64, u64, u64, usize, usize) {
+            (
+                self.field0.cst_decode(),
+                self.field1.cst_decode(),
+                self.field2.cst_decode(),
+                self.field3.cst_decode(),
+                self.field4.cst_decode(),
+                self.field5.cst_decode(),
+            )
+        }
+    }
+    impl CstDecode<crate::types::RuleDto> for wire_cst_rule_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::RuleDto {
+            crate::types::RuleDto {
+                rule_type: self.rule_type.cst_decode(),
+                payload: self.payload.cst_decode(),
+                outbound: self.outbound.cst_decode(),
+                matched_count: self.matched_count.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::SystemInfo> for wire_cst_system_info {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::SystemInfo {
+            crate::types::SystemInfo {
+                platform: self.platform.cst_decode(),
+                version: self.version.cst_decode(),
+                memory_total: self.memory_total.cst_decode(),
+                memory_used: self.memory_used.cst_decode(),
+                cpu_cores: self.cpu_cores.cst_decode(),
+                cpu_threads: self.cpu_threads.cst_decode(),
+                cpu_name: self.cpu_name.cst_decode(),
+                cpu_usage: self.cpu_usage.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TrafficStats> for wire_cst_traffic_stats {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TrafficStats {
+            crate::types::TrafficStats {
+                upload: self.upload.cst_decode(),
+                download: self.download.cst_decode(),
+                upload_speed: self.upload_speed.cst_decode(),
+                download_speed: self.download_speed.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TrafficStatsDto> for wire_cst_traffic_stats_dto {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TrafficStatsDto {
+            crate::types::TrafficStatsDto {
+                upload: self.upload.cst_decode(),
+                download: self.download.cst_decode(),
+                total_upload: self.total_upload.cst_decode(),
+                total_download: self.total_download.cst_decode(),
+                connection_count: self.connection_count.cst_decode(),
+                uptime_secs: self.uptime_secs.cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TunStatus> for wire_cst_tun_status {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TunStatus {
+            crate::types::TunStatus {
+                enabled: self.enabled.cst_decode(),
+                interface_name: self.interface_name.cst_decode(),
+                mtu: self.mtu.cst_decode(),
+                error: self.error.cst_decode(),
+            }
+        }
+    }
+    impl NewWithNullPtr for wire_cst_active_connection {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                id: core::ptr::null_mut(),
+                inbound_tag: core::ptr::null_mut(),
+                outbound_tag: core::ptr::null_mut(),
+                host: core::ptr::null_mut(),
+                destination_ip: core::ptr::null_mut(),
+                destination_port: Default::default(),
+                protocol: core::ptr::null_mut(),
+                network: core::ptr::null_mut(),
+                upload_bytes: Default::default(),
+                download_bytes: Default::default(),
+                start_time: Default::default(),
+                rule: core::ptr::null_mut(),
+                rule_payload: core::ptr::null_mut(),
+                process_name: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_active_connection {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_connection_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                id: core::ptr::null_mut(),
+                src_addr: core::ptr::null_mut(),
+                dst_addr: core::ptr::null_mut(),
+                dst_domain: core::ptr::null_mut(),
+                protocol: core::ptr::null_mut(),
+                outbound: core::ptr::null_mut(),
+                upload: Default::default(),
+                download: Default::default(),
+                start_time: Default::default(),
+                rule: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_connection_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_connection_info {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                id: core::ptr::null_mut(),
+                host: core::ptr::null_mut(),
+                destination: core::ptr::null_mut(),
+                upload: Default::default(),
+                download: Default::default(),
+                start_time: Default::default(),
+                rule: core::ptr::null_mut(),
+                chains: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_connection_info {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_dns_config_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                enable: Default::default(),
+                listen: core::ptr::null_mut(),
+                enhanced_mode: core::ptr::null_mut(),
+                nameservers: core::ptr::null_mut(),
+                fallback: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_dns_config_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_latency_test_result {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                proxy_name: core::ptr::null_mut(),
+                latency_ms: core::ptr::null_mut(),
+                success: Default::default(),
+                error: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_latency_test_result {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_proxy_group_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                tag: core::ptr::null_mut(),
+                group_type: core::ptr::null_mut(),
+                proxies: core::ptr::null_mut(),
+                selected: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_proxy_group_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_proxy_info_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                tag: core::ptr::null_mut(),
+                protocol_type: core::ptr::null_mut(),
+                server: core::ptr::null_mut(),
+                port: core::ptr::null_mut(),
+                latency_ms: core::ptr::null_mut(),
+                alive: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_proxy_info_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_proxy_latency_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                tag: core::ptr::null_mut(),
+                latency_ms: core::ptr::null_mut(),
+                error: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_proxy_latency_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_proxy_status {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                running: Default::default(),
+                inbound_count: Default::default(),
+                outbound_count: Default::default(),
+                connection_count: Default::default(),
+                memory_usage: Default::default(),
+                uptime: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_proxy_status {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_record_string_u_16 {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                field0: core::ptr::null_mut(),
+                field1: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_record_string_u_16 {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_record_u_64_u_64_u_64_u_64 {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                field0: Default::default(),
+                field1: Default::default(),
+                field2: Default::default(),
+                field3: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_record_u_64_u_64_u_64_u_64 {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_record_u_64_u_64_u_64_u_64_usize_usize {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                field0: Default::default(),
+                field1: Default::default(),
+                field2: Default::default(),
+                field3: Default::default(),
+                field4: Default::default(),
+                field5: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_record_u_64_u_64_u_64_u_64_usize_usize {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_rule_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                rule_type: core::ptr::null_mut(),
+                payload: core::ptr::null_mut(),
+                outbound: core::ptr::null_mut(),
+                matched_count: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_rule_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_system_info {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                platform: core::ptr::null_mut(),
+                version: core::ptr::null_mut(),
+                memory_total: Default::default(),
+                memory_used: Default::default(),
+                cpu_cores: Default::default(),
+                cpu_threads: Default::default(),
+                cpu_name: core::ptr::null_mut(),
+                cpu_usage: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_system_info {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_traffic_stats {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                upload: Default::default(),
+                download: Default::default(),
+                upload_speed: Default::default(),
+                download_speed: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_traffic_stats {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_traffic_stats_dto {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                upload: Default::default(),
+                download: Default::default(),
+                total_upload: Default::default(),
+                total_download: Default::default(),
+                connection_count: Default::default(),
+                uptime_secs: Default::default(),
+            }
+        }
+    }
+    impl Default for wire_cst_traffic_stats_dto {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+    impl NewWithNullPtr for wire_cst_tun_status {
+        fn new_with_null_ptr() -> Self {
+            Self {
+                enabled: Default::default(),
+                interface_name: core::ptr::null_mut(),
+                mtu: core::ptr::null_mut(),
+                error: core::ptr::null_mut(),
+            }
+        }
+    }
+    impl Default for wire_cst_tun_status {
+        fn default() -> Self {
+            Self::new_with_null_ptr()
+        }
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__clear_android_vpn_fd(port_: i64) {
+        wire__crate__api__clear_android_vpn_fd_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__clear_vpn_fd(port_: i64) {
+        wire__crate__api__clear_vpn_fd_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__close_active_connection(
+        port_: i64,
+        connection_id: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__close_active_connection_impl(port_, connection_id)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__close_all_connections(port_: i64) {
+        wire__crate__api__close_all_connections_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__close_all_connections_dto(port_: i64) {
+        wire__crate__api__close_all_connections_dto_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__close_connection(
+        port_: i64,
+        _connection_id: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__close_connection_impl(port_, _connection_id)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__close_connection_by_id(
+        port_: i64,
+        id: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__close_connection_by_id_impl(port_, id)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__disable_tun_mode(port_: i64) {
+        wire__crate__api__disable_tun_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__enable_tun_mode(port_: i64) {
+        wire__crate__api__enable_tun_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__enable_tun_mode_with_mode(
+        port_: i64,
+        mode: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__enable_tun_mode_with_mode_impl(port_, mode)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__enable_uwp_loopback(port_: i64) {
+        wire__crate__api__enable_uwp_loopback_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__ensure_wintun_dll(port_: i64) {
+        wire__crate__api__ensure_wintun_dll_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_active_connections(port_: i64) {
+        wire__crate__api__get_active_connections_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_android_proxy_mode(port_: i64) {
+        wire__crate__api__get_android_proxy_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_android_vpn_fd(port_: i64) {
+        wire__crate__api__get_android_vpn_fd_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_build_info(port_: i64) {
+        wire__crate__api__get_build_info_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_connection_stats(port_: i64) {
+        wire__crate__api__get_connection_stats_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_connections(port_: i64) {
+        wire__crate__api__get_connections_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_connections_dto(port_: i64) {
+        wire__crate__api__get_connections_dto_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_dns_config(port_: i64) {
+        wire__crate__api__get_dns_config_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_logs(port_: i64, lines: *mut u32) {
+        wire__crate__api__get_logs_impl(port_, lines)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_proxies(port_: i64) {
+        wire__crate__api__get_proxies_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_proxy_groups(port_: i64) {
+        wire__crate__api__get_proxy_groups_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_proxy_mode(port_: i64) {
+        wire__crate__api__get_proxy_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_rules(port_: i64) {
+        wire__crate__api__get_rules_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_selected_proxy_in_group(
+        port_: i64,
+        group_name: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__get_selected_proxy_in_group_impl(port_, group_name)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_system_info(port_: i64) {
+        wire__crate__api__get_system_info_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_traffic_stats(port_: i64) {
+        wire__crate__api__get_traffic_stats_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_traffic_stats_dto(port_: i64) {
+        wire__crate__api__get_traffic_stats_dto_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_tun_status(port_: i64) {
+        wire__crate__api__get_tun_status_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_veloguard_status(port_: i64) {
+        wire__crate__api__get_veloguard_status_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_version(port_: i64) {
+        wire__crate__api__get_version_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_windows_proxy_mode_str(port_: i64) {
+        wire__crate__api__get_windows_proxy_mode_str_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_windows_tun_stats(port_: i64) {
+        wire__crate__api__get_windows_tun_stats_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__get_wintun_dll_path(port_: i64) {
+        wire__crate__api__get_wintun_dll_path_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__init_app(port_: i64) {
+        wire__crate__api__init_app_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__initialize_veloguard(
+        port_: i64,
+        config_json: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__initialize_veloguard_impl(port_, config_json)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__is_proxy_running(port_: i64) {
+        wire__crate__api__is_proxy_running_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__is_wintun_available(port_: i64) {
+        wire__crate__api__is_wintun_available_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__open_uwp_loopback_utility(port_: i64) {
+        wire__crate__api__open_uwp_loopback_utility_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_config_from_file(
+        port_: i64,
+        config_path: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__reload_config_from_file_impl(port_, config_path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_config_from_yaml(
+        port_: i64,
+        yaml_config: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__reload_config_from_yaml_impl(port_, yaml_config)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_veloguard(
+        port_: i64,
+        config_json: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__reload_veloguard_impl(port_, config_json)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__select_proxy(
+        port_: i64,
+        group_tag: *mut wire_cst_list_prim_u_8_strict,
+        proxy_tag: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__select_proxy_impl(port_, group_tag, proxy_tag)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__select_proxy_in_group(
+        port_: i64,
+        group_name: *mut wire_cst_list_prim_u_8_strict,
+        proxy_name: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__select_proxy_in_group_impl(port_, group_name, proxy_name)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_android_proxy_mode(
+        port_: i64,
+        mode: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__set_android_proxy_mode_impl(port_, mode)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_android_vpn_fd(port_: i64, fd: i32) {
+        wire__crate__api__set_android_vpn_fd_impl(port_, fd)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_log_level(
+        port_: i64,
+        level: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__set_log_level_impl(port_, level)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_protect_socket_callback_enabled(
+        port_: i64,
+        enabled: bool,
+    ) {
+        wire__crate__api__set_protect_socket_callback_enabled_impl(port_, enabled)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_proxy_mode(port_: i64, mode: i32) {
+        wire__crate__api__set_proxy_mode_impl(port_, mode)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_vpn_fd(port_: i64, fd: i32) {
+        wire__crate__api__set_vpn_fd_impl(port_, fd)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__set_windows_proxy_mode(
+        port_: i64,
+        mode: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__set_windows_proxy_mode_impl(port_, mode)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_android_vpn(port_: i64) {
+        wire__crate__api__start_android_vpn_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_file(
+        port_: i64,
+        config_path: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_proxy_from_file_impl(port_, config_path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_yaml(
+        port_: i64,
+        yaml_config: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_proxy_from_yaml_impl(port_, yaml_config)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_tun_mode(
+        port_: i64,
+        tun_name: *mut wire_cst_list_prim_u_8_strict,
+        tun_address: *mut wire_cst_list_prim_u_8_strict,
+        tun_netmask: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_tun_mode_impl(port_, tun_name, tun_address, tun_netmask)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_veloguard(port_: i64) {
+        wire__crate__api__start_veloguard_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__stop_android_vpn(port_: i64) {
+        wire__crate__api__stop_android_vpn_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__stop_proxy(port_: i64) {
+        wire__crate__api__stop_proxy_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__stop_tun_mode(port_: i64) {
+        wire__crate__api__stop_tun_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__stop_veloguard(port_: i64) {
+        wire__crate__api__stop_veloguard_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_all_proxies_latency(
+        port_: i64,
+        test_url: *mut wire_cst_list_prim_u_8_strict,
+        timeout_ms: u64,
+    ) {
+        wire__crate__api__test_all_proxies_latency_impl(port_, test_url, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_config(
+        port_: i64,
+        config_json: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__test_config_impl(port_, config_json)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_outbound_latency(
+        port_: i64,
+        outbound_name: *mut wire_cst_list_prim_u_8_strict,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_outbound_latency_impl(port_, outbound_name, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_proxies_latency(
+        port_: i64,
+        proxies: *mut wire_cst_list_record_string_u_16,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_proxies_latency_impl(port_, proxies, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_proxy_latency(
+        port_: i64,
+        server: *mut wire_cst_list_prim_u_8_strict,
+        port: u16,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_proxy_latency_impl(port_, server, port, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_proxy_latency_dto(
+        port_: i64,
+        tag: *mut wire_cst_list_prim_u_8_strict,
+        test_url: *mut wire_cst_list_prim_u_8_strict,
+        timeout_ms: u64,
+    ) {
+        wire__crate__api__test_proxy_latency_dto_impl(port_, tag, test_url, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_shadowsocks_latency(
+        port_: i64,
+        server: *mut wire_cst_list_prim_u_8_strict,
+        port: u16,
+        password: *mut wire_cst_list_prim_u_8_strict,
+        cipher: *mut wire_cst_list_prim_u_8_strict,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_shadowsocks_latency_impl(
+            port_, server, port, password, cipher, timeout_ms,
+        )
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__test_tcp_connectivity(
+        port_: i64,
+        server: *mut wire_cst_list_prim_u_8_strict,
+        port: u16,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_tcp_connectivity_impl(port_, server, port, timeout_ms)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_box_autoadd_u_16(value: u16) -> *mut u16 {
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(value)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_box_autoadd_u_32(value: u32) -> *mut u32 {
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(value)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_box_autoadd_u_64(value: u64) -> *mut u64 {
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(value)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_String(len: i32) -> *mut wire_cst_list_String {
+        let wrap = wire_cst_list_String {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <*mut wire_cst_list_prim_u_8_strict>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_active_connection(
+        len: i32,
+    ) -> *mut wire_cst_list_active_connection {
+        let wrap = wire_cst_list_active_connection {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_active_connection>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_connection_dto(
+        len: i32,
+    ) -> *mut wire_cst_list_connection_dto {
+        let wrap = wire_cst_list_connection_dto {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_connection_dto>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_connection_info(
+        len: i32,
+    ) -> *mut wire_cst_list_connection_info {
+        let wrap = wire_cst_list_connection_info {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_connection_info>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_latency_test_result(
+        len: i32,
+    ) -> *mut wire_cst_list_latency_test_result {
+        let wrap = wire_cst_list_latency_test_result {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_latency_test_result>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_prim_u_8_strict(
+        len: i32,
+    ) -> *mut wire_cst_list_prim_u_8_strict {
+        let ans = wire_cst_list_prim_u_8_strict {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(Default::default(), len),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(ans)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_proxy_group_dto(
+        len: i32,
+    ) -> *mut wire_cst_list_proxy_group_dto {
+        let wrap = wire_cst_list_proxy_group_dto {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_proxy_group_dto>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_proxy_info_dto(
+        len: i32,
+    ) -> *mut wire_cst_list_proxy_info_dto {
+        let wrap = wire_cst_list_proxy_info_dto {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_proxy_info_dto>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_proxy_latency_dto(
+        len: i32,
+    ) -> *mut wire_cst_list_proxy_latency_dto {
+        let wrap = wire_cst_list_proxy_latency_dto {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_proxy_latency_dto>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_record_string_u_16(
+        len: i32,
+    ) -> *mut wire_cst_list_record_string_u_16 {
+        let wrap = wire_cst_list_record_string_u_16 {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_record_string_u_16>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_cst_new_list_rule_dto(
+        len: i32,
+    ) -> *mut wire_cst_list_rule_dto {
+        let wrap = wire_cst_list_rule_dto {
+            ptr: flutter_rust_bridge::for_generated::new_leak_vec_ptr(
+                <wire_cst_rule_dto>::new_with_null_ptr(),
+                len,
+            ),
+            len,
+        };
+        flutter_rust_bridge::for_generated::new_leak_box_ptr(wrap)
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_active_connection {
+        id: *mut wire_cst_list_prim_u_8_strict,
+        inbound_tag: *mut wire_cst_list_prim_u_8_strict,
+        outbound_tag: *mut wire_cst_list_prim_u_8_strict,
+        host: *mut wire_cst_list_prim_u_8_strict,
+        destination_ip: *mut wire_cst_list_prim_u_8_strict,
+        destination_port: u16,
+        protocol: *mut wire_cst_list_prim_u_8_strict,
+        network: *mut wire_cst_list_prim_u_8_strict,
+        upload_bytes: u64,
+        download_bytes: u64,
+        start_time: u64,
+        rule: *mut wire_cst_list_prim_u_8_strict,
+        rule_payload: *mut wire_cst_list_prim_u_8_strict,
+        process_name: *mut wire_cst_list_prim_u_8_strict,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_connection_dto {
+        id: *mut wire_cst_list_prim_u_8_strict,
+        src_addr: *mut wire_cst_list_prim_u_8_strict,
+        dst_addr: *mut wire_cst_list_prim_u_8_strict,
+        dst_domain: *mut wire_cst_list_prim_u_8_strict,
+        protocol: *mut wire_cst_list_prim_u_8_strict,
+        outbound: *mut wire_cst_list_prim_u_8_strict,
+        upload: u64,
+        download: u64,
+        start_time: i64,
+        rule: *mut wire_cst_list_prim_u_8_strict,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_connection_info {
+        id: *mut wire_cst_list_prim_u_8_strict,
+        host: *mut wire_cst_list_prim_u_8_strict,
+        destination: *mut wire_cst_list_prim_u_8_strict,
+        upload: u64,
+        download: u64,
+        start_time: u64,
+        rule: *mut wire_cst_list_prim_u_8_strict,
+        chains: *mut wire_cst_list_String,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_dns_config_dto {
+        enable: bool,
+        listen: *mut wire_cst_list_prim_u_8_strict,
+        enhanced_mode: *mut wire_cst_list_prim_u_8_strict,
+        nameservers: *mut wire_cst_list_String,
+        fallback: *mut wire_cst_list_String,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_latency_test_result {
+        proxy_name: *mut wire_cst_list_prim_u_8_strict,
+        latency_ms: *mut u32,
+        success: bool,
+        error: *mut wire_cst_list_prim_u_8_strict,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_String {
+        ptr: *mut *mut wire_cst_list_prim_u_8_strict,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_active_connection {
+        ptr: *mut wire_cst_active_connection,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_connection_dto {
+        ptr: *mut wire_cst_connection_dto,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_connection_info {
+        ptr: *mut wire_cst_connection_info,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_latency_test_result {
+        ptr: *mut wire_cst_latency_test_result,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_prim_u_8_strict {
+        ptr: *mut u8,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_proxy_group_dto {
+        ptr: *mut wire_cst_proxy_group_dto,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_proxy_info_dto {
+        ptr: *mut wire_cst_proxy_info_dto,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_proxy_latency_dto {
+        ptr: *mut wire_cst_proxy_latency_dto,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_record_string_u_16 {
+        ptr: *mut wire_cst_record_string_u_16,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_list_rule_dto {
+        ptr: *mut wire_cst_rule_dto,
+        len: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_proxy_group_dto {
+        tag: *mut wire_cst_list_prim_u_8_strict,
+        group_type: *mut wire_cst_list_prim_u_8_strict,
+        proxies: *mut wire_cst_list_String,
+        selected: *mut wire_cst_list_prim_u_8_strict,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_proxy_info_dto {
+        tag: *mut wire_cst_list_prim_u_8_strict,
+        protocol_type: *mut wire_cst_list_prim_u_8_strict,
+        server: *mut wire_cst_list_prim_u_8_strict,
+        port: *mut u16,
+        latency_ms: *mut u64,
+        alive: bool,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_proxy_latency_dto {
+        tag: *mut wire_cst_list_prim_u_8_strict,
+        latency_ms: *mut u64,
+        error: *mut wire_cst_list_prim_u_8_strict,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_proxy_status {
+        running: bool,
+        inbound_count: u32,
+        outbound_count: u32,
+        connection_count: u32,
+        memory_usage: u64,
+        uptime: u64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_record_string_u_16 {
+        field0: *mut wire_cst_list_prim_u_8_strict,
+        field1: u16,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_record_u_64_u_64_u_64_u_64 {
+        field0: u64,
+        field1: u64,
+        field2: u64,
+        field3: u64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_record_u_64_u_64_u_64_u_64_usize_usize {
+        field0: u64,
+        field1: u64,
+        field2: u64,
+        field3: u64,
+        field4: usize,
+        field5: usize,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_rule_dto {
+        rule_type: *mut wire_cst_list_prim_u_8_strict,
+        payload: *mut wire_cst_list_prim_u_8_strict,
+        outbound: *mut wire_cst_list_prim_u_8_strict,
+        matched_count: u64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_system_info {
+        platform: *mut wire_cst_list_prim_u_8_strict,
+        version: *mut wire_cst_list_prim_u_8_strict,
+        memory_total: u64,
+        memory_used: u64,
+        cpu_cores: u32,
+        cpu_threads: u32,
+        cpu_name: *mut wire_cst_list_prim_u_8_strict,
+        cpu_usage: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_traffic_stats {
+        upload: u64,
+        download: u64,
+        upload_speed: u64,
+        download_speed: u64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_traffic_stats_dto {
+        upload: u64,
+        download: u64,
+        total_upload: u64,
+        total_download: u64,
+        connection_count: u32,
+        uptime_secs: u64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct wire_cst_tun_status {
+        enabled: bool,
+        interface_name: *mut wire_cst_list_prim_u_8_strict,
+        mtu: *mut u32,
+        error: *mut wire_cst_list_prim_u_8_strict,
+    }
 }
 #[cfg(not(target_family = "wasm"))]
 pub use io::*;
@@ -2516,6 +4547,1140 @@ mod web {
     // Section: boilerplate
 
     flutter_rust_bridge::frb_generated_boilerplate_web!();
+
+    // Section: dart2rust
+
+    impl CstDecode<flutter_rust_bridge::for_generated::anyhow::Error> for String {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> flutter_rust_bridge::for_generated::anyhow::Error {
+            unimplemented!()
+        }
+    }
+    impl CstDecode<String> for String {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> String {
+            self
+        }
+    }
+    impl CstDecode<crate::types::ActiveConnection>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ActiveConnection {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                14,
+                "Expected 14 elements, got {}",
+                self_.length()
+            );
+            crate::types::ActiveConnection {
+                id: self_.get(0).cst_decode(),
+                inbound_tag: self_.get(1).cst_decode(),
+                outbound_tag: self_.get(2).cst_decode(),
+                host: self_.get(3).cst_decode(),
+                destination_ip: self_.get(4).cst_decode(),
+                destination_port: self_.get(5).cst_decode(),
+                protocol: self_.get(6).cst_decode(),
+                network: self_.get(7).cst_decode(),
+                upload_bytes: self_.get(8).cst_decode(),
+                download_bytes: self_.get(9).cst_decode(),
+                start_time: self_.get(10).cst_decode(),
+                rule: self_.get(11).cst_decode(),
+                rule_payload: self_.get(12).cst_decode(),
+                process_name: self_.get(13).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ConnectionDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ConnectionDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                10,
+                "Expected 10 elements, got {}",
+                self_.length()
+            );
+            crate::types::ConnectionDto {
+                id: self_.get(0).cst_decode(),
+                src_addr: self_.get(1).cst_decode(),
+                dst_addr: self_.get(2).cst_decode(),
+                dst_domain: self_.get(3).cst_decode(),
+                protocol: self_.get(4).cst_decode(),
+                outbound: self_.get(5).cst_decode(),
+                upload: self_.get(6).cst_decode(),
+                download: self_.get(7).cst_decode(),
+                start_time: self_.get(8).cst_decode(),
+                rule: self_.get(9).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ConnectionInfo>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ConnectionInfo {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                8,
+                "Expected 8 elements, got {}",
+                self_.length()
+            );
+            crate::types::ConnectionInfo {
+                id: self_.get(0).cst_decode(),
+                host: self_.get(1).cst_decode(),
+                destination: self_.get(2).cst_decode(),
+                upload: self_.get(3).cst_decode(),
+                download: self_.get(4).cst_decode(),
+                start_time: self_.get(5).cst_decode(),
+                rule: self_.get(6).cst_decode(),
+                chains: self_.get(7).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::DnsConfigDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::DnsConfigDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                5,
+                "Expected 5 elements, got {}",
+                self_.length()
+            );
+            crate::types::DnsConfigDto {
+                enable: self_.get(0).cst_decode(),
+                listen: self_.get(1).cst_decode(),
+                enhanced_mode: self_.get(2).cst_decode(),
+                nameservers: self_.get(3).cst_decode(),
+                fallback: self_.get(4).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::LatencyTestResult>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::LatencyTestResult {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            crate::types::LatencyTestResult {
+                proxy_name: self_.get(0).cst_decode(),
+                latency_ms: self_.get(1).cst_decode(),
+                success: self_.get(2).cst_decode(),
+                error: self_.get(3).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<Vec<String>> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<String> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ActiveConnection>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ActiveConnection> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ConnectionDto>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ConnectionDto> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ConnectionInfo>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ConnectionInfo> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::LatencyTestResult>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::LatencyTestResult> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<u8>> for Box<[u8]> {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<u8> {
+            self.into_vec()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyGroupDto>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyGroupDto> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyInfoDto>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyInfoDto> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::ProxyLatencyDto>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::ProxyLatencyDto> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<(String, u16)>> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<(String, u16)> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Vec<crate::types::RuleDto>>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<crate::types::RuleDto> {
+            self.dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap()
+                .iter()
+                .map(CstDecode::cst_decode)
+                .collect()
+        }
+    }
+    impl CstDecode<Option<String>> for Option<String> {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Option<String> {
+            self.map(CstDecode::cst_decode)
+        }
+    }
+    impl CstDecode<crate::types::ProxyGroupDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyGroupDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            crate::types::ProxyGroupDto {
+                tag: self_.get(0).cst_decode(),
+                group_type: self_.get(1).cst_decode(),
+                proxies: self_.get(2).cst_decode(),
+                selected: self_.get(3).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyInfoDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyInfoDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                6,
+                "Expected 6 elements, got {}",
+                self_.length()
+            );
+            crate::types::ProxyInfoDto {
+                tag: self_.get(0).cst_decode(),
+                protocol_type: self_.get(1).cst_decode(),
+                server: self_.get(2).cst_decode(),
+                port: self_.get(3).cst_decode(),
+                latency_ms: self_.get(4).cst_decode(),
+                alive: self_.get(5).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyLatencyDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyLatencyDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                3,
+                "Expected 3 elements, got {}",
+                self_.length()
+            );
+            crate::types::ProxyLatencyDto {
+                tag: self_.get(0).cst_decode(),
+                latency_ms: self_.get(1).cst_decode(),
+                error: self_.get(2).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::ProxyStatus>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::ProxyStatus {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                6,
+                "Expected 6 elements, got {}",
+                self_.length()
+            );
+            crate::types::ProxyStatus {
+                running: self_.get(0).cst_decode(),
+                inbound_count: self_.get(1).cst_decode(),
+                outbound_count: self_.get(2).cst_decode(),
+                connection_count: self_.get(3).cst_decode(),
+                memory_usage: self_.get(4).cst_decode(),
+                uptime: self_.get(5).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<(String, u16)> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (String, u16) {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                2,
+                "Expected 2 elements, got {}",
+                self_.length()
+            );
+            (self_.get(0).cst_decode(), self_.get(1).cst_decode())
+        }
+    }
+    impl CstDecode<(u64, u64, u64, u64)> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (u64, u64, u64, u64) {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            (
+                self_.get(0).cst_decode(),
+                self_.get(1).cst_decode(),
+                self_.get(2).cst_decode(),
+                self_.get(3).cst_decode(),
+            )
+        }
+    }
+    impl CstDecode<(u64, u64, u64, u64, usize, usize)>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> (u64, u64, u64, u64, usize, usize) {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                6,
+                "Expected 6 elements, got {}",
+                self_.length()
+            );
+            (
+                self_.get(0).cst_decode(),
+                self_.get(1).cst_decode(),
+                self_.get(2).cst_decode(),
+                self_.get(3).cst_decode(),
+                self_.get(4).cst_decode(),
+                self_.get(5).cst_decode(),
+            )
+        }
+    }
+    impl CstDecode<crate::types::RuleDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::RuleDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            crate::types::RuleDto {
+                rule_type: self_.get(0).cst_decode(),
+                payload: self_.get(1).cst_decode(),
+                outbound: self_.get(2).cst_decode(),
+                matched_count: self_.get(3).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::SystemInfo>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::SystemInfo {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                8,
+                "Expected 8 elements, got {}",
+                self_.length()
+            );
+            crate::types::SystemInfo {
+                platform: self_.get(0).cst_decode(),
+                version: self_.get(1).cst_decode(),
+                memory_total: self_.get(2).cst_decode(),
+                memory_used: self_.get(3).cst_decode(),
+                cpu_cores: self_.get(4).cst_decode(),
+                cpu_threads: self_.get(5).cst_decode(),
+                cpu_name: self_.get(6).cst_decode(),
+                cpu_usage: self_.get(7).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TrafficStats>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TrafficStats {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            crate::types::TrafficStats {
+                upload: self_.get(0).cst_decode(),
+                download: self_.get(1).cst_decode(),
+                upload_speed: self_.get(2).cst_decode(),
+                download_speed: self_.get(3).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TrafficStatsDto>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TrafficStatsDto {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                6,
+                "Expected 6 elements, got {}",
+                self_.length()
+            );
+            crate::types::TrafficStatsDto {
+                upload: self_.get(0).cst_decode(),
+                download: self_.get(1).cst_decode(),
+                total_upload: self_.get(2).cst_decode(),
+                total_download: self_.get(3).cst_decode(),
+                connection_count: self_.get(4).cst_decode(),
+                uptime_secs: self_.get(5).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<crate::types::TunStatus>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> crate::types::TunStatus {
+            let self_ = self
+                .dyn_into::<flutter_rust_bridge::for_generated::js_sys::Array>()
+                .unwrap();
+            assert_eq!(
+                self_.length(),
+                4,
+                "Expected 4 elements, got {}",
+                self_.length()
+            );
+            crate::types::TunStatus {
+                enabled: self_.get(0).cst_decode(),
+                interface_name: self_.get(1).cst_decode(),
+                mtu: self_.get(2).cst_decode(),
+                error: self_.get(3).cst_decode(),
+            }
+        }
+    }
+    impl CstDecode<flutter_rust_bridge::for_generated::anyhow::Error>
+        for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue
+    {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> flutter_rust_bridge::for_generated::anyhow::Error {
+            unimplemented!()
+        }
+    }
+    impl CstDecode<String> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> String {
+            self.as_string().expect("non-UTF-8 string, or not a string")
+        }
+    }
+    impl CstDecode<bool> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> bool {
+            self.is_truthy()
+        }
+    }
+    impl CstDecode<f64> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> f64 {
+            self.unchecked_into_f64() as _
+        }
+    }
+    impl CstDecode<i32> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> i32 {
+            self.unchecked_into_f64() as _
+        }
+    }
+    impl CstDecode<i64> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> i64 {
+            ::std::convert::TryInto::<i64>::try_into(self).unwrap() as _
+        }
+    }
+    impl CstDecode<Vec<u8>> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> Vec<u8> {
+            self.unchecked_into::<flutter_rust_bridge::for_generated::js_sys::Uint8Array>()
+                .to_vec()
+                .into()
+        }
+    }
+    impl CstDecode<u16> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u16 {
+            self.unchecked_into_f64() as _
+        }
+    }
+    impl CstDecode<u32> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u32 {
+            self.unchecked_into_f64() as _
+        }
+    }
+    impl CstDecode<u64> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u64 {
+            ::std::convert::TryInto::<u64>::try_into(self).unwrap() as _
+        }
+    }
+    impl CstDecode<u8> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> u8 {
+            self.unchecked_into_f64() as _
+        }
+    }
+    impl CstDecode<usize> for flutter_rust_bridge::for_generated::wasm_bindgen::JsValue {
+        // Codec=Cst (C-struct based), see doc to use other codecs
+        fn cst_decode(self) -> usize {
+            ::std::convert::TryInto::<u64>::try_into(self).unwrap() as _
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__clear_android_vpn_fd(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__clear_android_vpn_fd_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__clear_vpn_fd(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__clear_vpn_fd_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__close_active_connection(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        connection_id: String,
+    ) {
+        wire__crate__api__close_active_connection_impl(port_, connection_id)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__close_all_connections(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__close_all_connections_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__close_all_connections_dto(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__close_all_connections_dto_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__close_connection(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        _connection_id: String,
+    ) {
+        wire__crate__api__close_connection_impl(port_, _connection_id)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__close_connection_by_id(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        id: String,
+    ) {
+        wire__crate__api__close_connection_by_id_impl(port_, id)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__disable_tun_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__disable_tun_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__enable_tun_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__enable_tun_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__enable_tun_mode_with_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        mode: String,
+    ) {
+        wire__crate__api__enable_tun_mode_with_mode_impl(port_, mode)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__enable_uwp_loopback(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__enable_uwp_loopback_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__ensure_wintun_dll(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__ensure_wintun_dll_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_active_connections(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_active_connections_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_android_proxy_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_android_proxy_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_android_vpn_fd(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_android_vpn_fd_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_build_info(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_build_info_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_connection_stats(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_connection_stats_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_connections(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_connections_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_connections_dto(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_connections_dto_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_dns_config(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_dns_config_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_logs(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        lines: flutter_rust_bridge::for_generated::wasm_bindgen::JsValue,
+    ) {
+        wire__crate__api__get_logs_impl(port_, lines)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_proxies(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__get_proxies_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_proxy_groups(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_proxy_groups_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_proxy_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_proxy_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_rules(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__get_rules_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_selected_proxy_in_group(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        group_name: String,
+    ) {
+        wire__crate__api__get_selected_proxy_in_group_impl(port_, group_name)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_system_info(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_system_info_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_traffic_stats(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_traffic_stats_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_traffic_stats_dto(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_traffic_stats_dto_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_tun_status(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_tun_status_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_veloguard_status(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_veloguard_status_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_version(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__get_version_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_windows_proxy_mode_str(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_windows_proxy_mode_str_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_windows_tun_stats(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_windows_tun_stats_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__get_wintun_dll_path(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__get_wintun_dll_path_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__init_app(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__init_app_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__initialize_veloguard(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_json: String,
+    ) {
+        wire__crate__api__initialize_veloguard_impl(port_, config_json)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__is_proxy_running(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__is_proxy_running_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__is_wintun_available(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__is_wintun_available_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__open_uwp_loopback_utility(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__open_uwp_loopback_utility_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__reload_config_from_file(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_path: String,
+    ) {
+        wire__crate__api__reload_config_from_file_impl(port_, config_path)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__reload_config_from_yaml(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        yaml_config: String,
+    ) {
+        wire__crate__api__reload_config_from_yaml_impl(port_, yaml_config)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__reload_veloguard(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_json: String,
+    ) {
+        wire__crate__api__reload_veloguard_impl(port_, config_json)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__select_proxy(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        group_tag: String,
+        proxy_tag: String,
+    ) {
+        wire__crate__api__select_proxy_impl(port_, group_tag, proxy_tag)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__select_proxy_in_group(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        group_name: String,
+        proxy_name: String,
+    ) {
+        wire__crate__api__select_proxy_in_group_impl(port_, group_name, proxy_name)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_android_proxy_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        mode: String,
+    ) {
+        wire__crate__api__set_android_proxy_mode_impl(port_, mode)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_android_vpn_fd(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        fd: i32,
+    ) {
+        wire__crate__api__set_android_vpn_fd_impl(port_, fd)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_log_level(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        level: String,
+    ) {
+        wire__crate__api__set_log_level_impl(port_, level)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_protect_socket_callback_enabled(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        enabled: bool,
+    ) {
+        wire__crate__api__set_protect_socket_callback_enabled_impl(port_, enabled)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_proxy_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        mode: i32,
+    ) {
+        wire__crate__api__set_proxy_mode_impl(port_, mode)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_vpn_fd(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        fd: i32,
+    ) {
+        wire__crate__api__set_vpn_fd_impl(port_, fd)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__set_windows_proxy_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        mode: String,
+    ) {
+        wire__crate__api__set_windows_proxy_mode_impl(port_, mode)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_android_vpn(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__start_android_vpn_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_proxy_from_file(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_path: String,
+    ) {
+        wire__crate__api__start_proxy_from_file_impl(port_, config_path)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_proxy_from_yaml(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        yaml_config: String,
+    ) {
+        wire__crate__api__start_proxy_from_yaml_impl(port_, yaml_config)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_tun_mode(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        tun_name: String,
+        tun_address: String,
+        tun_netmask: String,
+    ) {
+        wire__crate__api__start_tun_mode_impl(port_, tun_name, tun_address, tun_netmask)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_veloguard(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__start_veloguard_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__stop_android_vpn(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__stop_android_vpn_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__stop_proxy(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__stop_proxy_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__stop_tun_mode(port_: flutter_rust_bridge::for_generated::MessagePort) {
+        wire__crate__api__stop_tun_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__stop_veloguard(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+    ) {
+        wire__crate__api__stop_veloguard_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_all_proxies_latency(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        test_url: String,
+        timeout_ms: flutter_rust_bridge::for_generated::wasm_bindgen::JsValue,
+    ) {
+        wire__crate__api__test_all_proxies_latency_impl(port_, test_url, timeout_ms)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_config(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_json: String,
+    ) {
+        wire__crate__api__test_config_impl(port_, config_json)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_outbound_latency(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        outbound_name: String,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_outbound_latency_impl(port_, outbound_name, timeout_ms)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_proxies_latency(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        proxies: flutter_rust_bridge::for_generated::wasm_bindgen::JsValue,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_proxies_latency_impl(port_, proxies, timeout_ms)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_proxy_latency(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        server: String,
+        port: u16,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_proxy_latency_impl(port_, server, port, timeout_ms)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_proxy_latency_dto(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        tag: String,
+        test_url: String,
+        timeout_ms: flutter_rust_bridge::for_generated::wasm_bindgen::JsValue,
+    ) {
+        wire__crate__api__test_proxy_latency_dto_impl(port_, tag, test_url, timeout_ms)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_shadowsocks_latency(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        server: String,
+        port: u16,
+        password: String,
+        cipher: String,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_shadowsocks_latency_impl(
+            port_, server, port, password, cipher, timeout_ms,
+        )
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__test_tcp_connectivity(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        server: String,
+        port: u16,
+        timeout_ms: u32,
+    ) {
+        wire__crate__api__test_tcp_connectivity_impl(port_, server, port, timeout_ms)
+    }
 }
 #[cfg(target_family = "wasm")]
 pub use web::*;

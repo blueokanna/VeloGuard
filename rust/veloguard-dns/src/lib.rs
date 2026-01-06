@@ -65,11 +65,14 @@
 //! - **Load balancing**: Round-robin across multiple upstream servers
 //! - **Hot reload**: Configuration can be reloaded without restart
 
+pub mod bogon;
 pub mod cache;
 pub mod client;
 pub mod config;
 pub mod doh;
+pub mod doh_server;
 pub mod dot;
+pub mod dot_server;
 pub mod error;
 pub mod fake_ip;
 pub mod hosts;
@@ -77,12 +80,21 @@ pub mod manager;
 pub mod resolver;
 pub mod server;
 
+#[cfg(test)]
+mod tests;
+
 // Re-export main types
+pub use bogon::{
+    classify_bogon, contains_bogon, filter_bogons, is_bogon, is_bogon_ipv4, is_bogon_ipv6,
+    is_loopback, is_private, is_reserved, BogonType,
+};
 pub use cache::{CacheEntry, CacheStats, DnsCache};
 pub use client::{create_clients, DnsClient, DnsProtocol};
 pub use config::{DnsConfig, FallbackFilter, UpstreamConfig, UpstreamProtocol};
 pub use doh::{DohClient, DohClientConfig, DohMethod, DohResolver};
+pub use doh_server::{DohServer, DohServerConfig};
 pub use dot::{DotClient, DotClientConfig, DotResolver};
+pub use dot_server::{DotServer, DotServerConfig};
 pub use error::{DnsError, Result};
 pub use fake_ip::{FakeIpEntry, FakeIpPool};
 pub use hosts::HostsFile;

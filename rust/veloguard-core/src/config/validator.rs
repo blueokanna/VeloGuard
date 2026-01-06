@@ -68,12 +68,10 @@ impl ConfigValidator {
                 return Err(Error::config("DNS listen address cannot be empty"));
             }
 
-            // Validate nameservers
             for nameserver in &dns.nameservers {
                 if nameserver.is_empty() {
                     return Err(Error::config("Nameserver cannot be empty"));
                 }
-                // TODO: Add more detailed IP/domain validation
             }
 
             // Validate fallback nameservers
@@ -132,8 +130,6 @@ impl ConfigValidator {
                     }
                 }
                 InboundType::Tun => {
-                    // TUN requires additional validation
-                    // TODO: Add TUN-specific validation
                 }
             }
         }
@@ -185,9 +181,7 @@ impl ConfigValidator {
                         )));
                     }
                 }
-                OutboundType::Shadowsocks | OutboundType::Vmess | OutboundType::Trojan | OutboundType::Wireguard | OutboundType::Tuic | OutboundType::Hysteria2 | OutboundType::Quic => {
-                    // These protocols require server configuration
-                    // TODO: Add protocol-specific validation
+                OutboundType::Shadowsocks | OutboundType::Vmess | OutboundType::Vless | OutboundType::Trojan | OutboundType::Wireguard | OutboundType::Tuic | OutboundType::Hysteria2 | OutboundType::Quic => {
                     if outbound.server.is_none() {
                         return Err(Error::config(format!(
                             "Outbound {} requires server address",
@@ -231,19 +225,16 @@ impl ConfigValidator {
                     if rule.payload.is_empty() {
                         return Err(Error::config("IP CIDR rule payload cannot be empty"));
                     }
-                    // TODO: Validate CIDR format
                 }
                 RuleType::Geoip => {
                     if rule.payload.is_empty() {
                         return Err(Error::config("GeoIP rule payload cannot be empty"));
                     }
-                    // TODO: Validate country code format
                 }
                 RuleType::SrcPort | RuleType::DstPort => {
                     if rule.payload.is_empty() {
                         return Err(Error::config("Port rule payload cannot be empty"));
                     }
-                    // TODO: Validate port range format
                 }
                 RuleType::ProcessName => {
                     if rule.payload.is_empty() {

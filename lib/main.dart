@@ -23,6 +23,7 @@ import 'package:veloguard/src/screens/basic_config_screen.dart';
 import 'package:veloguard/src/screens/advanced_config_screen.dart';
 import 'package:veloguard/src/screens/proxies_screen.dart';
 import 'package:veloguard/src/widgets/adaptive_scaffold.dart';
+import 'package:veloguard/src/widgets/rust_init_error_dialog.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
 import 'package:veloguard/src/utils/device_info_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
@@ -30,26 +31,133 @@ import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/screens/profiles_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dynamic_color/dynamic_color.dart';
+import 'dart:ffi' as ffi;
+import 'dart:io' show Platform;
+
+bool isRustLibInitialized = false;
+bool _errorDialogShown = false;
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+String? lastInitError;
+
+Future<bool> _tryDirectLibraryLoad() async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    return false;
+  }
+
+  try {
+    debugPrint('Attempting direct library load via ffi.DynamicLibrary.open...');
+    final lib = ffi.DynamicLibrary.open('librust_lib_veloguard.so');
+    debugPrint('Direct library load SUCCESS: $lib');
+    return true;
+  } catch (e) {
+    debugPrint('Direct library load FAILED: $e');
+    return false;
+  }
+}
+
+Future<bool> _initRustLibWithRetry({int maxRetries = 3}) async {
+  if (Platform.isAndroid) {
+    final directLoadSuccess = await _tryDirectLibraryLoad();
+    debugPrint('Direct library load result: $directLoadSuccess');
+  }
+
+  for (int i = 0; i < maxRetries; i++) {
+    try {
+      await RustLib.init();
+      isRustLibInitialized = true;
+      lastInitError = null;
+      debugPrint('RustLib initialized successfully on attempt ${i + 1}');
+      return true;
+    } catch (e, stackTrace) {
+      lastInitError = e.toString();
+      debugPrint('========================================');
+      debugPrint('RustLib.init() FAILURE - Attempt ${i + 1}/$maxRetries');
+      debugPrint('========================================');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('----------------------------------------');
+      debugPrint('Full stack trace:');
+      debugPrint('$stackTrace');
+      debugPrint('========================================');
+      if (i < maxRetries - 1) {
+        debugPrint('Retrying in 500ms...');
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+    }
+  }
+  isRustLibInitialized = false;
+  debugPrint('========================================');
+  debugPrint('RustLib initialization FAILED after $maxRetries attempts');
+  debugPrint('Some features requiring Rust library will not work');
+  debugPrint('========================================');
+  return false;
+}
+
+Future<bool> retryRustLibInit() async {
+  final success = await _initRustLibWithRetry(maxRetries: 3);
+  return success;
+}
+
+/// Check native library status via method channel (Android only)
+Future<Map<String, dynamic>?> _checkNativeLibraryStatus() async {
+  if (!Platform.isAndroid) return null;
+
+  try {
+    const channel = MethodChannel('com.veloguard/proxy');
+    final result = await channel.invokeMethod('getNativeLibraryInfo');
+    if (result is Map) {
+      debugPrint('========================================');
+      debugPrint('Native Library Info from Android:');
+      result.forEach((key, value) {
+        debugPrint('  $key: $value');
+      });
+      debugPrint('========================================');
+      return Map<String, dynamic>.from(result);
+    }
+  } catch (e) {
+    debugPrint('Failed to get native library info: $e');
+  }
+  return null;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Rust library with error handling
-  try {
-    await RustLib.init();
-    debugPrint('RustLib initialized successfully');
-  } catch (e, stackTrace) {
-    debugPrint('Failed to initialize RustLib: $e');
-    debugPrint('Stack trace: $stackTrace');
-    // Continue anyway, some features may not work
+  // On Android, first check if the native library was loaded by Kotlin
+  if (Platform.isAndroid) {
+    final libInfo = await _checkNativeLibraryStatus();
+    if (libInfo != null) {
+      final loaded = libInfo['loaded'] as bool? ?? false;
+      final error = libInfo['error'] as String? ?? '';
+      if (!loaded) {
+        debugPrint('========================================');
+        debugPrint('CRITICAL: Native library NOT loaded by Android!');
+        debugPrint('Error: $error');
+        debugPrint('========================================');
+        lastInitError = 'Native library not loaded: $error';
+      }
+    }
   }
 
-  // Initialize storage service
+  try {
+    final success = await _initRustLibWithRetry(maxRetries: 3);
+    if (!success) {
+      debugPrint(
+        'WARNING: RustLib failed to initialize - some features may not work',
+      );
+    }
+  } catch (e, stackTrace) {
+    debugPrint('Unexpected error during RustLib initialization: $e');
+    debugPrint('Stack trace: $stackTrace');
+    isRustLibInitialized = false;
+  }
+
   try {
     await StorageService.instance.init();
     debugPrint('StorageService initialized successfully');
 
-    // 初始化震动反馈状态
     final generalSettings = await StorageService.instance.getGeneralSettings();
     AnimationUtils.setHapticEnabled(generalSettings.hapticFeedbackEnabled);
     debugPrint(
@@ -59,7 +167,6 @@ void main() async {
     debugPrint('Failed to initialize StorageService: $e');
   }
 
-  // Initialize device info for UI optimization
   try {
     await DeviceInfoUtils.initialize();
     debugPrint('DeviceInfoUtils initialized successfully');
@@ -67,7 +174,6 @@ void main() async {
     debugPrint('Failed to initialize DeviceInfoUtils: $e');
   }
 
-  // 异步检测鸿蒙系统（更准确）- with timeout
   try {
     await PlatformUtils.checkHarmonyOS().timeout(
       const Duration(seconds: 3),
@@ -80,7 +186,6 @@ void main() async {
     debugPrint('Failed to check HarmonyOS: $e');
   }
 
-  // Initialize platform-specific features
   if (PlatformUtils.isDesktop) {
     try {
       await PlatformUtils.initDesktopWindow();
@@ -100,8 +205,42 @@ void main() async {
   runApp(const VeloGuardApp());
 }
 
-class VeloGuardApp extends StatelessWidget {
+class VeloGuardApp extends StatefulWidget {
   const VeloGuardApp({super.key});
+
+  @override
+  State<VeloGuardApp> createState() => _VeloGuardAppState();
+}
+
+class _VeloGuardAppState extends State<VeloGuardApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showErrorDialogIfNeeded();
+    });
+  }
+
+  Future<void> _showErrorDialogIfNeeded() async {
+    if (!isRustLibInitialized && !_errorDialogShown) {
+      _errorDialogShown = true;
+      final context = navigatorKey.currentContext;
+      if (context != null) {
+        final shouldRetry = await RustInitErrorDialog.show(context);
+        if (shouldRetry) {
+          final success = await retryRustLibInit();
+          if (success) {
+            if (mounted) {
+              setState(() {});
+            }
+          } else {
+            _errorDialogShown = false;
+            _showErrorDialogIfNeeded();
+          }
+        }
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -167,6 +306,7 @@ class VeloGuardApp extends StatelessWidget {
 }
 
 final GoRouter _router = GoRouter(
+  navigatorKey: navigatorKey,
   routes: [
     ShellRoute(
       builder: (context, state, child) {

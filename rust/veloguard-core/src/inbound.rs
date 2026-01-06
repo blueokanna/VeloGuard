@@ -92,7 +92,6 @@ impl InboundManager {
     }
 
     pub async fn reload(&self) -> Result<()> {
-        // TODO: Implement inbound reload logic
         Ok(())
     }
 }

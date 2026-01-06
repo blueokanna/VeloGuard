@@ -114,6 +114,12 @@ class MainActivity : FlutterActivity() {
                 "getDeviceInfo" -> {
                     result.success(getDeviceInfo())
                 }
+                "isNativeLibraryLoaded" -> {
+                    result.success(VeloGuardVpnService.isLibraryLoaded)
+                }
+                "getNativeLibraryInfo" -> {
+                    result.success(VeloGuardVpnService.getLibraryInfo(this))
+                }
                 "updateConnectionCount" -> {
                     val count = call.argument<Int>("count") ?: 0
                     VeloGuardVpnService.updateConnectionCount(count)

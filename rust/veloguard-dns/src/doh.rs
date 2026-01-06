@@ -23,18 +23,15 @@ use url::Url;
 
 /// DoH request method
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum DohMethod {
     /// HTTP GET with base64url encoded query
     Get,
     /// HTTP POST with binary DNS message
+    #[default]
     Post,
 }
 
-impl Default for DohMethod {
-    fn default() -> Self {
-        Self::Post
-    }
-}
 
 /// DoH client configuration
 #[derive(Debug, Clone)]
@@ -193,7 +190,7 @@ impl DohClient {
         )
         .await
         .map_err(|_| DnsError::Timeout)?
-        .map_err(|e| DnsError::Io(e))?;
+        .map_err(DnsError::Io)?;
 
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|e| DnsError::Tls(format!("Invalid server name: {}", e)))?;
@@ -244,7 +241,7 @@ impl DohClient {
         tokio::time::timeout(self.timeout, tls_stream.read_to_end(&mut response_buf))
             .await
             .map_err(|_| DnsError::Timeout)?
-            .map_err(|e| DnsError::Io(e))?;
+            .map_err(DnsError::Io)?;
 
         // Parse HTTP response
         let response_str = String::from_utf8_lossy(&response_buf);

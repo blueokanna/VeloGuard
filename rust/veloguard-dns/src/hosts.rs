@@ -33,7 +33,7 @@ impl HostsFile {
         let domain = domain.to_lowercase();
         self.entries
             .entry(domain)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(ip);
     }
 

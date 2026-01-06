@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Config {
     /// General settings
     #[serde(default)]
@@ -53,17 +54,6 @@ impl Config {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            dns: DnsConfig::default(),
-            inbounds: Vec::new(),
-            outbounds: Vec::new(),
-            rules: Vec::new(),
-        }
-    }
-}
 
 /// General configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +287,7 @@ pub enum OutboundType {
     Reject,
     Shadowsocks,
     Vmess,
+    Vless,
     Trojan,
     Wireguard,
     Socks5,

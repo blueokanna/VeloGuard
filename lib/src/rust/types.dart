@@ -78,6 +78,62 @@ class ActiveConnection {
           processName == other.processName;
 }
 
+/// Connection DTO (Design Document Compliant)
+class ConnectionDto {
+  final String id;
+  final String srcAddr;
+  final String dstAddr;
+  final String? dstDomain;
+  final String protocol;
+  final String outbound;
+  final BigInt upload;
+  final BigInt download;
+  final PlatformInt64 startTime;
+  final String? rule;
+
+  const ConnectionDto({
+    required this.id,
+    required this.srcAddr,
+    required this.dstAddr,
+    this.dstDomain,
+    required this.protocol,
+    required this.outbound,
+    required this.upload,
+    required this.download,
+    required this.startTime,
+    this.rule,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      srcAddr.hashCode ^
+      dstAddr.hashCode ^
+      dstDomain.hashCode ^
+      protocol.hashCode ^
+      outbound.hashCode ^
+      upload.hashCode ^
+      download.hashCode ^
+      startTime.hashCode ^
+      rule.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConnectionDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          srcAddr == other.srcAddr &&
+          dstAddr == other.dstAddr &&
+          dstDomain == other.dstDomain &&
+          protocol == other.protocol &&
+          outbound == other.outbound &&
+          upload == other.upload &&
+          download == other.download &&
+          startTime == other.startTime &&
+          rule == other.rule;
+}
+
 /// Connection information
 class ConnectionInfo {
   final String id;
@@ -126,6 +182,42 @@ class ConnectionInfo {
           chains == other.chains;
 }
 
+/// DNS config DTO (Design Document Compliant)
+class DnsConfigDto {
+  final bool enable;
+  final String listen;
+  final String enhancedMode;
+  final List<String> nameservers;
+  final List<String> fallback;
+
+  const DnsConfigDto({
+    required this.enable,
+    required this.listen,
+    required this.enhancedMode,
+    required this.nameservers,
+    required this.fallback,
+  });
+
+  @override
+  int get hashCode =>
+      enable.hashCode ^
+      listen.hashCode ^
+      enhancedMode.hashCode ^
+      nameservers.hashCode ^
+      fallback.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DnsConfigDto &&
+          runtimeType == other.runtimeType &&
+          enable == other.enable &&
+          listen == other.listen &&
+          enhancedMode == other.enhancedMode &&
+          nameservers == other.nameservers &&
+          fallback == other.fallback;
+}
+
 /// Latency test result
 class LatencyTestResult {
   final String proxyName;
@@ -155,6 +247,96 @@ class LatencyTestResult {
           proxyName == other.proxyName &&
           latencyMs == other.latencyMs &&
           success == other.success &&
+          error == other.error;
+}
+
+/// Proxy group DTO (Design Document Compliant)
+class ProxyGroupDto {
+  final String tag;
+  final String groupType;
+  final List<String> proxies;
+  final String selected;
+
+  const ProxyGroupDto({
+    required this.tag,
+    required this.groupType,
+    required this.proxies,
+    required this.selected,
+  });
+
+  @override
+  int get hashCode =>
+      tag.hashCode ^ groupType.hashCode ^ proxies.hashCode ^ selected.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProxyGroupDto &&
+          runtimeType == other.runtimeType &&
+          tag == other.tag &&
+          groupType == other.groupType &&
+          proxies == other.proxies &&
+          selected == other.selected;
+}
+
+/// Proxy info DTO (Design Document Compliant)
+class ProxyInfoDto {
+  final String tag;
+  final String protocolType;
+  final String? server;
+  final int? port;
+  final BigInt? latencyMs;
+  final bool alive;
+
+  const ProxyInfoDto({
+    required this.tag,
+    required this.protocolType,
+    this.server,
+    this.port,
+    this.latencyMs,
+    required this.alive,
+  });
+
+  @override
+  int get hashCode =>
+      tag.hashCode ^
+      protocolType.hashCode ^
+      server.hashCode ^
+      port.hashCode ^
+      latencyMs.hashCode ^
+      alive.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProxyInfoDto &&
+          runtimeType == other.runtimeType &&
+          tag == other.tag &&
+          protocolType == other.protocolType &&
+          server == other.server &&
+          port == other.port &&
+          latencyMs == other.latencyMs &&
+          alive == other.alive;
+}
+
+/// Proxy latency DTO (Design Document Compliant)
+class ProxyLatencyDto {
+  final String tag;
+  final BigInt? latencyMs;
+  final String? error;
+
+  const ProxyLatencyDto({required this.tag, this.latencyMs, this.error});
+
+  @override
+  int get hashCode => tag.hashCode ^ latencyMs.hashCode ^ error.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProxyLatencyDto &&
+          runtimeType == other.runtimeType &&
+          tag == other.tag &&
+          latencyMs == other.latencyMs &&
           error == other.error;
 }
 
@@ -196,6 +378,38 @@ class ProxyStatus {
           connectionCount == other.connectionCount &&
           memoryUsage == other.memoryUsage &&
           uptime == other.uptime;
+}
+
+/// Rule DTO (Design Document Compliant)
+class RuleDto {
+  final String ruleType;
+  final String payload;
+  final String outbound;
+  final BigInt matchedCount;
+
+  const RuleDto({
+    required this.ruleType,
+    required this.payload,
+    required this.outbound,
+    required this.matchedCount,
+  });
+
+  @override
+  int get hashCode =>
+      ruleType.hashCode ^
+      payload.hashCode ^
+      outbound.hashCode ^
+      matchedCount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RuleDto &&
+          runtimeType == other.runtimeType &&
+          ruleType == other.ruleType &&
+          payload == other.payload &&
+          outbound == other.outbound &&
+          matchedCount == other.matchedCount;
 }
 
 /// System information
@@ -276,6 +490,46 @@ class TrafficStats {
           download == other.download &&
           uploadSpeed == other.uploadSpeed &&
           downloadSpeed == other.downloadSpeed;
+}
+
+/// Traffic statistics DTO (Design Document Compliant)
+class TrafficStatsDto {
+  final BigInt upload;
+  final BigInt download;
+  final BigInt totalUpload;
+  final BigInt totalDownload;
+  final int connectionCount;
+  final BigInt uptimeSecs;
+
+  const TrafficStatsDto({
+    required this.upload,
+    required this.download,
+    required this.totalUpload,
+    required this.totalDownload,
+    required this.connectionCount,
+    required this.uptimeSecs,
+  });
+
+  @override
+  int get hashCode =>
+      upload.hashCode ^
+      download.hashCode ^
+      totalUpload.hashCode ^
+      totalDownload.hashCode ^
+      connectionCount.hashCode ^
+      uptimeSecs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrafficStatsDto &&
+          runtimeType == other.runtimeType &&
+          upload == other.upload &&
+          download == other.download &&
+          totalUpload == other.totalUpload &&
+          totalDownload == other.totalDownload &&
+          connectionCount == other.connectionCount &&
+          uptimeSecs == other.uptimeSecs;
 }
 
 /// TUN mode status
