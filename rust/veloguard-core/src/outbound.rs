@@ -1,9 +1,11 @@
 use crate::config::{Config, OutboundConfig, OutboundType};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::RwLock;
+use parking_lot::RwLock as ParkingRwLock;
+use std::sync::OnceLock;
 
 mod direct;
 mod http;
@@ -14,6 +16,7 @@ mod shadowsocks;
 mod socks5;
 mod trojan;
 mod tuic;
+mod vless;
 mod vmess;
 mod wireguard;
 
@@ -27,15 +30,19 @@ pub use shadowsocks::ShadowsocksOutbound;
 pub use socks5::Socks5Outbound;
 pub use trojan::TrojanOutbound;
 pub use tuic::TuicOutbound;
+pub use vless::VlessOutbound;
 pub use vmess::VmessOutbound;
 pub use wireguard::WireguardOutbound;
 
-/// Target address for outbound connections
+static GLOBAL_SELECTOR_SELECTIONS: OnceLock<ParkingRwLock<HashMap<String, String>>> = OnceLock::new();
+
+pub fn get_global_selector_selections() -> &'static ParkingRwLock<HashMap<String, String>> {
+    GLOBAL_SELECTOR_SELECTIONS.get_or_init(|| ParkingRwLock::new(HashMap::new()))
+}
+
 #[derive(Debug, Clone)]
 pub enum TargetAddr {
-    /// Domain name with port
     Domain(String, u16),
-    /// Socket address (IP:port)
     Ip(std::net::SocketAddr),
 }
 
@@ -72,10 +79,40 @@ impl TargetAddr {
     }
 }
 
-/// Shared proxy registry for proxy groups to access other proxies
+impl From<TargetAddr> for veloguard_protocol::Address {
+    fn from(target: TargetAddr) -> Self {
+        match target {
+            TargetAddr::Domain(domain, port) => veloguard_protocol::Address::Domain(domain, port),
+            TargetAddr::Ip(addr) => veloguard_protocol::Address::from_socket_addr(addr),
+        }
+    }
+}
+
+impl From<&TargetAddr> for veloguard_protocol::Address {
+    fn from(target: &TargetAddr) -> Self {
+        match target {
+            TargetAddr::Domain(domain, port) => veloguard_protocol::Address::Domain(domain.clone(), *port),
+            TargetAddr::Ip(addr) => veloguard_protocol::Address::from_socket_addr(*addr),
+        }
+    }
+}
+
+impl From<veloguard_protocol::Address> for TargetAddr {
+    fn from(addr: veloguard_protocol::Address) -> Self {
+        match addr {
+            veloguard_protocol::Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
+            veloguard_protocol::Address::Ipv4(ip, port) => {
+                TargetAddr::Ip(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(ip, port)))
+            }
+            veloguard_protocol::Address::Ipv6(ip, port) => {
+                TargetAddr::Ip(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0)))
+            }
+        }
+    }
+}
+
 pub type ProxyRegistry = Arc<RwLock<HashMap<String, Arc<dyn OutboundProxy>>>>;
 
-/// Outbound connection manager
 pub struct OutboundManager {
     config: Arc<RwLock<Config>>,
     proxies: ProxyRegistry,
@@ -84,43 +121,45 @@ pub struct OutboundManager {
 
 #[async_trait::async_trait]
 pub trait OutboundProxy: Send + Sync {
-    /// Test the connection to the proxy server
     async fn connect(&self) -> Result<()>;
     
-    /// Disconnect from the proxy server
     async fn disconnect(&self) -> Result<()>;
     
-    /// Get the tag/name of this outbound
     fn tag(&self) -> &str;
     
-    /// Get the server address and port (if applicable)
     fn server_addr(&self) -> Option<(String, u16)> {
         None
     }
     
-    /// Connect to target through this outbound and relay data
-    /// This is the main method for proxying traffic
+    fn supports_udp(&self) -> bool {
+        false
+    }
+
     async fn relay_tcp(
         &self,
         inbound: Box<dyn AsyncReadWrite>,
         target: TargetAddr,
     ) -> Result<()>;
-    
-    /// Connect to target through this outbound and relay data with connection tracking
-    /// Default implementation calls relay_tcp without connection tracking
+
     async fn relay_tcp_with_connection(
         &self,
         inbound: Box<dyn AsyncReadWrite>,
         target: TargetAddr,
         connection: Option<std::sync::Arc<crate::connection_tracker::TrackedConnection>>,
     ) -> Result<()> {
-        // Default: ignore connection tracking and use regular relay
         let _ = connection;
         self.relay_tcp(inbound, target).await
     }
     
-    /// Test HTTP latency through this outbound
-    /// This sends an HTTP request through the proxy and measures the round-trip time
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        let _ = (target, data);
+        Err(Error::protocol(format!("UDP relay not supported by outbound '{}'", self.tag())))
+    }
+
     async fn test_http_latency(
         &self,
         test_url: &str,
@@ -128,7 +167,6 @@ pub trait OutboundProxy: Send + Sync {
     ) -> Result<std::time::Duration>;
 }
 
-/// Trait alias for types that implement both AsyncRead and AsyncWrite
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncReadWrite for T {}
 
@@ -140,9 +178,7 @@ impl OutboundManager {
 
         {
             let config_read = config.read().await;
-            
-            // First pass: create all non-group proxies
-            for outbound_config in &config_read.outbounds {
+                        for outbound_config in &config_read.outbounds {
                 let proxy: Option<Arc<dyn OutboundProxy>> = match outbound_config.outbound_type {
                     OutboundType::Direct => {
                         Some(Arc::new(DirectOutbound::new(outbound_config.clone())))
@@ -162,6 +198,9 @@ impl OutboundManager {
                     OutboundType::Vmess => {
                         Some(Arc::new(VmessOutbound::new(outbound_config.clone())?))
                     }
+                    OutboundType::Vless => {
+                        Some(Arc::new(VlessOutbound::new(outbound_config.clone())?))
+                    }
                     OutboundType::Trojan => {
                         Some(Arc::new(TrojanOutbound::new(outbound_config.clone())?))
                     }
@@ -175,11 +214,9 @@ impl OutboundManager {
                         Some(Arc::new(Hysteria2Outbound::new(outbound_config.clone())?))
                     }
                     OutboundType::Quic => {
-                        // TODO: Implement QUIC outbound proxy
                         tracing::warn!("QUIC outbound not yet implemented, using direct");
                         Some(Arc::new(DirectOutbound::new(outbound_config.clone())))
                     }
-                    // Proxy groups - defer to second pass
                     OutboundType::Selector | OutboundType::Urltest | 
                     OutboundType::Fallback | OutboundType::Loadbalance | OutboundType::Relay => {
                         proxy_group_configs.push(outbound_config.clone());
@@ -231,7 +268,6 @@ impl OutboundManager {
     }
 
     pub async fn reload(&self) -> Result<()> {
-        // TODO: Implement outbound reload logic
         Ok(())
     }
 
@@ -264,5 +300,27 @@ impl OutboundManager {
     /// Get proxy registry (for proxy groups)
     pub fn registry(&self) -> ProxyRegistry {
         self.proxies.clone()
+    }
+    
+    /// Set the selected proxy in a selector group
+    pub async fn set_selector_proxy(&self, group_tag: &str, proxy_tag: &str) -> Result<()> {
+        let proxies = self.proxies.read().await;
+        
+        if proxies.get(group_tag).is_some() {
+            // Use the shared global selections map
+            let selections = get_global_selector_selections();
+            selections.write().insert(group_tag.to_string(), proxy_tag.to_string());
+            
+            tracing::info!("Selector '{}' selection set to '{}'", group_tag, proxy_tag);
+            Ok(())
+        } else {
+            Err(Error::config(format!("Proxy group '{}' not found", group_tag)))
+        }
+    }
+    
+    /// Get the selected proxy in a selector group
+    pub fn get_selector_proxy(&self, group_tag: &str) -> Option<String> {
+        let selections = get_global_selector_selections();
+        selections.read().get(group_tag).cloned()
     }
 }

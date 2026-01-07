@@ -9,6 +9,7 @@
 //! - IP packet parsing and generation using smoltcp
 //! - DNS resolution with DoH/DoT support (via veloguard-dns)
 //! - Fake-IP mode for transparent proxying
+//! - SolidTCP: High-performance user-space TCP/IP stack (merged from veloguard-solidtcp)
 //!
 //! # Platform Requirements
 //!
@@ -61,6 +62,7 @@
 //! ```
 
 pub mod error;
+pub mod solidtcp;
 pub mod route;
 pub mod stack;
 pub mod tcp;

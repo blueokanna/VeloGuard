@@ -7,64 +7,141 @@ import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'types.dart';
 
-// These functions are ignored because they are not marked as `pub`: `convert_ffi_config_to_core`, `decrypt`, `encrypt`, `get_cpu_name`, `new`, `next_nonce`, `ss_build_address_header`, `ss_cipher_spec`, `ss_derive_subkey`, `ss_recv_decrypted_chunk`, `test_via_http_proxy`
+// These functions are ignored because they are not marked as `pub`: `convert_ffi_config_to_core`, `decrypt`, `encrypt`, `get_cpu_name`, `init_tracing_safe`, `new`, `next_nonce`, `ss_build_address_header`, `ss_cipher_spec`, `ss_derive_subkey`, `ss_recv_decrypted_chunk`, `test_via_http_proxy`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `SsAeadCipherInner`, `SsAeadCipher`, `SsCipherSpec`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
-/// Initialize VeloGuard with configuration
+Future<void> startProxyFromYaml({required String yamlConfig}) =>
+    RustLib.instance.api.crateApiStartProxyFromYaml(yamlConfig: yamlConfig);
+
+Future<void> startProxyFromFile({required String configPath}) =>
+    RustLib.instance.api.crateApiStartProxyFromFile(configPath: configPath);
+
+Future<void> stopProxy() => RustLib.instance.api.crateApiStopProxy();
+
+Future<bool> isProxyRunning() => RustLib.instance.api.crateApiIsProxyRunning();
+
+Future<void> reloadConfigFromYaml({required String yamlConfig}) =>
+    RustLib.instance.api.crateApiReloadConfigFromYaml(yamlConfig: yamlConfig);
+
+Future<void> reloadConfigFromFile({required String configPath}) =>
+    RustLib.instance.api.crateApiReloadConfigFromFile(configPath: configPath);
+
+Future<TrafficStatsDto> getTrafficStatsDto() =>
+    RustLib.instance.api.crateApiGetTrafficStatsDto();
+
+Future<List<ConnectionDto>> getConnectionsDto() =>
+    RustLib.instance.api.crateApiGetConnectionsDto();
+
+Future<void> closeConnectionById({required String id}) =>
+    RustLib.instance.api.crateApiCloseConnectionById(id: id);
+
+Future<void> closeAllConnectionsDto() =>
+    RustLib.instance.api.crateApiCloseAllConnectionsDto();
+
+Future<List<ProxyInfoDto>> getProxies() =>
+    RustLib.instance.api.crateApiGetProxies();
+
+Future<List<ProxyGroupDto>> getProxyGroups() =>
+    RustLib.instance.api.crateApiGetProxyGroups();
+
+Future<void> selectProxy({
+  required String groupTag,
+  required String proxyTag,
+}) => RustLib.instance.api.crateApiSelectProxy(
+  groupTag: groupTag,
+  proxyTag: proxyTag,
+);
+
+Future<BigInt> testProxyLatencyDto({
+  required String tag,
+  required String testUrl,
+  required BigInt timeoutMs,
+}) => RustLib.instance.api.crateApiTestProxyLatencyDto(
+  tag: tag,
+  testUrl: testUrl,
+  timeoutMs: timeoutMs,
+);
+
+Future<List<ProxyLatencyDto>> testAllProxiesLatency({
+  required String testUrl,
+  required BigInt timeoutMs,
+}) => RustLib.instance.api.crateApiTestAllProxiesLatency(
+  testUrl: testUrl,
+  timeoutMs: timeoutMs,
+);
+
+Future<List<RuleDto>> getRules() => RustLib.instance.api.crateApiGetRules();
+
+Future<DnsConfigDto> getDnsConfig() =>
+    RustLib.instance.api.crateApiGetDnsConfig();
+
+Future<void> setProxyMode({required int mode}) =>
+    RustLib.instance.api.crateApiSetProxyMode(mode: mode);
+
+Future<int> getProxyMode() => RustLib.instance.api.crateApiGetProxyMode();
+
+Future<void> setVpnFd({required int fd}) =>
+    RustLib.instance.api.crateApiSetVpnFd(fd: fd);
+
+Future<void> clearVpnFd() => RustLib.instance.api.crateApiClearVpnFd();
+
+Future<void> setProtectSocketCallbackEnabled({required bool enabled}) => RustLib
+    .instance
+    .api
+    .crateApiSetProtectSocketCallbackEnabled(enabled: enabled);
+
+Future<void> startTunMode({
+  required String tunName,
+  required String tunAddress,
+  required String tunNetmask,
+}) => RustLib.instance.api.crateApiStartTunMode(
+  tunName: tunName,
+  tunAddress: tunAddress,
+  tunNetmask: tunNetmask,
+);
+
+Future<void> stopTunMode() => RustLib.instance.api.crateApiStopTunMode();
+
 Future<void> initializeVeloguard({required String configJson}) =>
     RustLib.instance.api.crateApiInitializeVeloguard(configJson: configJson);
 
-/// Start the VeloGuard proxy server
 Future<void> startVeloguard() => RustLib.instance.api.crateApiStartVeloguard();
 
-/// Stop the VeloGuard proxy server
 Future<void> stopVeloguard() => RustLib.instance.api.crateApiStopVeloguard();
 
-/// Reload VeloGuard configuration
 Future<void> reloadVeloguard({required String configJson}) =>
     RustLib.instance.api.crateApiReloadVeloguard(configJson: configJson);
 
-/// Get current VeloGuard status
 Future<ProxyStatus> getVeloguardStatus() =>
     RustLib.instance.api.crateApiGetVeloguardStatus();
 
-/// Get traffic statistics
 Future<TrafficStats> getTrafficStats() =>
     RustLib.instance.api.crateApiGetTrafficStats();
 
-/// Test configuration validity
 Future<bool> testConfig({required String configJson}) =>
     RustLib.instance.api.crateApiTestConfig(configJson: configJson);
 
-/// Get connection list
 Future<List<ConnectionInfo>> getConnections() =>
     RustLib.instance.api.crateApiGetConnections();
 
-/// Close a specific connection
 Future<void> closeConnection({required String connectionId}) =>
     RustLib.instance.api.crateApiCloseConnection(connectionId: connectionId);
 
-/// Get logs
 Future<List<String>> getLogs({int? lines}) =>
     RustLib.instance.api.crateApiGetLogs(lines: lines);
 
-/// Set log level
 Future<void> setLogLevel({required String level}) =>
     RustLib.instance.api.crateApiSetLogLevel(level: level);
 
-/// Get system information
 Future<SystemInfo> getSystemInfo() =>
     RustLib.instance.api.crateApiGetSystemInfo();
 
-/// Get version information
 Future<String> getVersion() => RustLib.instance.api.crateApiGetVersion();
 
 /// Get build information
 Future<String> getBuildInfo() => RustLib.instance.api.crateApiGetBuildInfo();
 
-/// Test proxy latency by making an HTTP request through the local proxy
-/// This tests the real end-to-end latency including DNS resolution and proxy chain
 Future<LatencyTestResult> testProxyLatency({
   required String server,
   required int port,
@@ -75,8 +152,6 @@ Future<LatencyTestResult> testProxyLatency({
   timeoutMs: timeoutMs,
 );
 
-/// Test latency for a specific outbound by name using full HTTP request
-/// This uses the outbound's protocol to send an actual HTTP request and measure RTT
 Future<LatencyTestResult> testOutboundLatency({
   required String outboundName,
   required int timeoutMs,
@@ -85,7 +160,6 @@ Future<LatencyTestResult> testOutboundLatency({
   timeoutMs: timeoutMs,
 );
 
-/// Test connectivity by directly connecting to a server:port (TCP handshake)
 Future<LatencyTestResult> testTcpConnectivity({
   required String server,
   required int port,
@@ -110,7 +184,6 @@ Future<LatencyTestResult> testShadowsocksLatency({
   timeoutMs: timeoutMs,
 );
 
-/// Test multiple proxies concurrently
 Future<List<LatencyTestResult>> testProxiesLatency({
   required List<(String, int)> proxies,
   required int timeoutMs,
@@ -119,9 +192,6 @@ Future<List<LatencyTestResult>> testProxiesLatency({
   timeoutMs: timeoutMs,
 );
 
-/// Select a proxy within a selector group
-/// group_name: The name of the selector group (e.g., "Proxy", "Auto")
-/// proxy_name: The name of the proxy to select within the group
 Future<bool> selectProxyInGroup({
   required String groupName,
   required String proxyName,
@@ -130,105 +200,73 @@ Future<bool> selectProxyInGroup({
   proxyName: proxyName,
 );
 
-/// Get the currently selected proxy in a group
 Future<String?> getSelectedProxyInGroup({required String groupName}) =>
     RustLib.instance.api.crateApiGetSelectedProxyInGroup(groupName: groupName);
 
-/// Get all active connections
 Future<List<ActiveConnection>> getActiveConnections() =>
     RustLib.instance.api.crateApiGetActiveConnections();
 
-/// Close a specific connection
 Future<bool> closeActiveConnection({required String connectionId}) => RustLib
     .instance
     .api
     .crateApiCloseActiveConnection(connectionId: connectionId);
 
-/// Close all connections
 Future<void> closeAllConnections() =>
     RustLib.instance.api.crateApiCloseAllConnections();
 
-/// Get connection statistics
 Future<(BigInt, BigInt, BigInt, BigInt)> getConnectionStats() =>
     RustLib.instance.api.crateApiGetConnectionStats();
 
-/// Check if wintun.dll is available (Windows only)
 Future<bool> isWintunAvailable() =>
     RustLib.instance.api.crateApiIsWintunAvailable();
 
-/// Get the path where wintun.dll should be placed
 Future<String?> getWintunDllPath() =>
     RustLib.instance.api.crateApiGetWintunDllPath();
 
-/// Ensure wintun.dll is available, downloading if necessary (Windows only)
 Future<String> ensureWintunDll() =>
     RustLib.instance.api.crateApiEnsureWintunDll();
 
-/// Enable TUN mode (platform-specific)
-/// On Windows, this creates a TUN device and starts packet processing through SolidTCP
 Future<TunStatus> enableTunMode() =>
     RustLib.instance.api.crateApiEnableTunMode();
 
-/// Enable TUN mode with specific proxy mode
-/// mode: "rule", "global", or "direct"
 Future<TunStatus> enableTunModeWithMode({required String mode}) =>
     RustLib.instance.api.crateApiEnableTunModeWithMode(mode: mode);
 
-/// Disable TUN mode
 Future<TunStatus> disableTunMode() =>
     RustLib.instance.api.crateApiDisableTunMode();
 
-/// Get TUN mode status
 Future<TunStatus> getTunStatus() => RustLib.instance.api.crateApiGetTunStatus();
 
-/// Set Windows proxy mode at runtime
-/// mode: "rule", "global", or "direct"
 Future<bool> setWindowsProxyMode({required String mode}) =>
     RustLib.instance.api.crateApiSetWindowsProxyMode(mode: mode);
 
-/// Get Windows proxy mode
-/// Returns: "rule", "global", or "direct"
 Future<String> getWindowsProxyModeStr() =>
     RustLib.instance.api.crateApiGetWindowsProxyModeStr();
 
-/// Get Windows TUN traffic statistics
 Future<(BigInt, BigInt, BigInt, BigInt, BigInt, BigInt)> getWindowsTunStats() =>
     RustLib.instance.api.crateApiGetWindowsTunStats();
 
-/// Enable UWP loopback exemption (Windows only)
 Future<bool> enableUwpLoopback() =>
     RustLib.instance.api.crateApiEnableUwpLoopback();
 
-/// Open UWP loopback exemption utility (Windows only)
 Future<bool> openUwpLoopbackUtility() =>
     RustLib.instance.api.crateApiOpenUwpLoopbackUtility();
 
-/// Set the Android VPN file descriptor from the native layer
-/// This should be called by the Android VpnService when the VPN is established
 Future<void> setAndroidVpnFd({required int fd}) =>
     RustLib.instance.api.crateApiSetAndroidVpnFd(fd: fd);
 
-/// Get the current Android VPN file descriptor
 Future<int> getAndroidVpnFd() => RustLib.instance.api.crateApiGetAndroidVpnFd();
 
-/// Clear the Android VPN file descriptor (called when VPN stops)
 Future<void> clearAndroidVpnFd() =>
     RustLib.instance.api.crateApiClearAndroidVpnFd();
 
-/// Set the Android proxy mode
-/// mode: "rule", "global", or "direct"
 Future<void> setAndroidProxyMode({required String mode}) =>
     RustLib.instance.api.crateApiSetAndroidProxyMode(mode: mode);
 
-/// Get the current Android proxy mode
-/// Returns: "rule", "global", or "direct"
 Future<String> getAndroidProxyMode() =>
     RustLib.instance.api.crateApiGetAndroidProxyMode();
 
-/// Start Android VPN packet processing
-/// This should be called after the VPN fd is set
 Future<bool> startAndroidVpn() =>
     RustLib.instance.api.crateApiStartAndroidVpn();
 
-/// Stop Android VPN packet processing
 Future<bool> stopAndroidVpn() => RustLib.instance.api.crateApiStopAndroidVpn();

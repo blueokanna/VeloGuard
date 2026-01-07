@@ -32,16 +32,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  ConnectionDto dco_decode_connection_dto(dynamic raw);
+
+  @protected
   ConnectionInfo dco_decode_connection_info(dynamic raw);
+
+  @protected
+  DnsConfigDto dco_decode_dns_config_dto(dynamic raw);
 
   @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
   LatencyTestResult dco_decode_latency_test_result(dynamic raw);
@@ -53,6 +68,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ActiveConnection> dco_decode_list_active_connection(dynamic raw);
 
   @protected
+  List<ConnectionDto> dco_decode_list_connection_dto(dynamic raw);
+
+  @protected
   List<ConnectionInfo> dco_decode_list_connection_info(dynamic raw);
 
   @protected
@@ -62,13 +80,40 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<ProxyGroupDto> dco_decode_list_proxy_group_dto(dynamic raw);
+
+  @protected
+  List<ProxyInfoDto> dco_decode_list_proxy_info_dto(dynamic raw);
+
+  @protected
+  List<ProxyLatencyDto> dco_decode_list_proxy_latency_dto(dynamic raw);
+
+  @protected
   List<(String, int)> dco_decode_list_record_string_u_16(dynamic raw);
+
+  @protected
+  List<RuleDto> dco_decode_list_rule_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  ProxyGroupDto dco_decode_proxy_group_dto(dynamic raw);
+
+  @protected
+  ProxyInfoDto dco_decode_proxy_info_dto(dynamic raw);
+
+  @protected
+  ProxyLatencyDto dco_decode_proxy_latency_dto(dynamic raw);
 
   @protected
   ProxyStatus dco_decode_proxy_status(dynamic raw);
@@ -86,10 +131,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_record_u_64_u_64_u_64_u_64_usize_usize(dynamic raw);
 
   @protected
+  RuleDto dco_decode_rule_dto(dynamic raw);
+
+  @protected
   SystemInfo dco_decode_system_info(dynamic raw);
 
   @protected
   TrafficStats dco_decode_traffic_stats(dynamic raw);
+
+  @protected
+  TrafficStatsDto dco_decode_traffic_stats_dto(dynamic raw);
 
   @protected
   TunStatus dco_decode_tun_status(dynamic raw);
@@ -125,16 +176,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  ConnectionDto sse_decode_connection_dto(SseDeserializer deserializer);
+
+  @protected
   ConnectionInfo sse_decode_connection_info(SseDeserializer deserializer);
+
+  @protected
+  DnsConfigDto sse_decode_dns_config_dto(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
   LatencyTestResult sse_decode_latency_test_result(
@@ -146,6 +212,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ActiveConnection> sse_decode_list_active_connection(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ConnectionDto> sse_decode_list_connection_dto(
     SseDeserializer deserializer,
   );
 
@@ -163,15 +234,48 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<ProxyGroupDto> sse_decode_list_proxy_group_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ProxyInfoDto> sse_decode_list_proxy_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ProxyLatencyDto> sse_decode_list_proxy_latency_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<(String, int)> sse_decode_list_record_string_u_16(
     SseDeserializer deserializer,
   );
 
   @protected
+  List<RuleDto> sse_decode_list_rule_dto(SseDeserializer deserializer);
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  ProxyGroupDto sse_decode_proxy_group_dto(SseDeserializer deserializer);
+
+  @protected
+  ProxyInfoDto sse_decode_proxy_info_dto(SseDeserializer deserializer);
+
+  @protected
+  ProxyLatencyDto sse_decode_proxy_latency_dto(SseDeserializer deserializer);
 
   @protected
   ProxyStatus sse_decode_proxy_status(SseDeserializer deserializer);
@@ -191,10 +295,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RuleDto sse_decode_rule_dto(SseDeserializer deserializer);
+
+  @protected
   SystemInfo sse_decode_system_info(SseDeserializer deserializer);
 
   @protected
   TrafficStats sse_decode_traffic_stats(SseDeserializer deserializer);
+
+  @protected
+  TrafficStatsDto sse_decode_traffic_stats_dto(SseDeserializer deserializer);
 
   @protected
   TunStatus sse_decode_tun_status(SseDeserializer deserializer);
@@ -218,6 +328,444 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
+  ffi.Pointer<wire_cst_list_prim_u_8_strict> cst_encode_AnyhowException(
+    AnyhowException raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_prim_u_8_strict> cst_encode_String(String raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return cst_encode_list_prim_u_8_strict(utf8.encoder.convert(raw));
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint16> cst_encode_box_autoadd_u_16(int raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return wire.cst_new_box_autoadd_u_16(cst_encode_u_16(raw));
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint32> cst_encode_box_autoadd_u_32(int raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return wire.cst_new_box_autoadd_u_32(cst_encode_u_32(raw));
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint64> cst_encode_box_autoadd_u_64(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return wire.cst_new_box_autoadd_u_64(cst_encode_u_64(raw));
+  }
+
+  @protected
+  int cst_encode_i_64(PlatformInt64 raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.toInt();
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_String> cst_encode_list_String(List<String> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_String(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      ans.ref.ptr[i] = cst_encode_String(raw[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_active_connection>
+  cst_encode_list_active_connection(List<ActiveConnection> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_active_connection(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_active_connection(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_connection_dto> cst_encode_list_connection_dto(
+    List<ConnectionDto> raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_connection_dto(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_connection_dto(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_connection_info> cst_encode_list_connection_info(
+    List<ConnectionInfo> raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_connection_info(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_connection_info(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_latency_test_result>
+  cst_encode_list_latency_test_result(List<LatencyTestResult> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_latency_test_result(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_latency_test_result(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_prim_u_8_strict> cst_encode_list_prim_u_8_strict(
+    Uint8List raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_prim_u_8_strict(raw.length);
+    ans.ref.ptr.asTypedList(raw.length).setAll(0, raw);
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_proxy_group_dto> cst_encode_list_proxy_group_dto(
+    List<ProxyGroupDto> raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_proxy_group_dto(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_proxy_group_dto(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_proxy_info_dto> cst_encode_list_proxy_info_dto(
+    List<ProxyInfoDto> raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_proxy_info_dto(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_proxy_info_dto(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_proxy_latency_dto>
+  cst_encode_list_proxy_latency_dto(List<ProxyLatencyDto> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_proxy_latency_dto(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_proxy_latency_dto(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_record_string_u_16>
+  cst_encode_list_record_string_u_16(List<(String, int)> raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_record_string_u_16(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_record_string_u_16(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_rule_dto> cst_encode_list_rule_dto(
+    List<RuleDto> raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    final ans = wire.cst_new_list_rule_dto(raw.length);
+    for (var i = 0; i < raw.length; ++i) {
+      cst_api_fill_to_wire_rule_dto(raw[i], ans.ref.ptr[i]);
+    }
+    return ans;
+  }
+
+  @protected
+  ffi.Pointer<wire_cst_list_prim_u_8_strict> cst_encode_opt_String(
+    String? raw,
+  ) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? ffi.nullptr : cst_encode_String(raw);
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint16> cst_encode_opt_box_autoadd_u_16(int? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? ffi.nullptr : cst_encode_box_autoadd_u_16(raw);
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint32> cst_encode_opt_box_autoadd_u_32(int? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? ffi.nullptr : cst_encode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  ffi.Pointer<ffi.Uint64> cst_encode_opt_box_autoadd_u_64(BigInt? raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw == null ? ffi.nullptr : cst_encode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  int cst_encode_u_64(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.toSigned(64).toInt();
+  }
+
+  @protected
+  int cst_encode_usize(BigInt raw) {
+    // Codec=Cst (C-struct based), see doc to use other codecs
+    return raw.toSigned(64).toInt();
+  }
+
+  @protected
+  void cst_api_fill_to_wire_active_connection(
+    ActiveConnection apiObj,
+    wire_cst_active_connection wireObj,
+  ) {
+    wireObj.id = cst_encode_String(apiObj.id);
+    wireObj.inbound_tag = cst_encode_String(apiObj.inboundTag);
+    wireObj.outbound_tag = cst_encode_String(apiObj.outboundTag);
+    wireObj.host = cst_encode_String(apiObj.host);
+    wireObj.destination_ip = cst_encode_opt_String(apiObj.destinationIp);
+    wireObj.destination_port = cst_encode_u_16(apiObj.destinationPort);
+    wireObj.protocol = cst_encode_String(apiObj.protocol);
+    wireObj.network = cst_encode_String(apiObj.network);
+    wireObj.upload_bytes = cst_encode_u_64(apiObj.uploadBytes);
+    wireObj.download_bytes = cst_encode_u_64(apiObj.downloadBytes);
+    wireObj.start_time = cst_encode_u_64(apiObj.startTime);
+    wireObj.rule = cst_encode_String(apiObj.rule);
+    wireObj.rule_payload = cst_encode_String(apiObj.rulePayload);
+    wireObj.process_name = cst_encode_opt_String(apiObj.processName);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_connection_dto(
+    ConnectionDto apiObj,
+    wire_cst_connection_dto wireObj,
+  ) {
+    wireObj.id = cst_encode_String(apiObj.id);
+    wireObj.src_addr = cst_encode_String(apiObj.srcAddr);
+    wireObj.dst_addr = cst_encode_String(apiObj.dstAddr);
+    wireObj.dst_domain = cst_encode_opt_String(apiObj.dstDomain);
+    wireObj.protocol = cst_encode_String(apiObj.protocol);
+    wireObj.outbound = cst_encode_String(apiObj.outbound);
+    wireObj.upload = cst_encode_u_64(apiObj.upload);
+    wireObj.download = cst_encode_u_64(apiObj.download);
+    wireObj.start_time = cst_encode_i_64(apiObj.startTime);
+    wireObj.rule = cst_encode_opt_String(apiObj.rule);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_connection_info(
+    ConnectionInfo apiObj,
+    wire_cst_connection_info wireObj,
+  ) {
+    wireObj.id = cst_encode_String(apiObj.id);
+    wireObj.host = cst_encode_String(apiObj.host);
+    wireObj.destination = cst_encode_String(apiObj.destination);
+    wireObj.upload = cst_encode_u_64(apiObj.upload);
+    wireObj.download = cst_encode_u_64(apiObj.download);
+    wireObj.start_time = cst_encode_u_64(apiObj.startTime);
+    wireObj.rule = cst_encode_String(apiObj.rule);
+    wireObj.chains = cst_encode_list_String(apiObj.chains);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_dns_config_dto(
+    DnsConfigDto apiObj,
+    wire_cst_dns_config_dto wireObj,
+  ) {
+    wireObj.enable = cst_encode_bool(apiObj.enable);
+    wireObj.listen = cst_encode_String(apiObj.listen);
+    wireObj.enhanced_mode = cst_encode_String(apiObj.enhancedMode);
+    wireObj.nameservers = cst_encode_list_String(apiObj.nameservers);
+    wireObj.fallback = cst_encode_list_String(apiObj.fallback);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_latency_test_result(
+    LatencyTestResult apiObj,
+    wire_cst_latency_test_result wireObj,
+  ) {
+    wireObj.proxy_name = cst_encode_String(apiObj.proxyName);
+    wireObj.latency_ms = cst_encode_opt_box_autoadd_u_32(apiObj.latencyMs);
+    wireObj.success = cst_encode_bool(apiObj.success);
+    wireObj.error = cst_encode_opt_String(apiObj.error);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_proxy_group_dto(
+    ProxyGroupDto apiObj,
+    wire_cst_proxy_group_dto wireObj,
+  ) {
+    wireObj.tag = cst_encode_String(apiObj.tag);
+    wireObj.group_type = cst_encode_String(apiObj.groupType);
+    wireObj.proxies = cst_encode_list_String(apiObj.proxies);
+    wireObj.selected = cst_encode_String(apiObj.selected);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_proxy_info_dto(
+    ProxyInfoDto apiObj,
+    wire_cst_proxy_info_dto wireObj,
+  ) {
+    wireObj.tag = cst_encode_String(apiObj.tag);
+    wireObj.protocol_type = cst_encode_String(apiObj.protocolType);
+    wireObj.server = cst_encode_opt_String(apiObj.server);
+    wireObj.port = cst_encode_opt_box_autoadd_u_16(apiObj.port);
+    wireObj.latency_ms = cst_encode_opt_box_autoadd_u_64(apiObj.latencyMs);
+    wireObj.alive = cst_encode_bool(apiObj.alive);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_proxy_latency_dto(
+    ProxyLatencyDto apiObj,
+    wire_cst_proxy_latency_dto wireObj,
+  ) {
+    wireObj.tag = cst_encode_String(apiObj.tag);
+    wireObj.latency_ms = cst_encode_opt_box_autoadd_u_64(apiObj.latencyMs);
+    wireObj.error = cst_encode_opt_String(apiObj.error);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_proxy_status(
+    ProxyStatus apiObj,
+    wire_cst_proxy_status wireObj,
+  ) {
+    wireObj.running = cst_encode_bool(apiObj.running);
+    wireObj.inbound_count = cst_encode_u_32(apiObj.inboundCount);
+    wireObj.outbound_count = cst_encode_u_32(apiObj.outboundCount);
+    wireObj.connection_count = cst_encode_u_32(apiObj.connectionCount);
+    wireObj.memory_usage = cst_encode_u_64(apiObj.memoryUsage);
+    wireObj.uptime = cst_encode_u_64(apiObj.uptime);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_record_string_u_16(
+    (String, int) apiObj,
+    wire_cst_record_string_u_16 wireObj,
+  ) {
+    wireObj.field0 = cst_encode_String(apiObj.$1);
+    wireObj.field1 = cst_encode_u_16(apiObj.$2);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_record_u_64_u_64_u_64_u_64(
+    (BigInt, BigInt, BigInt, BigInt) apiObj,
+    wire_cst_record_u_64_u_64_u_64_u_64 wireObj,
+  ) {
+    wireObj.field0 = cst_encode_u_64(apiObj.$1);
+    wireObj.field1 = cst_encode_u_64(apiObj.$2);
+    wireObj.field2 = cst_encode_u_64(apiObj.$3);
+    wireObj.field3 = cst_encode_u_64(apiObj.$4);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_record_u_64_u_64_u_64_u_64_usize_usize(
+    (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) apiObj,
+    wire_cst_record_u_64_u_64_u_64_u_64_usize_usize wireObj,
+  ) {
+    wireObj.field0 = cst_encode_u_64(apiObj.$1);
+    wireObj.field1 = cst_encode_u_64(apiObj.$2);
+    wireObj.field2 = cst_encode_u_64(apiObj.$3);
+    wireObj.field3 = cst_encode_u_64(apiObj.$4);
+    wireObj.field4 = cst_encode_usize(apiObj.$5);
+    wireObj.field5 = cst_encode_usize(apiObj.$6);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_rule_dto(
+    RuleDto apiObj,
+    wire_cst_rule_dto wireObj,
+  ) {
+    wireObj.rule_type = cst_encode_String(apiObj.ruleType);
+    wireObj.payload = cst_encode_String(apiObj.payload);
+    wireObj.outbound = cst_encode_String(apiObj.outbound);
+    wireObj.matched_count = cst_encode_u_64(apiObj.matchedCount);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_system_info(
+    SystemInfo apiObj,
+    wire_cst_system_info wireObj,
+  ) {
+    wireObj.platform = cst_encode_String(apiObj.platform);
+    wireObj.version = cst_encode_String(apiObj.version);
+    wireObj.memory_total = cst_encode_u_64(apiObj.memoryTotal);
+    wireObj.memory_used = cst_encode_u_64(apiObj.memoryUsed);
+    wireObj.cpu_cores = cst_encode_u_32(apiObj.cpuCores);
+    wireObj.cpu_threads = cst_encode_u_32(apiObj.cpuThreads);
+    wireObj.cpu_name = cst_encode_String(apiObj.cpuName);
+    wireObj.cpu_usage = cst_encode_f_64(apiObj.cpuUsage);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_traffic_stats(
+    TrafficStats apiObj,
+    wire_cst_traffic_stats wireObj,
+  ) {
+    wireObj.upload = cst_encode_u_64(apiObj.upload);
+    wireObj.download = cst_encode_u_64(apiObj.download);
+    wireObj.upload_speed = cst_encode_u_64(apiObj.uploadSpeed);
+    wireObj.download_speed = cst_encode_u_64(apiObj.downloadSpeed);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_traffic_stats_dto(
+    TrafficStatsDto apiObj,
+    wire_cst_traffic_stats_dto wireObj,
+  ) {
+    wireObj.upload = cst_encode_u_64(apiObj.upload);
+    wireObj.download = cst_encode_u_64(apiObj.download);
+    wireObj.total_upload = cst_encode_u_64(apiObj.totalUpload);
+    wireObj.total_download = cst_encode_u_64(apiObj.totalDownload);
+    wireObj.connection_count = cst_encode_u_32(apiObj.connectionCount);
+    wireObj.uptime_secs = cst_encode_u_64(apiObj.uptimeSecs);
+  }
+
+  @protected
+  void cst_api_fill_to_wire_tun_status(
+    TunStatus apiObj,
+    wire_cst_tun_status wireObj,
+  ) {
+    wireObj.enabled = cst_encode_bool(apiObj.enabled);
+    wireObj.interface_name = cst_encode_opt_String(apiObj.interfaceName);
+    wireObj.mtu = cst_encode_opt_box_autoadd_u_32(apiObj.mtu);
+    wireObj.error = cst_encode_opt_String(apiObj.error);
+  }
+
+  @protected
+  bool cst_encode_bool(bool raw);
+
+  @protected
+  double cst_encode_f_64(double raw);
+
+  @protected
+  int cst_encode_i_32(int raw);
+
+  @protected
+  int cst_encode_u_16(int raw);
+
+  @protected
+  int cst_encode_u_32(int raw);
+
+  @protected
+  int cst_encode_u_8(int raw);
+
+  @protected
+  void cst_encode_unit(void raw);
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -236,7 +784,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_connection_dto(ConnectionDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_connection_info(
@@ -245,10 +802,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_dns_config_dto(DnsConfigDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
   void sse_encode_latency_test_result(
@@ -262,6 +825,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_active_connection(
     List<ActiveConnection> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_connection_dto(
+    List<ConnectionDto> self,
     SseSerializer serializer,
   );
 
@@ -284,16 +853,55 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_proxy_group_dto(
+    List<ProxyGroupDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_proxy_info_dto(
+    List<ProxyInfoDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_proxy_latency_dto(
+    List<ProxyLatencyDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_record_string_u_16(
     List<(String, int)> self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_list_rule_dto(List<RuleDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_group_dto(ProxyGroupDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_info_dto(ProxyInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proxy_latency_dto(
+    ProxyLatencyDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_proxy_status(ProxyStatus self, SseSerializer serializer);
@@ -317,10 +925,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_rule_dto(RuleDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_system_info(SystemInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_traffic_stats(TrafficStats self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_traffic_stats_dto(
+    TrafficStatsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_tun_status(TunStatus self, SseSerializer serializer);
@@ -346,6 +963,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
 // Section: wire_class
 
+// ignore_for_file: camel_case_types, non_constant_identifier_names, avoid_positional_boolean_parameters, annotate_overrides, constant_identifier_names
+// AUTO GENERATED FILE, DO NOT EDIT.
+//
+// Generated by `package:ffigen`.
+// ignore_for_file: type=lint, unused_import
+
+/// generated by flutter_rust_bridge
 class RustLibWire implements BaseWire {
   factory RustLibWire.fromExternalLibrary(ExternalLibrary lib) =>
       RustLibWire(lib.ffiDynamicLibrary);
@@ -357,4 +981,1793 @@ class RustLibWire implements BaseWire {
   /// The symbols are looked up in [dynamicLibrary].
   RustLibWire(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
+
+  /// The symbols are looked up with [lookup].
+  RustLibWire.fromLookup(
+    ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
+  ) : _lookup = lookup;
+
+  void store_dart_post_cobject(DartPostCObjectFnType ptr) {
+    return _store_dart_post_cobject(ptr);
+  }
+
+  late final _store_dart_post_cobjectPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(DartPostCObjectFnType)>>(
+        'store_dart_post_cobject',
+      );
+  late final _store_dart_post_cobject = _store_dart_post_cobjectPtr
+      .asFunction<void Function(DartPostCObjectFnType)>();
+
+  void wire__crate__api__clear_android_vpn_fd(int port_) {
+    return _wire__crate__api__clear_android_vpn_fd(port_);
+  }
+
+  late final _wire__crate__api__clear_android_vpn_fdPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__clear_android_vpn_fd',
+      );
+  late final _wire__crate__api__clear_android_vpn_fd =
+      _wire__crate__api__clear_android_vpn_fdPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__clear_vpn_fd(int port_) {
+    return _wire__crate__api__clear_vpn_fd(port_);
+  }
+
+  late final _wire__crate__api__clear_vpn_fdPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__clear_vpn_fd',
+      );
+  late final _wire__crate__api__clear_vpn_fd =
+      _wire__crate__api__clear_vpn_fdPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__close_active_connection(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> connection_id,
+  ) {
+    return _wire__crate__api__close_active_connection(port_, connection_id);
+  }
+
+  late final _wire__crate__api__close_active_connectionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__close_active_connection');
+  late final _wire__crate__api__close_active_connection =
+      _wire__crate__api__close_active_connectionPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__close_all_connections(int port_) {
+    return _wire__crate__api__close_all_connections(port_);
+  }
+
+  late final _wire__crate__api__close_all_connectionsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__close_all_connections',
+      );
+  late final _wire__crate__api__close_all_connections =
+      _wire__crate__api__close_all_connectionsPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__close_all_connections_dto(int port_) {
+    return _wire__crate__api__close_all_connections_dto(port_);
+  }
+
+  late final _wire__crate__api__close_all_connections_dtoPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__close_all_connections_dto',
+      );
+  late final _wire__crate__api__close_all_connections_dto =
+      _wire__crate__api__close_all_connections_dtoPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__close_connection(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> _connection_id,
+  ) {
+    return _wire__crate__api__close_connection(port_, _connection_id);
+  }
+
+  late final _wire__crate__api__close_connectionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__close_connection');
+  late final _wire__crate__api__close_connection =
+      _wire__crate__api__close_connectionPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__close_connection_by_id(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> id,
+  ) {
+    return _wire__crate__api__close_connection_by_id(port_, id);
+  }
+
+  late final _wire__crate__api__close_connection_by_idPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__close_connection_by_id');
+  late final _wire__crate__api__close_connection_by_id =
+      _wire__crate__api__close_connection_by_idPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__disable_tun_mode(int port_) {
+    return _wire__crate__api__disable_tun_mode(port_);
+  }
+
+  late final _wire__crate__api__disable_tun_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__disable_tun_mode',
+      );
+  late final _wire__crate__api__disable_tun_mode =
+      _wire__crate__api__disable_tun_modePtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__enable_tun_mode(int port_) {
+    return _wire__crate__api__enable_tun_mode(port_);
+  }
+
+  late final _wire__crate__api__enable_tun_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__enable_tun_mode',
+      );
+  late final _wire__crate__api__enable_tun_mode =
+      _wire__crate__api__enable_tun_modePtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__enable_tun_mode_with_mode(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> mode,
+  ) {
+    return _wire__crate__api__enable_tun_mode_with_mode(port_, mode);
+  }
+
+  late final _wire__crate__api__enable_tun_mode_with_modePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__enable_tun_mode_with_mode');
+  late final _wire__crate__api__enable_tun_mode_with_mode =
+      _wire__crate__api__enable_tun_mode_with_modePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__enable_uwp_loopback(int port_) {
+    return _wire__crate__api__enable_uwp_loopback(port_);
+  }
+
+  late final _wire__crate__api__enable_uwp_loopbackPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__enable_uwp_loopback',
+      );
+  late final _wire__crate__api__enable_uwp_loopback =
+      _wire__crate__api__enable_uwp_loopbackPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__ensure_wintun_dll(int port_) {
+    return _wire__crate__api__ensure_wintun_dll(port_);
+  }
+
+  late final _wire__crate__api__ensure_wintun_dllPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__ensure_wintun_dll',
+      );
+  late final _wire__crate__api__ensure_wintun_dll =
+      _wire__crate__api__ensure_wintun_dllPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_active_connections(int port_) {
+    return _wire__crate__api__get_active_connections(port_);
+  }
+
+  late final _wire__crate__api__get_active_connectionsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_active_connections',
+      );
+  late final _wire__crate__api__get_active_connections =
+      _wire__crate__api__get_active_connectionsPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_android_proxy_mode(int port_) {
+    return _wire__crate__api__get_android_proxy_mode(port_);
+  }
+
+  late final _wire__crate__api__get_android_proxy_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_android_proxy_mode',
+      );
+  late final _wire__crate__api__get_android_proxy_mode =
+      _wire__crate__api__get_android_proxy_modePtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_android_vpn_fd(int port_) {
+    return _wire__crate__api__get_android_vpn_fd(port_);
+  }
+
+  late final _wire__crate__api__get_android_vpn_fdPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_android_vpn_fd',
+      );
+  late final _wire__crate__api__get_android_vpn_fd =
+      _wire__crate__api__get_android_vpn_fdPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_build_info(int port_) {
+    return _wire__crate__api__get_build_info(port_);
+  }
+
+  late final _wire__crate__api__get_build_infoPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_build_info',
+      );
+  late final _wire__crate__api__get_build_info =
+      _wire__crate__api__get_build_infoPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_connection_stats(int port_) {
+    return _wire__crate__api__get_connection_stats(port_);
+  }
+
+  late final _wire__crate__api__get_connection_statsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_connection_stats',
+      );
+  late final _wire__crate__api__get_connection_stats =
+      _wire__crate__api__get_connection_statsPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_connections(int port_) {
+    return _wire__crate__api__get_connections(port_);
+  }
+
+  late final _wire__crate__api__get_connectionsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_connections',
+      );
+  late final _wire__crate__api__get_connections =
+      _wire__crate__api__get_connectionsPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_connections_dto(int port_) {
+    return _wire__crate__api__get_connections_dto(port_);
+  }
+
+  late final _wire__crate__api__get_connections_dtoPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_connections_dto',
+      );
+  late final _wire__crate__api__get_connections_dto =
+      _wire__crate__api__get_connections_dtoPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_dns_config(int port_) {
+    return _wire__crate__api__get_dns_config(port_);
+  }
+
+  late final _wire__crate__api__get_dns_configPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_dns_config',
+      );
+  late final _wire__crate__api__get_dns_config =
+      _wire__crate__api__get_dns_configPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_logs(int port_, ffi.Pointer<ffi.Uint32> lines) {
+    return _wire__crate__api__get_logs(port_, lines);
+  }
+
+  late final _wire__crate__api__get_logsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Int64, ffi.Pointer<ffi.Uint32>)
+        >
+      >('frbgen_veloguard_wire__crate__api__get_logs');
+  late final _wire__crate__api__get_logs = _wire__crate__api__get_logsPtr
+      .asFunction<void Function(int, ffi.Pointer<ffi.Uint32>)>();
+
+  void wire__crate__api__get_proxies(int port_) {
+    return _wire__crate__api__get_proxies(port_);
+  }
+
+  late final _wire__crate__api__get_proxiesPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_proxies',
+      );
+  late final _wire__crate__api__get_proxies = _wire__crate__api__get_proxiesPtr
+      .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_proxy_groups(int port_) {
+    return _wire__crate__api__get_proxy_groups(port_);
+  }
+
+  late final _wire__crate__api__get_proxy_groupsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_proxy_groups',
+      );
+  late final _wire__crate__api__get_proxy_groups =
+      _wire__crate__api__get_proxy_groupsPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_proxy_mode(int port_) {
+    return _wire__crate__api__get_proxy_mode(port_);
+  }
+
+  late final _wire__crate__api__get_proxy_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_proxy_mode',
+      );
+  late final _wire__crate__api__get_proxy_mode =
+      _wire__crate__api__get_proxy_modePtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_rules(int port_) {
+    return _wire__crate__api__get_rules(port_);
+  }
+
+  late final _wire__crate__api__get_rulesPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_rules',
+      );
+  late final _wire__crate__api__get_rules = _wire__crate__api__get_rulesPtr
+      .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_selected_proxy_in_group(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> group_name,
+  ) {
+    return _wire__crate__api__get_selected_proxy_in_group(port_, group_name);
+  }
+
+  late final _wire__crate__api__get_selected_proxy_in_groupPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__get_selected_proxy_in_group');
+  late final _wire__crate__api__get_selected_proxy_in_group =
+      _wire__crate__api__get_selected_proxy_in_groupPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__get_system_info(int port_) {
+    return _wire__crate__api__get_system_info(port_);
+  }
+
+  late final _wire__crate__api__get_system_infoPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_system_info',
+      );
+  late final _wire__crate__api__get_system_info =
+      _wire__crate__api__get_system_infoPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_traffic_stats(int port_) {
+    return _wire__crate__api__get_traffic_stats(port_);
+  }
+
+  late final _wire__crate__api__get_traffic_statsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_traffic_stats',
+      );
+  late final _wire__crate__api__get_traffic_stats =
+      _wire__crate__api__get_traffic_statsPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_traffic_stats_dto(int port_) {
+    return _wire__crate__api__get_traffic_stats_dto(port_);
+  }
+
+  late final _wire__crate__api__get_traffic_stats_dtoPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_traffic_stats_dto',
+      );
+  late final _wire__crate__api__get_traffic_stats_dto =
+      _wire__crate__api__get_traffic_stats_dtoPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_tun_status(int port_) {
+    return _wire__crate__api__get_tun_status(port_);
+  }
+
+  late final _wire__crate__api__get_tun_statusPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_tun_status',
+      );
+  late final _wire__crate__api__get_tun_status =
+      _wire__crate__api__get_tun_statusPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__get_veloguard_status(int port_) {
+    return _wire__crate__api__get_veloguard_status(port_);
+  }
+
+  late final _wire__crate__api__get_veloguard_statusPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_veloguard_status',
+      );
+  late final _wire__crate__api__get_veloguard_status =
+      _wire__crate__api__get_veloguard_statusPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_version(int port_) {
+    return _wire__crate__api__get_version(port_);
+  }
+
+  late final _wire__crate__api__get_versionPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_version',
+      );
+  late final _wire__crate__api__get_version = _wire__crate__api__get_versionPtr
+      .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_windows_proxy_mode_str(int port_) {
+    return _wire__crate__api__get_windows_proxy_mode_str(port_);
+  }
+
+  late final _wire__crate__api__get_windows_proxy_mode_strPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_windows_proxy_mode_str',
+      );
+  late final _wire__crate__api__get_windows_proxy_mode_str =
+      _wire__crate__api__get_windows_proxy_mode_strPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_windows_tun_stats(int port_) {
+    return _wire__crate__api__get_windows_tun_stats(port_);
+  }
+
+  late final _wire__crate__api__get_windows_tun_statsPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_windows_tun_stats',
+      );
+  late final _wire__crate__api__get_windows_tun_stats =
+      _wire__crate__api__get_windows_tun_statsPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__get_wintun_dll_path(int port_) {
+    return _wire__crate__api__get_wintun_dll_path(port_);
+  }
+
+  late final _wire__crate__api__get_wintun_dll_pathPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__get_wintun_dll_path',
+      );
+  late final _wire__crate__api__get_wintun_dll_path =
+      _wire__crate__api__get_wintun_dll_pathPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__init_app(int port_) {
+    return _wire__crate__api__init_app(port_);
+  }
+
+  late final _wire__crate__api__init_appPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__init_app',
+      );
+  late final _wire__crate__api__init_app = _wire__crate__api__init_appPtr
+      .asFunction<void Function(int)>();
+
+  void wire__crate__api__initialize_veloguard(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_json,
+  ) {
+    return _wire__crate__api__initialize_veloguard(port_, config_json);
+  }
+
+  late final _wire__crate__api__initialize_veloguardPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__initialize_veloguard');
+  late final _wire__crate__api__initialize_veloguard =
+      _wire__crate__api__initialize_veloguardPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__is_proxy_running(int port_) {
+    return _wire__crate__api__is_proxy_running(port_);
+  }
+
+  late final _wire__crate__api__is_proxy_runningPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__is_proxy_running',
+      );
+  late final _wire__crate__api__is_proxy_running =
+      _wire__crate__api__is_proxy_runningPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__is_wintun_available(int port_) {
+    return _wire__crate__api__is_wintun_available(port_);
+  }
+
+  late final _wire__crate__api__is_wintun_availablePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__is_wintun_available',
+      );
+  late final _wire__crate__api__is_wintun_available =
+      _wire__crate__api__is_wintun_availablePtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__open_uwp_loopback_utility(int port_) {
+    return _wire__crate__api__open_uwp_loopback_utility(port_);
+  }
+
+  late final _wire__crate__api__open_uwp_loopback_utilityPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__open_uwp_loopback_utility',
+      );
+  late final _wire__crate__api__open_uwp_loopback_utility =
+      _wire__crate__api__open_uwp_loopback_utilityPtr
+          .asFunction<void Function(int)>();
+
+  void wire__crate__api__reload_config_from_file(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
+  ) {
+    return _wire__crate__api__reload_config_from_file(port_, config_path);
+  }
+
+  late final _wire__crate__api__reload_config_from_filePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__reload_config_from_file');
+  late final _wire__crate__api__reload_config_from_file =
+      _wire__crate__api__reload_config_from_filePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__reload_config_from_yaml(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> yaml_config,
+  ) {
+    return _wire__crate__api__reload_config_from_yaml(port_, yaml_config);
+  }
+
+  late final _wire__crate__api__reload_config_from_yamlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__reload_config_from_yaml');
+  late final _wire__crate__api__reload_config_from_yaml =
+      _wire__crate__api__reload_config_from_yamlPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__reload_veloguard(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_json,
+  ) {
+    return _wire__crate__api__reload_veloguard(port_, config_json);
+  }
+
+  late final _wire__crate__api__reload_veloguardPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__reload_veloguard');
+  late final _wire__crate__api__reload_veloguard =
+      _wire__crate__api__reload_veloguardPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__select_proxy(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> group_tag,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> proxy_tag,
+  ) {
+    return _wire__crate__api__select_proxy(port_, group_tag, proxy_tag);
+  }
+
+  late final _wire__crate__api__select_proxyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__select_proxy');
+  late final _wire__crate__api__select_proxy =
+      _wire__crate__api__select_proxyPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            )
+          >();
+
+  void wire__crate__api__select_proxy_in_group(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> group_name,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> proxy_name,
+  ) {
+    return _wire__crate__api__select_proxy_in_group(
+      port_,
+      group_name,
+      proxy_name,
+    );
+  }
+
+  late final _wire__crate__api__select_proxy_in_groupPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__select_proxy_in_group');
+  late final _wire__crate__api__select_proxy_in_group =
+      _wire__crate__api__select_proxy_in_groupPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            )
+          >();
+
+  void wire__crate__api__set_android_proxy_mode(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> mode,
+  ) {
+    return _wire__crate__api__set_android_proxy_mode(port_, mode);
+  }
+
+  late final _wire__crate__api__set_android_proxy_modePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__set_android_proxy_mode');
+  late final _wire__crate__api__set_android_proxy_mode =
+      _wire__crate__api__set_android_proxy_modePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__set_android_vpn_fd(int port_, int fd) {
+    return _wire__crate__api__set_android_vpn_fd(port_, fd);
+  }
+
+  late final _wire__crate__api__set_android_vpn_fdPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64, ffi.Int32)>>(
+        'frbgen_veloguard_wire__crate__api__set_android_vpn_fd',
+      );
+  late final _wire__crate__api__set_android_vpn_fd =
+      _wire__crate__api__set_android_vpn_fdPtr
+          .asFunction<void Function(int, int)>();
+
+  void wire__crate__api__set_log_level(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> level,
+  ) {
+    return _wire__crate__api__set_log_level(port_, level);
+  }
+
+  late final _wire__crate__api__set_log_levelPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__set_log_level');
+  late final _wire__crate__api__set_log_level =
+      _wire__crate__api__set_log_levelPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__set_protect_socket_callback_enabled(
+    int port_,
+    bool enabled,
+  ) {
+    return _wire__crate__api__set_protect_socket_callback_enabled(
+      port_,
+      enabled,
+    );
+  }
+
+  late final _wire__crate__api__set_protect_socket_callback_enabledPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64, ffi.Bool)>>(
+        'frbgen_veloguard_wire__crate__api__set_protect_socket_callback_enabled',
+      );
+  late final _wire__crate__api__set_protect_socket_callback_enabled =
+      _wire__crate__api__set_protect_socket_callback_enabledPtr
+          .asFunction<void Function(int, bool)>();
+
+  void wire__crate__api__set_proxy_mode(int port_, int mode) {
+    return _wire__crate__api__set_proxy_mode(port_, mode);
+  }
+
+  late final _wire__crate__api__set_proxy_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64, ffi.Int32)>>(
+        'frbgen_veloguard_wire__crate__api__set_proxy_mode',
+      );
+  late final _wire__crate__api__set_proxy_mode =
+      _wire__crate__api__set_proxy_modePtr
+          .asFunction<void Function(int, int)>();
+
+  void wire__crate__api__set_vpn_fd(int port_, int fd) {
+    return _wire__crate__api__set_vpn_fd(port_, fd);
+  }
+
+  late final _wire__crate__api__set_vpn_fdPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64, ffi.Int32)>>(
+        'frbgen_veloguard_wire__crate__api__set_vpn_fd',
+      );
+  late final _wire__crate__api__set_vpn_fd = _wire__crate__api__set_vpn_fdPtr
+      .asFunction<void Function(int, int)>();
+
+  void wire__crate__api__set_windows_proxy_mode(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> mode,
+  ) {
+    return _wire__crate__api__set_windows_proxy_mode(port_, mode);
+  }
+
+  late final _wire__crate__api__set_windows_proxy_modePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__set_windows_proxy_mode');
+  late final _wire__crate__api__set_windows_proxy_mode =
+      _wire__crate__api__set_windows_proxy_modePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__start_android_vpn(int port_) {
+    return _wire__crate__api__start_android_vpn(port_);
+  }
+
+  late final _wire__crate__api__start_android_vpnPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__start_android_vpn',
+      );
+  late final _wire__crate__api__start_android_vpn =
+      _wire__crate__api__start_android_vpnPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__start_proxy_from_file(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
+  ) {
+    return _wire__crate__api__start_proxy_from_file(port_, config_path);
+  }
+
+  late final _wire__crate__api__start_proxy_from_filePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_proxy_from_file');
+  late final _wire__crate__api__start_proxy_from_file =
+      _wire__crate__api__start_proxy_from_filePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__start_proxy_from_yaml(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> yaml_config,
+  ) {
+    return _wire__crate__api__start_proxy_from_yaml(port_, yaml_config);
+  }
+
+  late final _wire__crate__api__start_proxy_from_yamlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_proxy_from_yaml');
+  late final _wire__crate__api__start_proxy_from_yaml =
+      _wire__crate__api__start_proxy_from_yamlPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__start_tun_mode(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> tun_name,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> tun_address,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> tun_netmask,
+  ) {
+    return _wire__crate__api__start_tun_mode(
+      port_,
+      tun_name,
+      tun_address,
+      tun_netmask,
+    );
+  }
+
+  late final _wire__crate__api__start_tun_modePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_tun_mode');
+  late final _wire__crate__api__start_tun_mode =
+      _wire__crate__api__start_tun_modePtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            )
+          >();
+
+  void wire__crate__api__start_veloguard(int port_) {
+    return _wire__crate__api__start_veloguard(port_);
+  }
+
+  late final _wire__crate__api__start_veloguardPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__start_veloguard',
+      );
+  late final _wire__crate__api__start_veloguard =
+      _wire__crate__api__start_veloguardPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__stop_android_vpn(int port_) {
+    return _wire__crate__api__stop_android_vpn(port_);
+  }
+
+  late final _wire__crate__api__stop_android_vpnPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__stop_android_vpn',
+      );
+  late final _wire__crate__api__stop_android_vpn =
+      _wire__crate__api__stop_android_vpnPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__stop_proxy(int port_) {
+    return _wire__crate__api__stop_proxy(port_);
+  }
+
+  late final _wire__crate__api__stop_proxyPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__stop_proxy',
+      );
+  late final _wire__crate__api__stop_proxy = _wire__crate__api__stop_proxyPtr
+      .asFunction<void Function(int)>();
+
+  void wire__crate__api__stop_tun_mode(int port_) {
+    return _wire__crate__api__stop_tun_mode(port_);
+  }
+
+  late final _wire__crate__api__stop_tun_modePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__stop_tun_mode',
+      );
+  late final _wire__crate__api__stop_tun_mode =
+      _wire__crate__api__stop_tun_modePtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__stop_veloguard(int port_) {
+    return _wire__crate__api__stop_veloguard(port_);
+  }
+
+  late final _wire__crate__api__stop_veloguardPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64)>>(
+        'frbgen_veloguard_wire__crate__api__stop_veloguard',
+      );
+  late final _wire__crate__api__stop_veloguard =
+      _wire__crate__api__stop_veloguardPtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__test_all_proxies_latency(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> test_url,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_all_proxies_latency(
+      port_,
+      test_url,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_all_proxies_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint64,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_all_proxies_latency');
+  late final _wire__crate__api__test_all_proxies_latency =
+      _wire__crate__api__test_all_proxies_latencyPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>, int)
+          >();
+
+  void wire__crate__api__test_config(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_json,
+  ) {
+    return _wire__crate__api__test_config(port_, config_json);
+  }
+
+  late final _wire__crate__api__test_configPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_config');
+  late final _wire__crate__api__test_config = _wire__crate__api__test_configPtr
+      .asFunction<
+        void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+      >();
+
+  void wire__crate__api__test_outbound_latency(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> outbound_name,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_outbound_latency(
+      port_,
+      outbound_name,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_outbound_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint32,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_outbound_latency');
+  late final _wire__crate__api__test_outbound_latency =
+      _wire__crate__api__test_outbound_latencyPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>, int)
+          >();
+
+  void wire__crate__api__test_proxies_latency(
+    int port_,
+    ffi.Pointer<wire_cst_list_record_string_u_16> proxies,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_proxies_latency(port_, proxies, timeout_ms);
+  }
+
+  late final _wire__crate__api__test_proxies_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_record_string_u_16>,
+            ffi.Uint32,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_proxies_latency');
+  late final _wire__crate__api__test_proxies_latency =
+      _wire__crate__api__test_proxies_latencyPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_record_string_u_16>,
+              int,
+            )
+          >();
+
+  void wire__crate__api__test_proxy_latency(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> server,
+    int port,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_proxy_latency(
+      port_,
+      server,
+      port,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_proxy_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint16,
+            ffi.Uint32,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_proxy_latency');
+  late final _wire__crate__api__test_proxy_latency =
+      _wire__crate__api__test_proxy_latencyPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              int,
+              int,
+            )
+          >();
+
+  void wire__crate__api__test_proxy_latency_dto(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> tag,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> test_url,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_proxy_latency_dto(
+      port_,
+      tag,
+      test_url,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_proxy_latency_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint64,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_proxy_latency_dto');
+  late final _wire__crate__api__test_proxy_latency_dto =
+      _wire__crate__api__test_proxy_latency_dtoPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              int,
+            )
+          >();
+
+  void wire__crate__api__test_shadowsocks_latency(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> server,
+    int port,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> password,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> cipher,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_shadowsocks_latency(
+      port_,
+      server,
+      port,
+      password,
+      cipher,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_shadowsocks_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint16,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint32,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_shadowsocks_latency');
+  late final _wire__crate__api__test_shadowsocks_latency =
+      _wire__crate__api__test_shadowsocks_latencyPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              int,
+            )
+          >();
+
+  void wire__crate__api__test_tcp_connectivity(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> server,
+    int port,
+    int timeout_ms,
+  ) {
+    return _wire__crate__api__test_tcp_connectivity(
+      port_,
+      server,
+      port,
+      timeout_ms,
+    );
+  }
+
+  late final _wire__crate__api__test_tcp_connectivityPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+            ffi.Uint16,
+            ffi.Uint32,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__test_tcp_connectivity');
+  late final _wire__crate__api__test_tcp_connectivity =
+      _wire__crate__api__test_tcp_connectivityPtr
+          .asFunction<
+            void Function(
+              int,
+              ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+              int,
+              int,
+            )
+          >();
+
+  ffi.Pointer<ffi.Uint16> cst_new_box_autoadd_u_16(int value) {
+    return _cst_new_box_autoadd_u_16(value);
+  }
+
+  late final _cst_new_box_autoadd_u_16Ptr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Uint16> Function(ffi.Uint16)>>(
+        'frbgen_veloguard_cst_new_box_autoadd_u_16',
+      );
+  late final _cst_new_box_autoadd_u_16 = _cst_new_box_autoadd_u_16Ptr
+      .asFunction<ffi.Pointer<ffi.Uint16> Function(int)>();
+
+  ffi.Pointer<ffi.Uint32> cst_new_box_autoadd_u_32(int value) {
+    return _cst_new_box_autoadd_u_32(value);
+  }
+
+  late final _cst_new_box_autoadd_u_32Ptr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Uint32> Function(ffi.Uint32)>>(
+        'frbgen_veloguard_cst_new_box_autoadd_u_32',
+      );
+  late final _cst_new_box_autoadd_u_32 = _cst_new_box_autoadd_u_32Ptr
+      .asFunction<ffi.Pointer<ffi.Uint32> Function(int)>();
+
+  ffi.Pointer<ffi.Uint64> cst_new_box_autoadd_u_64(int value) {
+    return _cst_new_box_autoadd_u_64(value);
+  }
+
+  late final _cst_new_box_autoadd_u_64Ptr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Uint64> Function(ffi.Uint64)>>(
+        'frbgen_veloguard_cst_new_box_autoadd_u_64',
+      );
+  late final _cst_new_box_autoadd_u_64 = _cst_new_box_autoadd_u_64Ptr
+      .asFunction<ffi.Pointer<ffi.Uint64> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_String> cst_new_list_String(int len) {
+    return _cst_new_list_String(len);
+  }
+
+  late final _cst_new_list_StringPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_String> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_String');
+  late final _cst_new_list_String = _cst_new_list_StringPtr
+      .asFunction<ffi.Pointer<wire_cst_list_String> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_active_connection> cst_new_list_active_connection(
+    int len,
+  ) {
+    return _cst_new_list_active_connection(len);
+  }
+
+  late final _cst_new_list_active_connectionPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_active_connection> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_active_connection');
+  late final _cst_new_list_active_connection =
+      _cst_new_list_active_connectionPtr
+          .asFunction<
+            ffi.Pointer<wire_cst_list_active_connection> Function(int)
+          >();
+
+  ffi.Pointer<wire_cst_list_connection_dto> cst_new_list_connection_dto(
+    int len,
+  ) {
+    return _cst_new_list_connection_dto(len);
+  }
+
+  late final _cst_new_list_connection_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_connection_dto> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_connection_dto');
+  late final _cst_new_list_connection_dto = _cst_new_list_connection_dtoPtr
+      .asFunction<ffi.Pointer<wire_cst_list_connection_dto> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_connection_info> cst_new_list_connection_info(
+    int len,
+  ) {
+    return _cst_new_list_connection_info(len);
+  }
+
+  late final _cst_new_list_connection_infoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_connection_info> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_connection_info');
+  late final _cst_new_list_connection_info = _cst_new_list_connection_infoPtr
+      .asFunction<ffi.Pointer<wire_cst_list_connection_info> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_latency_test_result>
+  cst_new_list_latency_test_result(int len) {
+    return _cst_new_list_latency_test_result(len);
+  }
+
+  late final _cst_new_list_latency_test_resultPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_latency_test_result> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_latency_test_result');
+  late final _cst_new_list_latency_test_result =
+      _cst_new_list_latency_test_resultPtr
+          .asFunction<
+            ffi.Pointer<wire_cst_list_latency_test_result> Function(int)
+          >();
+
+  ffi.Pointer<wire_cst_list_prim_u_8_strict> cst_new_list_prim_u_8_strict(
+    int len,
+  ) {
+    return _cst_new_list_prim_u_8_strict(len);
+  }
+
+  late final _cst_new_list_prim_u_8_strictPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_prim_u_8_strict> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_prim_u_8_strict');
+  late final _cst_new_list_prim_u_8_strict = _cst_new_list_prim_u_8_strictPtr
+      .asFunction<ffi.Pointer<wire_cst_list_prim_u_8_strict> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_proxy_group_dto> cst_new_list_proxy_group_dto(
+    int len,
+  ) {
+    return _cst_new_list_proxy_group_dto(len);
+  }
+
+  late final _cst_new_list_proxy_group_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_proxy_group_dto> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_proxy_group_dto');
+  late final _cst_new_list_proxy_group_dto = _cst_new_list_proxy_group_dtoPtr
+      .asFunction<ffi.Pointer<wire_cst_list_proxy_group_dto> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_proxy_info_dto> cst_new_list_proxy_info_dto(
+    int len,
+  ) {
+    return _cst_new_list_proxy_info_dto(len);
+  }
+
+  late final _cst_new_list_proxy_info_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_proxy_info_dto> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_proxy_info_dto');
+  late final _cst_new_list_proxy_info_dto = _cst_new_list_proxy_info_dtoPtr
+      .asFunction<ffi.Pointer<wire_cst_list_proxy_info_dto> Function(int)>();
+
+  ffi.Pointer<wire_cst_list_proxy_latency_dto> cst_new_list_proxy_latency_dto(
+    int len,
+  ) {
+    return _cst_new_list_proxy_latency_dto(len);
+  }
+
+  late final _cst_new_list_proxy_latency_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_proxy_latency_dto> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_proxy_latency_dto');
+  late final _cst_new_list_proxy_latency_dto =
+      _cst_new_list_proxy_latency_dtoPtr
+          .asFunction<
+            ffi.Pointer<wire_cst_list_proxy_latency_dto> Function(int)
+          >();
+
+  ffi.Pointer<wire_cst_list_record_string_u_16> cst_new_list_record_string_u_16(
+    int len,
+  ) {
+    return _cst_new_list_record_string_u_16(len);
+  }
+
+  late final _cst_new_list_record_string_u_16Ptr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_record_string_u_16> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_record_string_u_16');
+  late final _cst_new_list_record_string_u_16 =
+      _cst_new_list_record_string_u_16Ptr
+          .asFunction<
+            ffi.Pointer<wire_cst_list_record_string_u_16> Function(int)
+          >();
+
+  ffi.Pointer<wire_cst_list_rule_dto> cst_new_list_rule_dto(int len) {
+    return _cst_new_list_rule_dto(len);
+  }
+
+  late final _cst_new_list_rule_dtoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<wire_cst_list_rule_dto> Function(ffi.Int32)
+        >
+      >('frbgen_veloguard_cst_new_list_rule_dto');
+  late final _cst_new_list_rule_dto = _cst_new_list_rule_dtoPtr
+      .asFunction<ffi.Pointer<wire_cst_list_rule_dto> Function(int)>();
+
+  int __android_log_write(
+    int prio,
+    ffi.Pointer<ffi.Int8> tag,
+    ffi.Pointer<ffi.Int8> text,
+  ) {
+    return ___android_log_write(prio, tag, text);
+  }
+
+  late final ___android_log_writePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Int32,
+            ffi.Pointer<ffi.Int8>,
+            ffi.Pointer<ffi.Int8>,
+          )
+        >
+      >('__android_log_write');
+  late final ___android_log_write = ___android_log_writePtr
+      .asFunction<
+        int Function(int, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>)
+      >();
+
+  int dummy_method_to_enforce_bundling() {
+    return _dummy_method_to_enforce_bundling();
+  }
+
+  late final _dummy_method_to_enforce_bundlingPtr =
+      _lookup<ffi.NativeFunction<ffi.Int64 Function()>>(
+        'dummy_method_to_enforce_bundling',
+      );
+  late final _dummy_method_to_enforce_bundling =
+      _dummy_method_to_enforce_bundlingPtr.asFunction<int Function()>();
+}
+
+typedef DartPort = ffi.Int64;
+typedef DartDartPort = int;
+typedef DartPostCObjectFnTypeFunction =
+    ffi.Bool Function(DartPort port_id, ffi.Pointer<ffi.Void> message);
+typedef DartDartPostCObjectFnTypeFunction =
+    bool Function(DartDartPort port_id, ffi.Pointer<ffi.Void> message);
+typedef DartPostCObjectFnType =
+    ffi.Pointer<ffi.NativeFunction<DartPostCObjectFnTypeFunction>>;
+
+final class wire_cst_list_prim_u_8_strict extends ffi.Struct {
+  external ffi.Pointer<ffi.Uint8> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_record_string_u_16 extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> field0;
+
+  @ffi.Uint16()
+  external int field1;
+}
+
+final class wire_cst_list_record_string_u_16 extends ffi.Struct {
+  external ffi.Pointer<wire_cst_record_string_u_16> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_list_String extends ffi.Struct {
+  external ffi.Pointer<ffi.Pointer<wire_cst_list_prim_u_8_strict>> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_active_connection extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> id;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> inbound_tag;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> outbound_tag;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> host;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> destination_ip;
+
+  @ffi.Uint16()
+  external int destination_port;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> protocol;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> network;
+
+  @ffi.Uint64()
+  external int upload_bytes;
+
+  @ffi.Uint64()
+  external int download_bytes;
+
+  @ffi.Uint64()
+  external int start_time;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> rule;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> rule_payload;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> process_name;
+}
+
+final class wire_cst_list_active_connection extends ffi.Struct {
+  external ffi.Pointer<wire_cst_active_connection> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_connection_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> id;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> src_addr;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> dst_addr;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> dst_domain;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> protocol;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> outbound;
+
+  @ffi.Uint64()
+  external int upload;
+
+  @ffi.Uint64()
+  external int download;
+
+  @ffi.Int64()
+  external int start_time;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> rule;
+}
+
+final class wire_cst_list_connection_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_connection_dto> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_connection_info extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> id;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> host;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> destination;
+
+  @ffi.Uint64()
+  external int upload;
+
+  @ffi.Uint64()
+  external int download;
+
+  @ffi.Uint64()
+  external int start_time;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> rule;
+
+  external ffi.Pointer<wire_cst_list_String> chains;
+}
+
+final class wire_cst_list_connection_info extends ffi.Struct {
+  external ffi.Pointer<wire_cst_connection_info> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_latency_test_result extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> proxy_name;
+
+  external ffi.Pointer<ffi.Uint32> latency_ms;
+
+  @ffi.Bool()
+  external bool success;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> error;
+}
+
+final class wire_cst_list_latency_test_result extends ffi.Struct {
+  external ffi.Pointer<wire_cst_latency_test_result> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_proxy_group_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> tag;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> group_type;
+
+  external ffi.Pointer<wire_cst_list_String> proxies;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> selected;
+}
+
+final class wire_cst_list_proxy_group_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_proxy_group_dto> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_proxy_info_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> tag;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> protocol_type;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> server;
+
+  external ffi.Pointer<ffi.Uint16> port;
+
+  external ffi.Pointer<ffi.Uint64> latency_ms;
+
+  @ffi.Bool()
+  external bool alive;
+}
+
+final class wire_cst_list_proxy_info_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_proxy_info_dto> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_proxy_latency_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> tag;
+
+  external ffi.Pointer<ffi.Uint64> latency_ms;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> error;
+}
+
+final class wire_cst_list_proxy_latency_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_proxy_latency_dto> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_rule_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> rule_type;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> payload;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> outbound;
+
+  @ffi.Uint64()
+  external int matched_count;
+}
+
+final class wire_cst_list_rule_dto extends ffi.Struct {
+  external ffi.Pointer<wire_cst_rule_dto> ptr;
+
+  @ffi.Int32()
+  external int len;
+}
+
+final class wire_cst_dns_config_dto extends ffi.Struct {
+  @ffi.Bool()
+  external bool enable;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> listen;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> enhanced_mode;
+
+  external ffi.Pointer<wire_cst_list_String> nameservers;
+
+  external ffi.Pointer<wire_cst_list_String> fallback;
+}
+
+final class wire_cst_proxy_status extends ffi.Struct {
+  @ffi.Bool()
+  external bool running;
+
+  @ffi.Uint32()
+  external int inbound_count;
+
+  @ffi.Uint32()
+  external int outbound_count;
+
+  @ffi.Uint32()
+  external int connection_count;
+
+  @ffi.Uint64()
+  external int memory_usage;
+
+  @ffi.Uint64()
+  external int uptime;
+}
+
+final class wire_cst_record_u_64_u_64_u_64_u_64 extends ffi.Struct {
+  @ffi.Uint64()
+  external int field0;
+
+  @ffi.Uint64()
+  external int field1;
+
+  @ffi.Uint64()
+  external int field2;
+
+  @ffi.Uint64()
+  external int field3;
+}
+
+final class wire_cst_record_u_64_u_64_u_64_u_64_usize_usize extends ffi.Struct {
+  @ffi.Uint64()
+  external int field0;
+
+  @ffi.Uint64()
+  external int field1;
+
+  @ffi.Uint64()
+  external int field2;
+
+  @ffi.Uint64()
+  external int field3;
+
+  @ffi.UintPtr()
+  external int field4;
+
+  @ffi.UintPtr()
+  external int field5;
+}
+
+final class wire_cst_system_info extends ffi.Struct {
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> platform;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> version;
+
+  @ffi.Uint64()
+  external int memory_total;
+
+  @ffi.Uint64()
+  external int memory_used;
+
+  @ffi.Uint32()
+  external int cpu_cores;
+
+  @ffi.Uint32()
+  external int cpu_threads;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> cpu_name;
+
+  @ffi.Double()
+  external double cpu_usage;
+}
+
+final class wire_cst_traffic_stats extends ffi.Struct {
+  @ffi.Uint64()
+  external int upload;
+
+  @ffi.Uint64()
+  external int download;
+
+  @ffi.Uint64()
+  external int upload_speed;
+
+  @ffi.Uint64()
+  external int download_speed;
+}
+
+final class wire_cst_traffic_stats_dto extends ffi.Struct {
+  @ffi.Uint64()
+  external int upload;
+
+  @ffi.Uint64()
+  external int download;
+
+  @ffi.Uint64()
+  external int total_upload;
+
+  @ffi.Uint64()
+  external int total_download;
+
+  @ffi.Uint32()
+  external int connection_count;
+
+  @ffi.Uint64()
+  external int uptime_secs;
+}
+
+final class wire_cst_tun_status extends ffi.Struct {
+  @ffi.Bool()
+  external bool enabled;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> interface_name;
+
+  external ffi.Pointer<ffi.Uint32> mtu;
+
+  external ffi.Pointer<wire_cst_list_prim_u_8_strict> error;
 }

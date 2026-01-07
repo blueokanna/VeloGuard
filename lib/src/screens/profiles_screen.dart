@@ -123,7 +123,43 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           : colorScheme.surfaceContainerLow,
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () => provider.selectProfile(profile.id),
+        onTap: () async {
+          final success = await provider.selectProfile(profile.id);
+          if (context.mounted) {
+            if (!success) {
+              // Show error message
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(provider.error ?? 'Failed to select profile'),
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  action: SnackBarAction(
+                    label: l10n?.close ?? 'Close',
+                    textColor: Theme.of(context).colorScheme.onError,
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    },
+                  ),
+                ),
+              );
+            } else if (provider.error != null &&
+                provider.error!.contains('unavailable')) {
+              // Show warning message when profile selected but proxy unavailable
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(provider.error!),
+                  backgroundColor: Theme.of(context).colorScheme.tertiary,
+                  action: SnackBarAction(
+                    label: l10n?.close ?? 'Close',
+                    textColor: Theme.of(context).colorScheme.onTertiary,
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    },
+                  ),
+                ),
+              );
+            }
+          }
+        },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),

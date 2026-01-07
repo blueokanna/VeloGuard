@@ -99,6 +99,12 @@ pub struct TrafficStatsManager {
     active_connections: DashMap<String, ConnectionTracker>,
 }
 
+impl Default for TrafficStatsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrafficStatsManager {
     /// Create a new traffic stats manager
     pub fn new() -> Self {
@@ -145,13 +151,17 @@ impl TrafficStatsManager {
         if let Some((_, tracker)) = self.active_connections.remove(connection_id) {
             let stats = tracker.finalize();
 
-            // Update proxy stats
+            // Update proxy stats (only upload/download bytes and connection time,
+            // connection count was already added in start_connection)
             let mut proxy = self.proxy_stats.entry(proxy_tag.to_string()).or_default();
-            proxy.merge(&stats);
+            proxy.add_upload(stats.upload_bytes);
+            proxy.add_download(stats.download_bytes);
+            proxy.add_connection_time(std::time::Duration::from_secs(stats.connection_time_secs));
 
-            // Update global stats
+            // Only add connection time to global stats (upload/download already recorded in record_traffic,
+            // connection count was already added in start_connection)
             let mut global = self.global_stats.write().await;
-            global.merge(&stats);
+            global.add_connection_time(std::time::Duration::from_secs(stats.connection_time_secs));
         }
     }
 
@@ -250,8 +260,8 @@ mod tests {
     async fn test_traffic_stats() {
         let manager = TrafficStatsManager::new();
 
-        // Start a connection
-        let _tracker = manager.start_connection("conn1".to_string(), "proxy1".to_string());
+        // Start a connection (await the async function)
+        let _tracker = manager.start_connection("conn1".to_string(), "proxy1".to_string()).await;
 
         // Record some traffic
         manager.record_traffic("conn1", 1024, 2048).await;

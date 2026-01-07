@@ -1,7 +1,3 @@
-//! UDP stack implementation for veloguard-netstack
-//!
-//! Handles UDP packets from the TUN device with NAT table support.
-
 use crate::error::{NetStackError, Result};
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -15,13 +11,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::debug;
 
-/// UDP NAT entry timeout
-const NAT_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Maximum NAT table size
+const NAT_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_NAT_ENTRIES: usize = 65535;
 
-/// UDP packet with source and destination
 #[derive(Debug, Clone)]
 pub struct UdpPacket {
     pub src_addr: SocketAddr,
@@ -39,26 +31,17 @@ impl UdpPacket {
     }
 }
 
-/// NAT table entry
 #[derive(Debug, Clone)]
 struct NatEntry {
-    /// Original source address
     original_src: SocketAddr,
-    /// Original destination address
     original_dst: SocketAddr,
-    /// Last activity time
     last_activity: Instant,
 }
 
-/// UDP NAT table for tracking connections
 pub struct UdpNatTable {
-    /// Forward mapping: (src, dst) -> nat_port
     forward: DashMap<(SocketAddr, SocketAddr), u16>,
-    /// Reverse mapping: nat_port -> NatEntry
     reverse: DashMap<u16, NatEntry>,
-    /// Next available NAT port
     next_port: AtomicU64,
-    /// Base port for NAT
     base_port: u16,
 }
 
@@ -72,29 +55,22 @@ impl UdpNatTable {
         }
     }
 
-    /// Get or create a NAT mapping
     pub fn get_or_create(&self, src: SocketAddr, dst: SocketAddr) -> Result<u16> {
         let key = (src, dst);
-
-        // Check existing mapping
         if let Some(port) = self.forward.get(&key) {
-            // Update last activity
             if let Some(mut entry) = self.reverse.get_mut(&port) {
                 entry.last_activity = Instant::now();
             }
             return Ok(*port);
         }
 
-        // Check table size
         if self.forward.len() >= MAX_NAT_ENTRIES {
-            // Try to clean up expired entries
             self.cleanup_expired();
             if self.forward.len() >= MAX_NAT_ENTRIES {
                 return Err(NetStackError::NatTableFull);
             }
         }
 
-        // Create new mapping
         let port = self.allocate_port();
         self.forward.insert(key, port);
         self.reverse.insert(
@@ -110,14 +86,12 @@ impl UdpNatTable {
         Ok(port)
     }
 
-    /// Lookup reverse mapping
     pub fn lookup_reverse(&self, port: u16) -> Option<(SocketAddr, SocketAddr)> {
-        self.reverse.get(&port).map(|entry| {
-            (entry.original_src, entry.original_dst)
-        })
+        self.reverse
+            .get(&port)
+            .map(|entry| (entry.original_src, entry.original_dst))
     }
 
-    /// Remove a mapping
     pub fn remove(&self, src: SocketAddr, dst: SocketAddr) {
         let key = (src, dst);
         if let Some((_, port)) = self.forward.remove(&key) {
@@ -126,7 +100,6 @@ impl UdpNatTable {
         }
     }
 
-    /// Cleanup expired entries
     pub fn cleanup_expired(&self) {
         let now = Instant::now();
         let expired: Vec<u16> = self
@@ -138,18 +111,20 @@ impl UdpNatTable {
 
         for port in expired {
             if let Some((_, entry)) = self.reverse.remove(&port) {
-                self.forward.remove(&(entry.original_src, entry.original_dst));
-                debug!("NAT mapping expired: {}:{}", entry.original_src, entry.original_dst);
+                self.forward
+                    .remove(&(entry.original_src, entry.original_dst));
+                debug!(
+                    "NAT mapping expired: {}:{}",
+                    entry.original_src, entry.original_dst
+                );
             }
         }
     }
 
-    /// Get the number of active mappings
     pub fn len(&self) -> usize {
         self.forward.len()
     }
 
-    /// Check if the table is empty
     pub fn is_empty(&self) -> bool {
         self.forward.is_empty()
     }
@@ -160,7 +135,8 @@ impl UdpNatTable {
             let port = if port < self.base_port {
                 self.base_port
             } else if port > 65534 {
-                self.next_port.store(self.base_port as u64, Ordering::Relaxed);
+                self.next_port
+                    .store(self.base_port as u64, Ordering::Relaxed);
                 self.base_port
             } else {
                 port
@@ -179,25 +155,15 @@ impl Default for UdpNatTable {
     }
 }
 
-/// UDP session for a specific destination
 pub struct UdpSession {
-    /// Session ID (NAT port)
     pub id: u16,
-    /// Original source address
     pub src_addr: SocketAddr,
-    /// Destination address
     pub dst_addr: SocketAddr,
-    /// Received packets queue
     recv_queue: Arc<Mutex<VecDeque<UdpPacket>>>,
-    /// Waker for recv operations
     recv_waker: Arc<Mutex<Option<Waker>>>,
-    /// Channel to send packets back
     send_tx: mpsc::Sender<UdpPacket>,
-    /// Bytes uploaded
     upload_bytes: AtomicU64,
-    /// Bytes downloaded
     download_bytes: AtomicU64,
-    /// Closed flag
     closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -221,14 +187,14 @@ impl UdpSession {
         }
     }
 
-    /// Send a packet through this session
     pub async fn send(&self, data: Bytes) -> Result<()> {
         if self.closed.load(Ordering::Relaxed) {
             return Err(NetStackError::ChannelClosed);
         }
 
         let packet = UdpPacket::new(self.src_addr, self.dst_addr, data.clone());
-        self.upload_bytes.fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.upload_bytes
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
 
         self.send_tx
             .send(packet)
@@ -236,21 +202,20 @@ impl UdpSession {
             .map_err(|_| NetStackError::ChannelClosed)
     }
 
-    /// Try to send a packet (non-blocking)
     pub fn try_send(&self, data: Bytes) -> Result<()> {
         if self.closed.load(Ordering::Relaxed) {
             return Err(NetStackError::ChannelClosed);
         }
 
         let packet = UdpPacket::new(self.src_addr, self.dst_addr, data.clone());
-        self.upload_bytes.fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.upload_bytes
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
 
         self.send_tx
             .try_send(packet)
             .map_err(|_| NetStackError::ChannelClosed)
     }
 
-    /// Receive a packet from this session
     pub async fn recv(&self) -> Result<UdpPacket> {
         loop {
             {
@@ -264,7 +229,6 @@ impl UdpSession {
                 }
             }
 
-            // Wait for data
             let notify = tokio::sync::Notify::new();
             {
                 let mut waker = self.recv_waker.lock();
@@ -274,15 +238,14 @@ impl UdpSession {
         }
     }
 
-    /// Try to receive a packet (non-blocking)
     pub fn try_recv(&self) -> Option<UdpPacket> {
         self.recv_queue.lock().pop_front()
     }
 
-    /// Push a received packet into the session
     pub(crate) fn push_packet(&self, packet: UdpPacket) {
-        self.download_bytes.fetch_add(packet.data.len() as u64, Ordering::Relaxed);
-        
+        self.download_bytes
+            .fetch_add(packet.data.len() as u64, Ordering::Relaxed);
+
         let mut queue = self.recv_queue.lock();
         queue.push_back(packet);
 
@@ -291,17 +254,14 @@ impl UdpSession {
         }
     }
 
-    /// Get upload bytes
     pub fn upload_bytes(&self) -> u64 {
         self.upload_bytes.load(Ordering::Relaxed)
     }
 
-    /// Get download bytes
     pub fn download_bytes(&self) -> u64 {
         self.download_bytes.load(Ordering::Relaxed)
     }
 
-    /// Close the session
     pub fn close(&self) {
         self.closed.store(true, Ordering::Relaxed);
         if let Some(waker) = self.recv_waker.lock().take() {
@@ -309,25 +269,18 @@ impl UdpSession {
         }
     }
 
-    /// Check if closed
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
     }
 }
 
-/// UDP stack that manages sessions
 pub struct UdpStack {
-    /// NAT table
     nat_table: Arc<UdpNatTable>,
-    /// Active sessions
     sessions: Arc<DashMap<u16, Arc<UdpSession>>>,
-    /// Channel for new sessions
     new_session_tx: mpsc::Sender<Arc<UdpSession>>,
     new_session_rx: Option<mpsc::Receiver<Arc<UdpSession>>>,
-    /// Channel for outgoing packets
     send_tx: mpsc::Sender<UdpPacket>,
     send_rx: Option<mpsc::Receiver<UdpPacket>>,
-    /// Session counter
     session_counter: AtomicU64,
 }
 
@@ -347,12 +300,13 @@ impl UdpStack {
         }
     }
 
-    /// Process an incoming UDP packet
-    pub fn process_packet(&self, src_addr: SocketAddr, dst_addr: SocketAddr, data: Bytes) -> Result<()> {
-        // Get or create NAT mapping
+    pub fn process_packet(
+        &self,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        data: Bytes,
+    ) -> Result<()> {
         let nat_port = self.nat_table.get_or_create(src_addr, dst_addr)?;
-
-        // Get or create session
         let session = if let Some(session) = self.sessions.get(&nat_port) {
             session.clone()
         } else {
@@ -365,10 +319,12 @@ impl UdpStack {
             self.sessions.insert(nat_port, session.clone());
             self.session_counter.fetch_add(1, Ordering::Relaxed);
 
-            // Notify about new session
             let _ = self.new_session_tx.try_send(session.clone());
 
-            debug!("UDP session created: {} -> {} (port {})", src_addr, dst_addr, nat_port);
+            debug!(
+                "UDP session created: {} -> {} (port {})",
+                src_addr, dst_addr, nat_port
+            );
             session
         };
 
@@ -379,7 +335,6 @@ impl UdpStack {
         Ok(())
     }
 
-    /// Process a response packet (from proxy to client)
     pub fn process_response(&self, nat_port: u16, data: Bytes) -> Result<()> {
         if let Some(session) = self.sessions.get(&nat_port) {
             let packet = UdpPacket::new(session.dst_addr, session.src_addr, data);
@@ -390,12 +345,10 @@ impl UdpStack {
         }
     }
 
-    /// Get a session by NAT port
     pub fn get_session(&self, nat_port: u16) -> Option<Arc<UdpSession>> {
         self.sessions.get(&nat_port).map(|s| s.clone())
     }
 
-    /// Remove a session
     pub fn remove_session(&self, nat_port: u16) {
         if let Some((_, session)) = self.sessions.remove(&nat_port) {
             session.close();
@@ -404,36 +357,29 @@ impl UdpStack {
         }
     }
 
-    /// Get the number of active sessions
     pub fn active_sessions(&self) -> usize {
         self.sessions.len()
     }
 
-    /// Get total session count
     pub fn total_sessions(&self) -> u64 {
         self.session_counter.load(Ordering::Relaxed)
     }
 
-    /// Take the new session receiver
     pub fn take_listener(&mut self) -> Option<UdpListener> {
         self.new_session_rx.take().map(|rx| UdpListener { rx })
     }
 
-    /// Take the send receiver (for packets to be sent to TUN)
     pub fn take_send_receiver(&mut self) -> Option<mpsc::Receiver<UdpPacket>> {
         self.send_rx.take()
     }
 
-    /// Get NAT table reference
     pub fn nat_table(&self) -> &Arc<UdpNatTable> {
         &self.nat_table
     }
 
-    /// Cleanup expired sessions
     pub fn cleanup_expired(&self) {
         self.nat_table.cleanup_expired();
 
-        // Remove sessions for expired NAT entries
         let to_remove: Vec<u16> = self
             .sessions
             .iter()
@@ -446,7 +392,6 @@ impl UdpStack {
         }
     }
 
-    /// Close all sessions
     pub fn close_all(&self) {
         let sessions: Vec<_> = self.sessions.iter().map(|e| *e.key()).collect();
         for port in sessions {
@@ -461,19 +406,16 @@ impl Default for UdpStack {
     }
 }
 
-/// UDP listener that accepts new sessions
 pub struct UdpListener {
     rx: mpsc::Receiver<Arc<UdpSession>>,
 }
 
 impl UdpListener {
-    /// Accept a new session
     pub async fn accept(&mut self) -> Option<Arc<UdpSession>> {
         self.rx.recv().await
     }
 }
 
-/// UDP socket wrapper for a session
 pub struct UdpSocket {
     session: Arc<UdpSession>,
 }

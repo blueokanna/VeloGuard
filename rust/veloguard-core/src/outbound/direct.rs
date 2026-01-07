@@ -29,6 +29,51 @@ impl OutboundProxy for DirectOutbound {
         None
     }
     
+    fn supports_udp(&self) -> bool {
+        true
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        use tokio::net::UdpSocket;
+        use std::time::Duration;
+        
+        // Resolve target address
+        let target_addr = match target {
+            TargetAddr::Ip(addr) => *addr,
+            TargetAddr::Domain(domain, port) => {
+                let addr_str = format!("{}:{}", domain, port);
+                let resolved = tokio::net::lookup_host(&addr_str)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to resolve {}: {}", domain, e)))?
+                    .next()
+                    .ok_or_else(|| Error::network(format!("No address found for {}", domain)))?;
+                resolved
+            }
+        };
+        
+        // Create UDP socket
+        let socket = UdpSocket::bind("0.0.0.0:0").await
+            .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
+        
+        // Send data
+        socket.send_to(data, target_addr).await
+            .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
+        
+        // Receive response with timeout
+        let mut buf = vec![0u8; 65535];
+        let timeout = Duration::from_secs(30);
+        
+        match tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await {
+            Ok(Ok((n, _))) => Ok(buf[..n].to_vec()),
+            Ok(Err(e)) => Err(Error::network(format!("Failed to receive UDP response: {}", e))),
+            Err(_) => Err(Error::network("UDP response timeout")),
+        }
+    }
+    
     async fn test_http_latency(
         &self,
         test_url: &str,
@@ -192,14 +237,9 @@ where
     // Return error only if both failed with non-connection errors
     match (result_a, result_b) {
         (Ok(_), Ok(_)) => Ok(()),
-        (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
-            if e.kind() == std::io::ErrorKind::ConnectionReset 
-                || e.kind() == std::io::ErrorKind::BrokenPipe
-                || e.to_string().contains("connection") {
-                Ok(())
-            } else {
-                Ok(()) // Still return Ok for partial success
-            }
+        (Ok(_), Err(_)) | (Err(_), Ok(_)) => {
+            // One direction completed successfully, consider it a success
+            Ok(())
         }
         (Err(e1), Err(e2)) => {
             // Both failed - check if it's a normal connection close
@@ -230,14 +270,14 @@ where
             let _ = bw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay A->B completed: {} bytes", bytes);
-                ()
+                
             })
         }
         result = tokio::io::copy(&mut br, &mut aw) => {
             let _ = aw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay B->A completed: {} bytes", bytes);
-                ()
+                
             })
         }
     };

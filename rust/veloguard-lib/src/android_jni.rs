@@ -126,7 +126,7 @@ pub extern "system" fn Java_com_blueokanna_veloguard_VeloGuardVpnService_nativeC
     }
     
     // Clear the protect callback
-    veloguard_solidtcp::clear_protect_callback();
+    veloguard_netstack::clear_protect_callback();
 
     android_log("INFO", "JNI bridge cleared completely");
     info!("JNI bridge cleared completely");
@@ -222,18 +222,18 @@ pub fn protect_socket_via_jni(fd: i32) -> bool {
 fn setup_protect_callback() {
     android_log(
         "INFO",
-        "Setting up socket protect callback for veloguard-solidtcp",
+        "Setting up socket protect callback for veloguard-netstack",
     );
-    veloguard_solidtcp::set_protect_callback(|fd| {
+    veloguard_netstack::set_protect_callback(|fd| {
         let msg = format!("protect_socket callback called for fd={}", fd);
         android_log("DEBUG", &msg);
         protect_socket_via_jni(fd)
     });
     android_log(
         "INFO",
-        "Socket protect callback configured for veloguard-solidtcp",
+        "Socket protect callback configured for veloguard-netstack",
     );
-    info!("Socket protect callback configured for veloguard-solidtcp");
+    info!("Socket protect callback configured for veloguard-netstack");
 }
 
 /// Check if JNI bridge is initialized

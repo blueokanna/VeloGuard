@@ -153,7 +153,7 @@ impl DotClient {
         let tcp_stream = tokio::time::timeout(self.timeout, TcpStream::connect(&addr))
             .await
             .map_err(|_| DnsError::Timeout)?
-            .map_err(|e| DnsError::Io(e))?;
+            .map_err(DnsError::Io)?;
 
         // Parse server name for TLS
         let server_name = ServerName::try_from(self.tls_name.clone())
@@ -177,14 +177,14 @@ impl DotClient {
         tls_stream
             .write_all(&request)
             .await
-            .map_err(|e| DnsError::Io(e))?;
+            .map_err(DnsError::Io)?;
 
         // Read the response length
         let mut len_buf = [0u8; 2];
         tokio::time::timeout(self.timeout, tls_stream.read_exact(&mut len_buf))
             .await
             .map_err(|_| DnsError::Timeout)?
-            .map_err(|e| DnsError::Io(e))?;
+            .map_err(DnsError::Io)?;
 
         let response_len = u16::from_be_bytes(len_buf) as usize;
 
@@ -198,7 +198,7 @@ impl DotClient {
         tokio::time::timeout(self.timeout, tls_stream.read_exact(&mut response))
             .await
             .map_err(|_| DnsError::Timeout)?
-            .map_err(|e| DnsError::Io(e))?;
+            .map_err(DnsError::Io)?;
 
         trace!("DoT received {} bytes response", response.len());
         Ok(response)

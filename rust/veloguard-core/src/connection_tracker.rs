@@ -36,6 +36,7 @@ pub struct TrackedConnection {
 }
 
 impl TrackedConnection {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         inbound_tag: String,
         outbound_tag: String,
@@ -57,6 +58,43 @@ impl TrackedConnection {
             outbound_tag,
             host,
             destination_ip: None,
+            destination_port,
+            protocol,
+            network,
+            upload_bytes: AtomicU64::new(0),
+            download_bytes: AtomicU64::new(0),
+            start_time: Instant::now(),
+            start_timestamp: start,
+            rule,
+            rule_payload,
+            process_name: None,
+        }
+    }
+    
+    /// Create a new tracked connection with destination IP address
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_ip(
+        inbound_tag: String,
+        outbound_tag: String,
+        host: String,
+        destination_ip: Option<String>,
+        destination_port: u16,
+        protocol: String,
+        network: String,
+        rule: String,
+        rule_payload: String,
+    ) -> Self {
+        let start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+            
+        Self {
+            id: generate_connection_id(),
+            inbound_tag,
+            outbound_tag,
+            host,
+            destination_ip,
             destination_port,
             protocol,
             network,

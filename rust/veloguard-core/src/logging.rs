@@ -10,8 +10,9 @@ use tracing_subscriber::{
 static INIT: Once = Once::new();
 
 /// Global log buffer for storing recent logs
+/// Increased buffer size to 5000 to store more logs
 static LOG_BUFFER: once_cell::sync::Lazy<Arc<Mutex<LogBuffer>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(LogBuffer::new(1000))));
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(LogBuffer::new(5000))));
 
 /// Buffer for storing recent log messages
 pub struct LogBuffer {
@@ -35,11 +36,11 @@ impl LogBuffer {
     }
 
     pub fn get_logs(&self, count: usize) -> Vec<String> {
-        let start = if self.logs.len() > count {
-            self.logs.len() - count
-        } else {
-            0
-        };
+        // If count is 0 or very large, return all logs
+        if count == 0 || count >= self.logs.len() {
+            return self.logs.iter().cloned().collect();
+        }
+        let start = self.logs.len() - count;
         self.logs.iter().skip(start).cloned().collect()
     }
 
@@ -117,15 +118,20 @@ fn init_logging_inner(level: LogLevel) -> Result<()> {
     let buffer_layer = BufferLayer;
 
     // Initialize subscriber with both layers
-    tracing_subscriber::registry()
+    // Use try_init to avoid panic if tracing is already initialized
+    let result = tracing_subscriber::registry()
         .with(fmt_layer)
         .with(buffer_layer)
-        .init();
+        .try_init();
 
-    // Add initial log entry
-    add_log(format!("[INFO] Logging initialized at level: {:?}", level));
-    
-    tracing::info!("Logging initialized at level: {:?}", level);
+    // If tracing was already initialized, that's fine - just log to buffer
+    if result.is_err() {
+        add_log(format!("[INFO] Tracing already initialized, using existing subscriber"));
+    } else {
+        // Add initial log entry
+        add_log(format!("[INFO] Logging initialized at level: {:?}", level));
+        tracing::info!("Logging initialized at level: {:?}", level);
+    }
     Ok(())
 }
 
@@ -168,9 +174,7 @@ struct LogVisitor {
 
 impl tracing::field::Visit for LogVisitor {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "message" {
-            self.message = value.to_string();
-        } else if self.message.is_empty() {
+        if field.name() == "message" || self.message.is_empty() {
             self.message = value.to_string();
         } else {
             self.message.push_str(&format!(" {}={}", field.name(), value));
@@ -178,9 +182,7 @@ impl tracing::field::Visit for LogVisitor {
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = format!("{:?}", value);
-        } else if self.message.is_empty() {
+        if field.name() == "message" || self.message.is_empty() {
             self.message = format!("{:?}", value);
         } else {
             self.message.push_str(&format!(" {}={:?}", field.name(), value));

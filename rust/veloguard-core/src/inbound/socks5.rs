@@ -7,16 +7,31 @@ use crate::routing::Router;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio_util::sync::CancellationToken;
+use dashmap::DashMap;
+use std::time::{Duration, Instant};
 
-/// SOCKS5 proxy inbound listener
+/// UDP session timeout for QUIC/gRPC long-lived connections
+const UDP_SESSION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+
+/// UDP session for tracking UDP ASSOCIATE connections
+#[allow(dead_code)]
+struct UdpSession {
+    client_addr: SocketAddr,
+    last_activity: Instant,
+}
+
+/// SOCKS5 proxy inbound listener with UDP ASSOCIATE support
 pub struct Socks5Inbound {
     config: InboundConfig,
     router: Arc<Router>,
     outbound_manager: Arc<OutboundManager>,
     cancel_token: CancellationToken,
     running: Arc<std::sync::atomic::AtomicBool>,
+    /// UDP sessions for UDP ASSOCIATE
+    #[allow(dead_code)]
+    udp_sessions: Arc<DashMap<u16, UdpSession>>,
 }
 
 #[async_trait::async_trait]
@@ -42,6 +57,7 @@ impl Socks5Inbound {
             outbound_manager,
             cancel_token: CancellationToken::new(),
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            udp_sessions: Arc::new(DashMap::new()),
         }
     }
 
@@ -145,11 +161,32 @@ impl Socks5Inbound {
         // Read request
         let (target_addr, target_port, command) = Self::read_request(&mut stream).await?;
 
-        // Only support CONNECT command
-        if command != 0x01 {
-            Self::send_reply(&mut stream, 0x07).await?; // Command not supported
-            return Err(Error::protocol_with_info("Unsupported SOCKS5 command", "SOCKS5"));
+        // Handle different SOCKS5 commands
+        match command {
+            0x01 => {
+                // CONNECT command - TCP proxy
+                Self::handle_connect(stream, peer_addr, target_addr, target_port, router, outbound_manager).await
+            }
+            0x03 => {
+                // UDP ASSOCIATE command - UDP proxy for QUIC/gRPC
+                Self::handle_udp_associate(stream, peer_addr, router, outbound_manager).await
+            }
+            _ => {
+                Self::send_reply(&mut stream, 0x07).await?; // Command not supported
+                Err(Error::protocol_with_info("Unsupported SOCKS5 command", "SOCKS5"))
+            }
         }
+    }
+
+    /// Handle SOCKS5 CONNECT command (TCP proxy)
+    async fn handle_connect(
+        mut stream: tokio::net::TcpStream,
+        peer_addr: SocketAddr,
+        target_addr: Socks5Addr,
+        target_port: u16,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Result<()> {
 
         // Extract domain/IP and port for routing
         let (domain, ip) = match &target_addr {
@@ -189,11 +226,25 @@ impl Socks5Inbound {
         let dummy_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         Self::send_reply_with_addr(&mut stream, 0x00, dummy_addr).await?;
 
-        // Track the connection
-        let tracked_conn = TrackedConnection::new(
+        // Try to resolve the destination IP for display
+        let destination_ip = match &target {
+            TargetAddr::Ip(addr) => Some(addr.ip().to_string()),
+            TargetAddr::Domain(domain, _) => {
+                // Try to resolve the domain to get the IP
+                tokio::net::lookup_host(format!("{}:{}", domain, target.port()))
+                    .await
+                    .ok()
+                    .and_then(|mut addrs| addrs.next())
+                    .map(|addr| addr.ip().to_string())
+            }
+        };
+
+        // Track the connection with IP address
+        let tracked_conn = TrackedConnection::new_with_ip(
             "socks5".to_string(),
             outbound_tag.clone(),
             target.host(),
+            destination_ip,
             target.port(),
             "SOCKS5".to_string(),
             "tcp".to_string(),
@@ -213,6 +264,240 @@ impl Socks5Inbound {
         tracker.untrack(&tracked.id);
 
         Ok(())
+    }
+
+    /// Handle SOCKS5 UDP ASSOCIATE command for QUIC/gRPC protocols
+    async fn handle_udp_associate(
+        mut stream: tokio::net::TcpStream,
+        peer_addr: SocketAddr,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Result<()> {
+        tracing::info!("SOCKS5 UDP ASSOCIATE request from {}", peer_addr);
+
+        // Bind a UDP socket for the client
+        let udp_socket = UdpSocket::bind("0.0.0.0:0").await
+            .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
+        
+        let local_addr = udp_socket.local_addr()
+            .map_err(|e| Error::network(format!("Failed to get UDP socket address: {}", e)))?;
+
+        tracing::info!("UDP relay socket bound to {} for client {}", local_addr, peer_addr);
+
+        // Send success reply with the UDP relay address
+        Self::send_reply_with_addr(&mut stream, 0x00, local_addr).await?;
+
+        // Start UDP relay task
+        let udp_socket = Arc::new(udp_socket);
+        let udp_socket_clone = Arc::clone(&udp_socket);
+        let router_clone = Arc::clone(&router);
+        let outbound_manager_clone = Arc::clone(&outbound_manager);
+
+        // Spawn UDP relay handler
+        tokio::spawn(async move {
+            if let Err(e) = Self::run_udp_relay(
+                udp_socket_clone,
+                peer_addr,
+                router_clone,
+                outbound_manager_clone,
+            ).await {
+                tracing::debug!("UDP relay error for {}: {}", peer_addr, e);
+            }
+        });
+
+        // Keep TCP connection alive - UDP ASSOCIATE is valid while TCP connection is open
+        // Read from TCP stream to detect when client disconnects
+        let mut buf = [0u8; 1];
+        loop {
+            match tokio::time::timeout(Duration::from_secs(60), stream.read(&mut buf)).await {
+                Ok(Ok(0)) => {
+                    // Client disconnected
+                    tracing::info!("UDP ASSOCIATE client {} disconnected", peer_addr);
+                    break;
+                }
+                Ok(Ok(_)) => {
+                    // Unexpected data, ignore
+                }
+                Ok(Err(e)) => {
+                    tracing::debug!("UDP ASSOCIATE TCP error for {}: {}", peer_addr, e);
+                    break;
+                }
+                Err(_) => {
+                    // Timeout, check if still connected
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Run UDP relay for SOCKS5 UDP ASSOCIATE
+    async fn run_udp_relay(
+        udp_socket: Arc<UdpSocket>,
+        _client_addr: SocketAddr,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Result<()> {
+        let mut buf = vec![0u8; 65535];
+        
+        loop {
+            let (n, src_addr) = match tokio::time::timeout(
+                UDP_SESSION_TIMEOUT,
+                udp_socket.recv_from(&mut buf)
+            ).await {
+                Ok(Ok(result)) => result,
+                Ok(Err(e)) => {
+                    tracing::debug!("UDP recv error: {}", e);
+                    continue;
+                }
+                Err(_) => {
+                    // Timeout, continue waiting
+                    continue;
+                }
+            };
+
+            if n < 10 {
+                continue; // Too short for SOCKS5 UDP header
+            }
+
+            // Parse SOCKS5 UDP request header
+            // +----+------+------+----------+----------+----------+
+            // |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            // +----+------+------+----------+----------+----------+
+            // | 2  |  1   |  1   | Variable |    2     | Variable |
+            // +----+------+------+----------+----------+----------+
+
+            let frag = buf[2];
+            if frag != 0 {
+                // Fragmentation not supported
+                tracing::debug!("UDP fragmentation not supported");
+                continue;
+            }
+
+            let atyp = buf[3];
+            let (target_addr, target_port, header_len) = match atyp {
+                0x01 => {
+                    // IPv4
+                    if n < 10 {
+                        continue;
+                    }
+                    let ip = Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
+                    let port = u16::from_be_bytes([buf[8], buf[9]]);
+                    (TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(ip), port)), port, 10)
+                }
+                0x03 => {
+                    // Domain
+                    let domain_len = buf[4] as usize;
+                    if n < 7 + domain_len {
+                        continue;
+                    }
+                    let domain = match String::from_utf8(buf[5..5 + domain_len].to_vec()) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
+                    let port = u16::from_be_bytes([buf[5 + domain_len], buf[6 + domain_len]]);
+                    (TargetAddr::new_domain(domain, port), port, 7 + domain_len)
+                }
+                0x04 => {
+                    // IPv6
+                    if n < 22 {
+                        continue;
+                    }
+                    let mut octets = [0u8; 16];
+                    octets.copy_from_slice(&buf[4..20]);
+                    let ip = Ipv6Addr::from(octets);
+                    let port = u16::from_be_bytes([buf[20], buf[21]]);
+                    (TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(ip), port)), port, 22)
+                }
+                _ => continue,
+            };
+
+            let payload = &buf[header_len..n];
+            if payload.is_empty() {
+                continue;
+            }
+
+            // Route the UDP packet
+            let (domain, ip) = match &target_addr {
+                TargetAddr::Domain(d, _) => (Some(d.clone()), None),
+                TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            };
+
+            let outbound_tag = router.match_outbound(
+                domain.as_deref(),
+                ip,
+                Some(target_port),
+                None,
+            ).await;
+
+            tracing::debug!(
+                "UDP relay: {} -> {} via {} ({} bytes)",
+                src_addr, target_addr, outbound_tag, payload.len()
+            );
+
+            // Get the outbound proxy
+            let outbound = match outbound_manager.get_proxy(&outbound_tag) {
+                Some(proxy) => proxy,
+                None => {
+                    tracing::warn!("Outbound '{}' not found for UDP", outbound_tag);
+                    continue;
+                }
+            };
+
+            // Check if outbound supports UDP
+            if !outbound.supports_udp() {
+                tracing::debug!("Outbound '{}' does not support UDP, skipping", outbound_tag);
+                continue;
+            }
+
+            // Forward UDP packet through outbound
+            let udp_socket_clone = Arc::clone(&udp_socket);
+            let target_addr_clone = target_addr.clone();
+            let payload_vec = payload.to_vec();
+            
+            tokio::spawn(async move {
+                match outbound.relay_udp_packet(&target_addr_clone, &payload_vec).await {
+                    Ok(response) => {
+                        if !response.is_empty() {
+                            // Build SOCKS5 UDP response
+                            let mut response_packet = Vec::with_capacity(response.len() + 22);
+                            response_packet.extend_from_slice(&[0x00, 0x00, 0x00]); // RSV, FRAG
+                            
+                            match &target_addr_clone {
+                                TargetAddr::Ip(addr) => {
+                                    match addr.ip() {
+                                        IpAddr::V4(ip) => {
+                                            response_packet.push(0x01);
+                                            response_packet.extend_from_slice(&ip.octets());
+                                        }
+                                        IpAddr::V6(ip) => {
+                                            response_packet.push(0x04);
+                                            response_packet.extend_from_slice(&ip.octets());
+                                        }
+                                    }
+                                    response_packet.extend_from_slice(&addr.port().to_be_bytes());
+                                }
+                                TargetAddr::Domain(domain, port) => {
+                                    response_packet.push(0x03);
+                                    response_packet.push(domain.len() as u8);
+                                    response_packet.extend_from_slice(domain.as_bytes());
+                                    response_packet.extend_from_slice(&port.to_be_bytes());
+                                }
+                            }
+                            response_packet.extend_from_slice(&response);
+
+                            if let Err(e) = udp_socket_clone.send_to(&response_packet, src_addr).await {
+                                tracing::debug!("Failed to send UDP response: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("UDP relay error via '{}': {}", outbound.tag(), e);
+                    }
+                }
+            });
+        }
     }
 
     async fn perform_handshake(stream: &mut tokio::net::TcpStream) -> Result<bool> {

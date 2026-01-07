@@ -6,7 +6,7 @@ use smoltcp::wire::{
     IpProtocol, Ipv4Packet, Ipv6Packet,
     TcpPacket, UdpPacket as SmolUdpPacket,
 };
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -311,8 +311,8 @@ fn process_ipv4_packet(
     let ipv4 = Ipv4Packet::new_checked(packet)
         .map_err(|e| NetStackError::InvalidPacket(format!("Invalid IPv4 packet: {}", e)))?;
 
-    let src_ip = IpAddr::V4(Ipv4Addr::from(ipv4.src_addr()));
-    let dst_ip = IpAddr::V4(Ipv4Addr::from(ipv4.dst_addr()));
+    let src_ip = IpAddr::V4(ipv4.src_addr());
+    let dst_ip = IpAddr::V4(ipv4.dst_addr());
     let protocol = ipv4.next_header();
     let payload = ipv4.payload();
 
@@ -346,8 +346,8 @@ fn process_ipv6_packet(
     let ipv6 = Ipv6Packet::new_checked(packet)
         .map_err(|e| NetStackError::InvalidPacket(format!("Invalid IPv6 packet: {}", e)))?;
 
-    let src_ip = IpAddr::V6(Ipv6Addr::from(ipv6.src_addr()));
-    let dst_ip = IpAddr::V6(Ipv6Addr::from(ipv6.dst_addr()));
+    let src_ip = IpAddr::V6(ipv6.src_addr());
+    let dst_ip = IpAddr::V6(ipv6.dst_addr());
     let protocol = ipv6.next_header();
     let payload = ipv6.payload();
 

@@ -4,7 +4,7 @@
 //! and the SolidTCP user-space TCP/IP stack.
 
 use bytes::BytesMut;
-use veloguard_solidtcp::{SolidStack, StackBuilder, StackStats};
+use crate::solidtcp::{SolidStack, StackBuilder, StackStats};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -195,5 +195,5 @@ impl AndroidVpnProcessor {
 }
 
 /// Legacy exports for backward compatibility
-pub use veloguard_solidtcp::TcpState;
-pub use veloguard_solidtcp::NatEntry as TcpNatEntry;
+pub use crate::solidtcp::TcpState;
+pub use crate::solidtcp::NatEntry as TcpNatEntry;
