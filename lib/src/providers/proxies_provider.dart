@@ -21,6 +21,9 @@ class LatencyResult {
   });
 }
 
+/// Stream controller for proxy selection changes
+final proxySelectionChangedController = StreamController<String>.broadcast();
+
 class ProxiesProvider extends ChangeNotifier {
   ParsedClashConfig? _config;
   String? _selectedGroupName;
@@ -157,9 +160,43 @@ class ProxiesProvider extends ChangeNotifier {
           _selectedProxies[group.name] = savedProxy;
         }
       }
+
+      // Apply persisted selections to Rust backend if initialized
+      if (isRustLibInitialized) {
+        await _applySelectionsToRust();
+      }
     } catch (e) {
       debugPrint('Failed to load persisted selections: $e');
     }
+  }
+
+  /// Apply all current selections to Rust backend
+  Future<void> _applySelectionsToRust() async {
+    if (!isRustLibInitialized) {
+      debugPrint('Skipping Rust selection sync: RustLib not initialized');
+      return;
+    }
+
+    for (final entry in _selectedProxies.entries) {
+      try {
+        await rust_api.selectProxyInGroup(
+          groupName: entry.key,
+          proxyName: entry.value,
+        );
+        debugPrint(
+          'Applied persisted selection: ${entry.key} -> ${entry.value}',
+        );
+      } catch (e) {
+        debugPrint(
+          'Failed to apply selection ${entry.key} -> ${entry.value}: $e',
+        );
+      }
+    }
+  }
+
+  /// Sync selections to Rust backend (call this after service starts)
+  Future<void> syncSelectionsToRust() async {
+    await _applySelectionsToRust();
   }
 
   /// Save selections to SharedPreferences
@@ -230,15 +267,46 @@ class ProxiesProvider extends ChangeNotifier {
       return;
     }
 
-    try {
-      await rust_api.selectProxyInGroup(
-        groupName: groupName,
-        proxyName: proxyName,
+    // Retry logic to ensure selection is applied
+    int retryCount = 0;
+    const maxRetries = 3;
+    bool success = false;
+
+    while (retryCount < maxRetries && !success) {
+      try {
+        final result = await rust_api.selectProxyInGroup(
+          groupName: groupName,
+          proxyName: proxyName,
+        );
+        if (result) {
+          debugPrint('Proxy selection updated: $groupName -> $proxyName');
+          success = true;
+          // Notify listeners that proxy selection changed - trigger IP refresh
+          proxySelectionChangedController.add(proxyName);
+        } else {
+          debugPrint(
+            'Proxy selection returned false, retrying... (${retryCount + 1}/$maxRetries)',
+          );
+          retryCount++;
+          if (retryCount < maxRetries) {
+            await Future.delayed(const Duration(milliseconds: 200));
+          }
+        }
+      } catch (e) {
+        debugPrint(
+          'Failed to update proxy selection in Rust (attempt ${retryCount + 1}): $e',
+        );
+        retryCount++;
+        if (retryCount < maxRetries) {
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+      }
+    }
+
+    if (!success) {
+      debugPrint(
+        'WARNING: Failed to apply proxy selection after $maxRetries attempts',
       );
-      debugPrint('Proxy selection updated: $groupName -> $proxyName');
-    } catch (e) {
-      debugPrint('Failed to update proxy selection in Rust: $e');
-      // Selection is still saved locally, so UI will reflect the change
     }
   }
 

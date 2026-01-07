@@ -157,11 +157,12 @@ impl VlessOutbound {
             })
             .unwrap_or_else(|| vec!["h2".to_string(), "http/1.1".to_string()]);
 
+        // Default UDP to true to support QUIC and other UDP protocols
         let udp_enabled = config
             .options
             .get("udp")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         Ok(Self {
             config,
@@ -359,6 +360,24 @@ impl OutboundProxy for VlessOutbound {
 
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.server.clone(), self.port))
+    }
+    
+    fn supports_udp(&self) -> bool {
+        self.udp_enabled
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        if !self.udp_enabled {
+            return Err(Error::config("UDP relay is not enabled for this VLESS proxy"));
+        }
+        // Create a dummy socket for the relay_udp call
+        let dummy_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await
+            .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
+        self.relay_udp(&dummy_socket, target, data).await
     }
 
     async fn test_http_latency(

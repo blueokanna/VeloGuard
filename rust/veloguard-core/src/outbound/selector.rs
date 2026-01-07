@@ -4,13 +4,12 @@ use crate::outbound::{AsyncReadWrite, OutboundProxy, ProxyRegistry, TargetAddr};
 use std::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
-// Global selector selections - shared with OutboundManager
-static SELECTOR_SELECTIONS: OnceLock<ParkingRwLock<HashMap<String, String>>> = OnceLock::new();
+// Use the shared global selector selections from the parent module
+pub use crate::outbound::get_global_selector_selections;
 
 fn get_global_selections() -> &'static ParkingRwLock<HashMap<String, String>> {
-    SELECTOR_SELECTIONS.get_or_init(|| ParkingRwLock::new(HashMap::new()))
+    get_global_selector_selections()
 }
 
 /// Selector proxy group - allows manual selection of outbound
@@ -132,7 +131,17 @@ impl OutboundProxy for SelectorOutbound {
     }
     
     fn server_addr(&self) -> Option<(String, u16)> {
-        None
+        // Try to get the server address from the currently selected proxy
+        let selected = self.get_selected();
+        
+        // Use blocking read since this is a sync function
+        // We need to check the registry for the selected proxy
+        let registry = self.registry.blocking_read();
+        if let Some(proxy) = registry.get(&selected) {
+            proxy.server_addr()
+        } else {
+            None
+        }
     }
     
     async fn test_http_latency(
@@ -162,5 +171,33 @@ impl OutboundProxy for SelectorOutbound {
         tracing::debug!("Selector '{}' relaying to '{}' for target {}", 
             self.config.tag, proxy.tag(), target);
         proxy.relay_tcp_with_connection(inbound, target, connection).await
+    }
+    
+    fn supports_udp(&self) -> bool {
+        // Check if the currently selected proxy supports UDP
+        let selected = self.get_selected();
+        let registry = self.registry.blocking_read();
+        if let Some(proxy) = registry.get(&selected) {
+            proxy.supports_udp()
+        } else {
+            false
+        }
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        let proxy = self.resolve_proxy(10).await?;
+        if !proxy.supports_udp() {
+            return Err(Error::config(format!(
+                "Selected proxy '{}' does not support UDP",
+                proxy.tag()
+            )));
+        }
+        tracing::debug!("Selector '{}' relaying UDP to '{}' for target {}", 
+            self.config.tag, proxy.tag(), target);
+        proxy.relay_udp_packet(target, data).await
     }
 }

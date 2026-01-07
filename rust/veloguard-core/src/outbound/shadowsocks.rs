@@ -56,6 +56,24 @@ impl OutboundProxy for ShadowsocksOutbound {
         Some((self.server.clone(), self.port))
     }
     
+    fn supports_udp(&self) -> bool {
+        self.udp_enabled
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        if !self.udp_enabled {
+            return Err(Error::config("UDP relay is not enabled for this Shadowsocks proxy"));
+        }
+        // Create a dummy socket for the relay_udp call
+        let dummy_socket = UdpSocket::bind("0.0.0.0:0").await
+            .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
+        self.relay_udp(&dummy_socket, target, data).await
+    }
+    
     async fn test_http_latency(
         &self,
         test_url: &str,
@@ -356,12 +374,12 @@ impl ShadowsocksOutbound {
             .map(yaml_value_to_string)
             .unwrap_or_else(|| "aes-256-gcm".to_string());
         
-        // Get UDP option
+        // Get UDP option - default to true to support QUIC and other UDP protocols
         let udp_enabled = config
             .options
             .get("udp")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or(true);
         
         tracing::debug!(
             "Creating SS outbound: server={}, port={}, cipher={}, password_len={}, udp={}",

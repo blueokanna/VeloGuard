@@ -6,6 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -259,6 +263,11 @@ class VeloGuardVpnService : VpnService() {
     private val isStarting = AtomicBoolean(false)
     private var currentMode: ProxyMode = ProxyMode.RULE
     
+    // Network connectivity callback for auto-stop on disconnect
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val hasActiveNetwork = AtomicBoolean(true)
+    
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "=== VPN Service onCreate ===")
@@ -270,6 +279,9 @@ class VeloGuardVpnService : VpnService() {
         
         instance = this
         createNotificationChannel()
+        
+        // Initialize network connectivity monitoring
+        initNetworkMonitoring()
         
         try {
             Log.d(TAG, "Initializing Rust JNI bridge...")
@@ -285,6 +297,82 @@ class VeloGuardVpnService : VpnService() {
         }
         
         Log.d(TAG, "VPN Service created, JNI initialized: ${_jniInitialized.get()}")
+    }
+    
+    /**
+     * Initialize network connectivity monitoring
+     * Note: We only log network changes, we don't auto-stop VPN when network is lost
+     * because the user may want to keep VPN running and reconnect when network is available
+     */
+    private fun initNetworkMonitoring() {
+        try {
+            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    Log.d(TAG, "Network available: $network")
+                    hasActiveNetwork.set(true)
+                }
+                
+                override fun onLost(network: Network) {
+                    Log.d(TAG, "Network lost: $network")
+                    // Check if there's still any active network
+                    val activeNetwork = connectivityManager?.activeNetwork
+                    if (activeNetwork == null) {
+                        Log.w(TAG, "All networks lost - VPN will wait for network to reconnect")
+                        hasActiveNetwork.set(false)
+                        // DO NOT stop VPN when network is lost
+                        // The user may want to keep VPN running and reconnect when network is available
+                    }
+                }
+                
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    // Check if we have internet capability
+                    val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    val hasValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    Log.d(TAG, "Network capabilities changed: internet=$hasInternet, validated=$hasValidated")
+                }
+                
+                override fun onUnavailable() {
+                    Log.w(TAG, "Network unavailable - VPN will wait for network to reconnect")
+                    hasActiveNetwork.set(false)
+                    // DO NOT stop VPN when network is unavailable
+                    // The user may want to keep VPN running and reconnect when network is available
+                }
+            }
+            
+            // Register for all network types
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            
+            connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+            Log.d(TAG, "Network monitoring initialized")
+            
+            // Check initial network state
+            val activeNetwork = connectivityManager?.activeNetwork
+            hasActiveNetwork.set(activeNetwork != null)
+            Log.d(TAG, "Initial network state: hasActiveNetwork=${hasActiveNetwork.get()}")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize network monitoring: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Unregister network callback
+     */
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let { callback ->
+                connectivityManager?.unregisterNetworkCallback(callback)
+                Log.d(TAG, "Network callback unregistered")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister network callback: ${e.message}")
+        }
+        networkCallback = null
+        connectivityManager = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -384,10 +472,10 @@ class VeloGuardVpnService : VpnService() {
                 builder.setMetered(false)
             }
             
-            // Try to establish VPN with retry logic
+            // Try to establish VPN with extended retry logic
             // This handles the case where another VPN is being disconnected
             var retryCount = 0
-            val maxRetries = 3
+            val maxRetries = 5  // Increased from 3 to 5 for better handling of competing VPNs
             var lastError: Exception? = null
             
             while (retryCount < maxRetries && vpnInterface == null) {
@@ -397,7 +485,9 @@ class VeloGuardVpnService : VpnService() {
                     
                     if (vpnInterface == null && retryCount < maxRetries - 1) {
                         Log.w(TAG, "establish() returned null, waiting before retry...")
-                        Thread.sleep(500) // Wait for other VPN to fully disconnect
+                        // Progressively longer waits to give other VPN time to disconnect
+                        val waitTime = 500L + (retryCount * 500L)
+                        Thread.sleep(waitTime)
                         retryCount++
                     } else {
                         break
@@ -406,7 +496,9 @@ class VeloGuardVpnService : VpnService() {
                     lastError = e
                     Log.w(TAG, "establish() failed (attempt ${retryCount + 1}): ${e.message}")
                     if (retryCount < maxRetries - 1) {
-                        Thread.sleep(500)
+                        // Progressively longer waits
+                        val waitTime = 500L + (retryCount * 500L)
+                        Thread.sleep(waitTime)
                     }
                     retryCount++
                 }
@@ -553,6 +645,9 @@ class VeloGuardVpnService : VpnService() {
         _vpnFd = -1
         isStarting.set(false)
         instance = null
+        
+        // Unregister network callback
+        unregisterNetworkCallback()
         
         try {
             nativeClearRustBridge()

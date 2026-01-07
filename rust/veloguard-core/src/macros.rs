@@ -8,7 +8,6 @@ macro_rules! bail_config {
     };
 }
 
-/// Bail with a network error
 #[macro_export]
 macro_rules! bail_network {
     ($($arg:tt)*) => {
@@ -19,7 +18,6 @@ macro_rules! bail_network {
     };
 }
 
-/// Bail with a protocol error
 #[macro_export]
 macro_rules! bail_protocol {
     ($($arg:tt)*) => {
@@ -31,7 +29,6 @@ macro_rules! bail_protocol {
     };
 }
 
-/// Bail with a protocol error including protocol name
 #[macro_export]
 macro_rules! bail_protocol_with_name {
     ($protocol:expr, $($arg:tt)*) => {
@@ -43,7 +40,6 @@ macro_rules! bail_protocol_with_name {
     };
 }
 
-/// Bail with a DNS error
 #[macro_export]
 macro_rules! bail_dns {
     ($($arg:tt)*) => {
@@ -54,7 +50,6 @@ macro_rules! bail_dns {
     };
 }
 
-/// Try a network operation, converting errors to network errors
 #[macro_export]
 macro_rules! try_network {
     ($expr:expr) => {
@@ -71,7 +66,6 @@ macro_rules! try_network {
     };
 }
 
-/// Try a protocol operation, converting errors to protocol errors
 #[macro_export]
 macro_rules! try_protocol {
     ($expr:expr) => {
@@ -97,7 +91,6 @@ macro_rules! try_protocol {
     };
 }
 
-/// Try a DNS operation, converting errors to DNS errors
 #[macro_export]
 macro_rules! try_dns {
     ($expr:expr) => {
@@ -114,7 +107,6 @@ macro_rules! try_dns {
     };
 }
 
-/// Try a config operation, converting errors to config errors
 #[macro_export]
 macro_rules! try_config {
     ($expr:expr) => {
@@ -131,10 +123,6 @@ macro_rules! try_config {
     };
 }
 
-
-/// Configuration parsing macros for extracting values from serde_yaml::Value maps
-///
-/// Get an optional value from a YAML map, returning Option<T>
 #[macro_export]
 macro_rules! get_option {
     ($options:expr, $key:expr, String) => {
@@ -196,7 +184,11 @@ macro_rules! get_option {
                         _ => None,
                     })
                     .collect();
-                if strings.is_empty() { None } else { Some(strings) }
+                if strings.is_empty() {
+                    None
+                } else {
+                    Some(strings)
+                }
             }
             serde_yaml::Value::String(s) => Some(vec![s.clone()]),
             _ => None,
@@ -204,96 +196,86 @@ macro_rules! get_option {
     };
 }
 
-/// Require a value from a YAML map, returning an error if not found
 #[macro_export]
 macro_rules! require_option {
     ($options:expr, $key:expr, String) => {
-        $crate::get_option!($options, $key, String)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: format!("Missing required option: {}", $key),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, String).ok_or_else(|| $crate::error::Error::Config {
+            message: format!("Missing required option: {}", $key),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, String, $error_msg:expr) => {
-        $crate::get_option!($options, $key, String)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: $error_msg.to_string(),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, String).ok_or_else(|| $crate::error::Error::Config {
+            message: $error_msg.to_string(),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u16) => {
-        $crate::get_option!($options, $key, u16)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: format!("Missing required option: {}", $key),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u16).ok_or_else(|| $crate::error::Error::Config {
+            message: format!("Missing required option: {}", $key),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u16, $error_msg:expr) => {
-        $crate::get_option!($options, $key, u16)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: $error_msg.to_string(),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u16).ok_or_else(|| $crate::error::Error::Config {
+            message: $error_msg.to_string(),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u32) => {
-        $crate::get_option!($options, $key, u32)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: format!("Missing required option: {}", $key),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u32).ok_or_else(|| $crate::error::Error::Config {
+            message: format!("Missing required option: {}", $key),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u32, $error_msg:expr) => {
-        $crate::get_option!($options, $key, u32)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: $error_msg.to_string(),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u32).ok_or_else(|| $crate::error::Error::Config {
+            message: $error_msg.to_string(),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u64) => {
-        $crate::get_option!($options, $key, u64)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: format!("Missing required option: {}", $key),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u64).ok_or_else(|| $crate::error::Error::Config {
+            message: format!("Missing required option: {}", $key),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, u64, $error_msg:expr) => {
-        $crate::get_option!($options, $key, u64)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: $error_msg.to_string(),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, u64).ok_or_else(|| $crate::error::Error::Config {
+            message: $error_msg.to_string(),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, bool) => {
-        $crate::get_option!($options, $key, bool)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: format!("Missing required option: {}", $key),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, bool).ok_or_else(|| $crate::error::Error::Config {
+            message: format!("Missing required option: {}", $key),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, bool, $error_msg:expr) => {
-        $crate::get_option!($options, $key, bool)
-            .ok_or_else(|| $crate::error::Error::Config {
-                message: $error_msg.to_string(),
-                source: None,
-            })?
+        $crate::get_option!($options, $key, bool).ok_or_else(|| $crate::error::Error::Config {
+            message: $error_msg.to_string(),
+            source: None,
+        })?
     };
     ($options:expr, $key:expr, Vec<String>) => {
-        $crate::get_option!($options, $key, Vec<String>)
-            .ok_or_else(|| $crate::error::Error::Config {
+        $crate::get_option!($options, $key, Vec<String>).ok_or_else(|| {
+            $crate::error::Error::Config {
                 message: format!("Missing required option: {}", $key),
                 source: None,
-            })?
+            }
+        })?
     };
     ($options:expr, $key:expr, Vec<String>, $error_msg:expr) => {
-        $crate::get_option!($options, $key, Vec<String>)
-            .ok_or_else(|| $crate::error::Error::Config {
+        $crate::get_option!($options, $key, Vec<String>).ok_or_else(|| {
+            $crate::error::Error::Config {
                 message: $error_msg.to_string(),
                 source: None,
-            })?
+            }
+        })?
     };
 }
 
-/// Get an optional value with a default fallback
 #[macro_export]
 macro_rules! get_option_or {
     ($options:expr, $key:expr, String, $default:expr) => {
@@ -316,20 +298,6 @@ macro_rules! get_option_or {
     };
 }
 
-
-/// Protocol implementation macros for reducing boilerplate in outbound proxy implementations
-///
-/// Implement common OutboundProxy trait methods for a proxy type
-/// 
-/// Usage:
-/// ```ignore
-/// impl_outbound_proxy!(MyProxy, config.tag);
-/// ```
-/// 
-/// This generates implementations for:
-/// - `tag()` - returns the tag from the specified field
-/// - `disconnect()` - default no-op implementation
-/// - `server_addr()` - returns server and port from config if available
 #[macro_export]
 macro_rules! impl_outbound_proxy {
     ($name:ident, $tag_field:expr) => {
@@ -346,7 +314,7 @@ macro_rules! impl_outbound_proxy {
             pub fn proxy_tag(&self) -> &str {
                 &$tag_field
             }
-            
+
             #[inline]
             pub fn proxy_server_addr(&self) -> Option<(String, u16)> {
                 Some(($server_field.clone(), $port_field))
@@ -355,16 +323,6 @@ macro_rules! impl_outbound_proxy {
     };
 }
 
-/// Implement the OutboundProxy trait with common boilerplate
-/// 
-/// Usage:
-/// ```ignore
-/// impl_outbound_proxy_trait!(MyProxy {
-///     tag: self.config.tag,
-///     server: self.config.server,
-///     port: self.config.port,
-/// });
-/// ```
 #[macro_export]
 macro_rules! impl_outbound_proxy_trait {
     ($name:ident { tag: $tag:expr $(,)? }) => {
@@ -373,15 +331,15 @@ macro_rules! impl_outbound_proxy_trait {
             fn tag(&self) -> &str {
                 &$tag
             }
-            
+
             fn server_addr(&self) -> Option<(String, u16)> {
                 None
             }
-            
+
             async fn connect(&self) -> $crate::error::Result<()> {
                 Ok(())
             }
-            
+
             async fn disconnect(&self) -> $crate::error::Result<()> {
                 Ok(())
             }
@@ -393,15 +351,15 @@ macro_rules! impl_outbound_proxy_trait {
             fn tag(&self) -> &str {
                 &$tag
             }
-            
+
             fn server_addr(&self) -> Option<(String, u16)> {
                 Some(($server.clone(), $port))
             }
-            
+
             async fn connect(&self) -> $crate::error::Result<()> {
                 Ok(())
             }
-            
+
             async fn disconnect(&self) -> $crate::error::Result<()> {
                 Ok(())
             }
@@ -409,15 +367,6 @@ macro_rules! impl_outbound_proxy_trait {
     };
 }
 
-/// Implement a transport wrapper
-/// 
-/// Usage:
-/// ```ignore
-/// impl_transport!(TlsTransport {
-///     wrap_fn: wrap_with_tls,
-///     config_type: TlsConfig,
-/// });
-/// ```
 #[macro_export]
 macro_rules! impl_transport {
     ($name:ident { config: $config_type:ty $(,)? }) => {
@@ -425,7 +374,7 @@ macro_rules! impl_transport {
             pub fn new(config: $config_type) -> $crate::error::Result<Self> {
                 Ok(Self { config })
             }
-            
+
             pub fn config(&self) -> &$config_type {
                 &self.config
             }
@@ -436,11 +385,11 @@ macro_rules! impl_transport {
             pub fn new(config: $config_type, inner: $inner_type) -> $crate::error::Result<Self> {
                 Ok(Self { config, inner })
             }
-            
+
             pub fn config(&self) -> &$config_type {
                 &self.config
             }
-            
+
             pub fn inner(&self) -> &$inner_type {
                 &self.inner
             }
@@ -448,18 +397,18 @@ macro_rules! impl_transport {
     };
 }
 
-/// Implement async transport wrapping with common error handling
 #[macro_export]
 macro_rules! impl_transport_wrap {
     ($self:expr, $stream:expr, $wrap_fn:expr, $transport_name:expr) => {
-        $wrap_fn($self, $stream).await.map_err(|e| $crate::error::Error::Network {
-            message: format!("{} transport error: {}", $transport_name, e),
-            source: None,
-        })
+        $wrap_fn($self, $stream)
+            .await
+            .map_err(|e| $crate::error::Error::Network {
+                message: format!("{} transport error: {}", $transport_name, e),
+                source: None,
+            })
     };
 }
 
-/// Create a new proxy connection with timeout
 #[macro_export]
 macro_rules! connect_with_timeout {
     ($addr:expr, $timeout:expr) => {
@@ -476,7 +425,6 @@ macro_rules! connect_with_timeout {
     };
 }
 
-/// Relay data bidirectionally between two streams with optional connection tracking
 #[macro_export]
 macro_rules! relay_streams {
     ($inbound:expr, $outbound:expr) => {
@@ -507,13 +455,19 @@ mod tests {
     fn create_test_map() -> HashMap<String, Value> {
         let mut map = HashMap::new();
         map.insert("string_val".to_string(), Value::String("hello".to_string()));
-        map.insert("number_val".to_string(), Value::Number(serde_yaml::Number::from(42)));
+        map.insert(
+            "number_val".to_string(),
+            Value::Number(serde_yaml::Number::from(42)),
+        );
         map.insert("bool_val".to_string(), Value::Bool(true));
         map.insert("string_bool".to_string(), Value::String("yes".to_string()));
-        map.insert("array_val".to_string(), Value::Sequence(vec![
-            Value::String("a".to_string()),
-            Value::String("b".to_string()),
-        ]));
+        map.insert(
+            "array_val".to_string(),
+            Value::Sequence(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ]),
+        );
         map
     }
 
@@ -522,7 +476,7 @@ mod tests {
         let map = create_test_map();
         let result = get_option!(map, "string_val", String);
         assert_eq!(result, Some("hello".to_string()));
-        
+
         let missing = get_option!(map, "missing", String);
         assert_eq!(missing, None);
     }
@@ -539,7 +493,7 @@ mod tests {
         let map = create_test_map();
         let result = get_option!(map, "bool_val", bool);
         assert_eq!(result, Some(true));
-        
+
         let string_bool = get_option!(map, "string_bool", bool);
         assert_eq!(string_bool, Some(true));
     }
@@ -556,7 +510,7 @@ mod tests {
         let map = create_test_map();
         let result = get_option_or!(map, "missing", String, "default");
         assert_eq!(result, "default".to_string());
-        
+
         let existing = get_option_or!(map, "string_val", String, "default");
         assert_eq!(existing, "hello".to_string());
     }

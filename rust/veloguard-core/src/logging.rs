@@ -10,8 +10,9 @@ use tracing_subscriber::{
 static INIT: Once = Once::new();
 
 /// Global log buffer for storing recent logs
+/// Increased buffer size to 5000 to store more logs
 static LOG_BUFFER: once_cell::sync::Lazy<Arc<Mutex<LogBuffer>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(LogBuffer::new(1000))));
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(LogBuffer::new(5000))));
 
 /// Buffer for storing recent log messages
 pub struct LogBuffer {
@@ -35,11 +36,11 @@ impl LogBuffer {
     }
 
     pub fn get_logs(&self, count: usize) -> Vec<String> {
-        let start = if self.logs.len() > count {
-            self.logs.len() - count
-        } else {
-            0
-        };
+        // If count is 0 or very large, return all logs
+        if count == 0 || count >= self.logs.len() {
+            return self.logs.iter().cloned().collect();
+        }
+        let start = self.logs.len() - count;
         self.logs.iter().skip(start).cloned().collect()
     }
 

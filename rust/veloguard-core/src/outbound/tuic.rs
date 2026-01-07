@@ -685,6 +685,18 @@ impl OutboundProxy for TuicOutbound {
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.tuic_config.server.clone(), self.tuic_config.port))
     }
+    
+    fn supports_udp(&self) -> bool {
+        true // TUIC always supports UDP
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        self.relay_udp(target, data).await
+    }
 
     async fn test_http_latency(&self, test_url: &str, timeout: Duration) -> Result<Duration> {
         use std::time::Instant;

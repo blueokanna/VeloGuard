@@ -103,9 +103,20 @@ class AppStateProvider extends ChangeNotifier {
 
   // Start 1-second timer for live status/traffic/connection refresh
   void _startStatusTimer() {
+    // Cancel any existing timer first to prevent duplicates
     _statusTimer?.cancel();
+    _statusTimer = null;
+
+    // Only start timer if service is running
+    if (!_isServiceRunning) {
+      return;
+    }
+
     _statusTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      await _refreshStatus();
+      // Double-check service is still running before refreshing
+      if (_isServiceRunning && !_isLoading) {
+        await _refreshStatus();
+      }
     });
   }
 
@@ -423,6 +434,9 @@ class AppStateProvider extends ChangeNotifier {
     try {
       debugPrint('Stopping VeloGuard service...');
 
+      // Stop status timer first to prevent concurrent refresh during shutdown
+      _stopStatusTimer();
+
       // Android: Always disable VPN FIRST when stopping service
       // This ensures VPN is properly disconnected before stopping the proxy
       if (Platform.isAndroid) {
@@ -459,9 +473,13 @@ class AppStateProvider extends ChangeNotifier {
       _proxyStatus = null;
       _trafficStats = null;
       _connections.clear();
+      _activeConnections.clear();
+      _totalConnections = BigInt.zero;
+      _activeConnectionCount = BigInt.zero;
+      _totalUploadBytes = BigInt.zero;
+      _totalDownloadBytes = BigInt.zero;
       _currentUploadSpeed = BigInt.zero;
       _currentDownloadSpeed = BigInt.zero;
-      _stopStatusTimer();
       debugPrint('VeloGuard service stopped');
     } catch (e) {
       debugPrint('Failed to stop service: $e');
@@ -470,6 +488,9 @@ class AppStateProvider extends ChangeNotifier {
       _isInitialized = false;
       _currentUploadSpeed = BigInt.zero;
       _currentDownloadSpeed = BigInt.zero;
+      _activeConnections.clear();
+      _totalConnections = BigInt.zero;
+      _activeConnectionCount = BigInt.zero;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -498,11 +519,20 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   // Status refresh
+  // Flag to prevent concurrent refresh calls
+  bool _isRefreshing = false;
+
   Future<void> _refreshStatus() async {
     if (!isRustLibInitialized) {
       debugPrint('Skipping status refresh: RustLib not initialized');
       return;
     }
+
+    // Prevent concurrent refresh calls which can cause connection count issues
+    if (_isRefreshing) {
+      return;
+    }
+    _isRefreshing = true;
 
     try {
       _proxyStatus = await getVeloguardStatus();
@@ -564,6 +594,8 @@ class AppStateProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('Failed to refresh status: $e');
+    } finally {
+      _isRefreshing = false;
     }
   }
 

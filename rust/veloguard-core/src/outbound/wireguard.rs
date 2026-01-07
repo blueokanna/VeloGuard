@@ -361,6 +361,18 @@ impl OutboundProxy for WireguardOutbound {
         Some((self.server.clone(), self.port))
     }
     
+    fn supports_udp(&self) -> bool {
+        true // WireGuard supports UDP
+    }
+    
+    async fn relay_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<Vec<u8>> {
+        self.relay_udp(target, data).await
+    }
+    
     async fn test_http_latency(
         &self,
         _test_url: &str,

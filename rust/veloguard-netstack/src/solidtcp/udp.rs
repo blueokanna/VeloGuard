@@ -1,5 +1,3 @@
-//! UDP session management
-
 use crate::solidtcp::error::{Result, SolidTcpError};
 use crate::solidtcp::nat::NatKey;
 use dashmap::DashMap;
@@ -20,7 +18,7 @@ pub struct UdpConfig {
 impl Default for UdpConfig {
     fn default() -> Self {
         Self {
-            session_timeout: Duration::from_secs(60),
+            session_timeout: Duration::from_secs(300),
             max_sessions: 65536,
             buffer_size: 65535,
         }
@@ -65,8 +63,12 @@ impl UdpSession {
         }
     }
 
-    pub fn state(&self) -> UdpSessionState { self.state }
-    pub fn is_active(&self) -> bool { self.state == UdpSessionState::Active }
+    pub fn state(&self) -> UdpSessionState {
+        self.state
+    }
+    pub fn is_active(&self) -> bool {
+        self.state == UdpSessionState::Active
+    }
 
     pub fn set_proxy_tx(&mut self, tx: mpsc::Sender<(Vec<u8>, SocketAddr)>) {
         self.proxy_tx = Some(tx);
@@ -88,10 +90,17 @@ impl UdpSession {
         self.last_activity.elapsed() > timeout
     }
 
-    pub fn close(&mut self) { self.state = UdpSessionState::Closed; }
+    pub fn close(&mut self) {
+        self.state = UdpSessionState::Closed;
+    }
 
     pub fn stats(&self) -> (u64, u64, u64, u64) {
-        (self.bytes_sent, self.bytes_recv, self.packets_sent, self.packets_recv)
+        (
+            self.bytes_sent,
+            self.bytes_recv,
+            self.packets_sent,
+            self.packets_recv,
+        )
     }
 
     pub fn proxy_tx(&self) -> Option<&mpsc::Sender<(Vec<u8>, SocketAddr)>> {
@@ -99,7 +108,6 @@ impl UdpSession {
     }
 }
 
-/// UDP manager statistics
 #[derive(Debug, Default)]
 pub struct UdpManagerStats {
     pub sessions_created: AtomicU64,
@@ -110,7 +118,6 @@ pub struct UdpManagerStats {
     pub bytes_sent: AtomicU64,
 }
 
-/// UDP session manager
 pub struct UdpManager {
     sessions: DashMap<NatKey, Arc<parking_lot::RwLock<UdpSession>>>,
     config: UdpConfig,
@@ -158,12 +165,20 @@ impl UdpManager {
         Ok(session)
     }
 
-    pub fn get_session(&self, src: SocketAddr, dst: SocketAddr) -> Option<Arc<parking_lot::RwLock<UdpSession>>> {
+    pub fn get_session(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+    ) -> Option<Arc<parking_lot::RwLock<UdpSession>>> {
         let key = NatKey::new(src, dst);
         self.sessions.get(&key).map(|s| s.clone())
     }
 
-    pub fn remove_session(&self, src: SocketAddr, dst: SocketAddr) -> Option<Arc<parking_lot::RwLock<UdpSession>>> {
+    pub fn remove_session(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+    ) -> Option<Arc<parking_lot::RwLock<UdpSession>>> {
         let key = NatKey::new(src, dst);
         if let Some((_, session)) = self.sessions.remove(&key) {
             self.stats.sessions_closed.fetch_add(1, Ordering::Relaxed);
@@ -173,11 +188,14 @@ impl UdpManager {
         }
     }
 
-    pub fn session_count(&self) -> usize { self.sessions.len() }
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
 
     pub fn cleanup(&self) {
         let timeout = self.config.session_timeout;
-        let to_remove: Vec<_> = self.sessions
+        let to_remove: Vec<_> = self
+            .sessions
             .iter()
             .filter(|entry| {
                 let session = entry.read();
@@ -200,7 +218,9 @@ impl UdpManager {
             session.write().record_sent(bytes);
         }
         self.stats.datagrams_sent.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_sent.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_sent
+            .fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     pub fn record_recv(&self, src: SocketAddr, dst: SocketAddr, bytes: usize) {
@@ -208,17 +228,24 @@ impl UdpManager {
         if let Some(session) = self.sessions.get(&key) {
             session.write().record_recv(bytes);
         }
-        self.stats.datagrams_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_received.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.stats
+            .datagrams_received
+            .fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .bytes_received
+            .fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
-    pub fn stats(&self) -> &UdpManagerStats { &self.stats }
-
+    pub fn stats(&self) -> &UdpManagerStats {
+        &self.stats
+    }
     pub fn iter(&self) -> impl Iterator<Item = Arc<parking_lot::RwLock<UdpSession>>> + '_ {
         self.sessions.iter().map(|e| e.clone())
     }
 }
 
 impl Default for UdpManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

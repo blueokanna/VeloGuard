@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:collection';
-import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
@@ -10,6 +10,8 @@ import 'package:veloguard/src/rust/types.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/utils/responsive_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
+import 'package:veloguard/src/providers/proxies_provider.dart'
+    show proxySelectionChangedController;
 
 /// Traffic history data point
 class TrafficDataPoint {
@@ -139,12 +141,53 @@ class IpInfo {
   }
 }
 
+/// Global IP info cache to avoid repeated requests
+class _IpInfoCache {
+  IpInfo? ipv4Info;
+  IpInfo? ipv6Info;
+  DateTime? lastFetchTime;
+  bool? lastProxyState;
+
+  /// Cache duration - 5 minutes
+  static const cacheDuration = Duration(minutes: 5);
+
+  bool shouldRefresh(bool isProxyRunning) {
+    // Refresh if proxy state changed
+    if (lastProxyState != null && lastProxyState != isProxyRunning) {
+      return true;
+    }
+    // Refresh if cache expired
+    if (lastFetchTime == null) {
+      return true;
+    }
+    return DateTime.now().difference(lastFetchTime!) > cacheDuration;
+  }
+
+  void update({IpInfo? ipv4, IpInfo? ipv6, required bool proxyState}) {
+    if (ipv4 != null) ipv4Info = ipv4;
+    if (ipv6 != null) ipv6Info = ipv6;
+    lastFetchTime = DateTime.now();
+    lastProxyState = proxyState;
+  }
+
+  void clear() {
+    ipv4Info = null;
+    ipv6Info = null;
+    lastFetchTime = null;
+    lastProxyState = null;
+  }
+}
+
+final _ipInfoCache = _IpInfoCache();
+
 class _TrafficChartState extends State<TrafficChart>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   IpInfo? _ipv4Info;
   IpInfo? _ipv6Info;
   bool _isLoadingIp = false;
+  String? _ipError;
+  StreamSubscription<String>? _proxySelectionSubscription;
 
   @override
   void initState() {
@@ -158,7 +201,27 @@ class _TrafficChartState extends State<TrafficChart>
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
 
-    _fetchIpInfo();
+    // Use cached data if available
+    if (_ipInfoCache.ipv4Info != null || _ipInfoCache.ipv6Info != null) {
+      _ipv4Info = _ipInfoCache.ipv4Info;
+      _ipv6Info = _ipInfoCache.ipv6Info;
+    }
+
+    // Only fetch if cache needs refresh
+    if (_ipInfoCache.shouldRefresh(widget.isProxyRunning)) {
+      _fetchIpInfo();
+    }
+
+    // Listen for proxy selection changes
+    _proxySelectionSubscription = proxySelectionChangedController.stream.listen(
+      (_) {
+        // Clear cache and refresh IP when proxy selection changes
+        _ipInfoCache.clear();
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) _fetchIpInfo();
+        });
+      },
+    );
   }
 
   @override
@@ -171,8 +234,10 @@ class _TrafficChartState extends State<TrafficChart>
         widget.uploadSpeed,
       );
     }
-    // 代理状态变化时刷新 IP
+    // 代理状态变化时刷新 IP (only if state actually changed)
     if (widget.isProxyRunning != oldWidget.isProxyRunning) {
+      // Clear cache when proxy state changes
+      _ipInfoCache.clear();
       Future.delayed(const Duration(milliseconds: 500), _fetchIpInfo);
     }
   }
@@ -180,15 +245,26 @@ class _TrafficChartState extends State<TrafficChart>
   @override
   void dispose() {
     _pulseController.dispose();
+    _proxySelectionSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _fetchIpInfo() async {
     if (_isLoadingIp) return;
-    setState(() => _isLoadingIp = true);
+    setState(() {
+      _isLoadingIp = true;
+      _ipError = null;
+    });
 
     // Fetch IPv4 and IPv6 info in parallel
     await Future.wait([_fetchIpv4Info(), _fetchIpv6Info()]);
+
+    // Update cache
+    _ipInfoCache.update(
+      ipv4: _ipv4Info,
+      ipv6: _ipv6Info,
+      proxyState: widget.isProxyRunning,
+    );
 
     if (mounted) {
       setState(() => _isLoadingIp = false);
@@ -243,11 +319,22 @@ class _TrafficChartState extends State<TrafficChart>
               organization: data['organization']?.toString(),
               isIpv6: (data['ip']?.toString() ?? '').contains(':'),
             );
+            _ipError = null;
           });
         }
       }
       dio.close();
-    } catch (e) {
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout) {
+        if (mounted) {
+          setState(() {
+            _ipError = 'Connect Timeout';
+          });
+        }
+        return;
+      }
       // Fallback to simple IP API
       try {
         final dio = _createDioClient(useProxy: widget.isProxyRunning);
@@ -257,12 +344,37 @@ class _TrafficChartState extends State<TrafficChart>
           if (mounted) {
             setState(() {
               _ipv4Info = IpInfo(ip: body);
+              _ipError = null;
             });
           }
         }
         dio.close();
+      } on DioException catch (e2) {
+        if (e2.type == DioExceptionType.connectionTimeout ||
+            e2.type == DioExceptionType.receiveTimeout ||
+            e2.type == DioExceptionType.sendTimeout) {
+          if (mounted) {
+            setState(() {
+              _ipError = 'Connect Timeout';
+            });
+          }
+        } else {
+          debugPrint('Failed to fetch IPv4 info: $e2');
+          if (mounted) {
+            setState(() {
+              _ipError = 'Network Error';
+            });
+          }
+        }
       } catch (_) {
         debugPrint('Failed to fetch IPv4 info: $e');
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch IPv4 info: $e');
+      if (mounted) {
+        setState(() {
+          _ipError = 'Network Error';
+        });
       }
     }
   }
@@ -364,6 +476,7 @@ class _TrafficChartState extends State<TrafficChart>
           onRefresh: _fetchIpInfo,
           colorScheme: colorScheme,
           textTheme: textTheme,
+          error: _ipError,
         ),
 
         SizedBox(height: spacing * 2),
@@ -721,6 +834,7 @@ class _IpInfoCard extends StatelessWidget {
   final VoidCallback onRefresh;
   final ColorScheme colorScheme;
   final TextTheme textTheme;
+  final String? error;
 
   const _IpInfoCard({
     required this.ipv4Info,
@@ -730,6 +844,7 @@ class _IpInfoCard extends StatelessWidget {
     required this.onRefresh,
     required this.colorScheme,
     required this.textTheme,
+    this.error,
   });
 
   @override
@@ -882,8 +997,19 @@ class _IpInfoCard extends StatelessWidget {
                 ),
               ],
 
+              // 错误信息显示（支持滚动）
+              if (error != null && ipv4Info == null && ipv6Info == null)
+                _AutoScrollText(
+                  text: error!,
+                  isp: null,
+                  isProxyRunning: false,
+                  colorScheme: colorScheme,
+                  textTheme: textTheme,
+                  isError: true,
+                ),
+
               // 无 IP 时显示占位
-              if (ipv4Info == null && ipv6Info == null)
+              if (ipv4Info == null && ipv6Info == null && error == null)
                 Text(
                   '--',
                   style: textTheme.titleMedium?.copyWith(
@@ -985,6 +1111,7 @@ class _AutoScrollText extends StatefulWidget {
   final bool isProxyRunning;
   final ColorScheme colorScheme;
   final TextTheme textTheme;
+  final bool isError;
 
   const _AutoScrollText({
     required this.text,
@@ -992,6 +1119,7 @@ class _AutoScrollText extends StatefulWidget {
     required this.isProxyRunning,
     required this.colorScheme,
     required this.textTheme,
+    this.isError = false,
   });
 
   @override
@@ -1045,12 +1173,6 @@ class _AutoScrollTextState extends State<_AutoScrollText>
 
       // 使用正弦波实现来回滚动效果
       final progress = _animationController.value;
-      final scrollPosition =
-          _maxScrollExtent *
-          (0.5 -
-              0.5 *
-                  (1 - progress * 2).abs().clamp(0.0, 1.0) *
-                  (progress < 0.5 ? 1 : -1));
 
       // 简单的来回滚动
       if (progress < 0.45) {
@@ -1105,7 +1227,9 @@ class _AutoScrollTextState extends State<_AutoScrollText>
             style: widget.textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w600,
               fontFamily: 'monospace',
-              color: widget.isProxyRunning
+              color: widget.isError
+                  ? widget.colorScheme.error
+                  : widget.isProxyRunning
                   ? widget.colorScheme.primary
                   : widget.colorScheme.onSurface,
             ),

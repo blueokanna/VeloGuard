@@ -42,6 +42,42 @@ class IpCheckCard extends StatefulWidget {
   State<IpCheckCard> createState() => _IpCheckCardState();
 }
 
+/// Global IP info cache for IpCheckCard
+class _IpCheckCache {
+  IpInfo? ipInfo;
+  DateTime? lastFetchTime;
+  bool? lastProxyState;
+
+  /// Cache duration - 5 minutes
+  static const cacheDuration = Duration(minutes: 5);
+
+  bool shouldRefresh(bool isProxyRunning) {
+    // Refresh if proxy state changed
+    if (lastProxyState != null && lastProxyState != isProxyRunning) {
+      return true;
+    }
+    // Refresh if cache expired
+    if (lastFetchTime == null) {
+      return true;
+    }
+    return DateTime.now().difference(lastFetchTime!) > cacheDuration;
+  }
+
+  void update({required IpInfo? info, required bool proxyState}) {
+    ipInfo = info;
+    lastFetchTime = DateTime.now();
+    lastProxyState = proxyState;
+  }
+
+  void clear() {
+    ipInfo = null;
+    lastFetchTime = null;
+    lastProxyState = null;
+  }
+}
+
+final _ipCheckCache = _IpCheckCache();
+
 class _IpCheckCardState extends State<IpCheckCard>
     with SingleTickerProviderStateMixin {
   IpInfo? _ipInfo;
@@ -56,8 +92,16 @@ class _IpCheckCardState extends State<IpCheckCard>
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-    // 初始加载
-    _checkIp();
+
+    // Use cached data if available
+    if (_ipCheckCache.ipInfo != null) {
+      _ipInfo = _ipCheckCache.ipInfo;
+    }
+
+    // Only fetch if cache needs refresh
+    if (_ipCheckCache.shouldRefresh(widget.isProxyRunning)) {
+      _checkIp();
+    }
   }
 
   @override
@@ -65,6 +109,8 @@ class _IpCheckCardState extends State<IpCheckCard>
     super.didUpdateWidget(oldWidget);
     // 代理状态变化时自动刷新
     if (widget.isProxyRunning != oldWidget.isProxyRunning) {
+      // Clear cache when proxy state changes
+      _ipCheckCache.clear();
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _checkIp();
       });
@@ -93,8 +139,13 @@ class _IpCheckCardState extends State<IpCheckCard>
       if (ip != null && mounted) {
         // 尝试获取更多 IP 信息
         final ipInfo = await _fetchIpDetails(ip);
+        final result = ipInfo ?? IpInfo(ip: ip);
+
+        // Update cache
+        _ipCheckCache.update(info: result, proxyState: widget.isProxyRunning);
+
         setState(() {
-          _ipInfo = ipInfo ?? IpInfo(ip: ip);
+          _ipInfo = result;
           _isLoading = false;
         });
       } else if (mounted) {

@@ -250,11 +250,19 @@ impl HttpInbound {
                 Ok(upgraded) => {
                     let upgraded = TokioIo::new(upgraded);
                     
-                    // Track the connection
-                    let tracked_conn = TrackedConnection::new(
+                    // Try to resolve the destination IP for display
+                    let destination_ip = tokio::net::lookup_host(format!("{}:{}", host, port))
+                        .await
+                        .ok()
+                        .and_then(|mut addrs| addrs.next())
+                        .map(|addr| addr.ip().to_string());
+                    
+                    // Track the connection with IP address
+                    let tracked_conn = TrackedConnection::new_with_ip(
                         "http".to_string(),
                         outbound_tag_clone.clone(),
                         host.clone(),
+                        destination_ip,
                         port,
                         "HTTPS".to_string(),
                         "tcp".to_string(),

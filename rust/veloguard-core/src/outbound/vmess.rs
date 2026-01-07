@@ -2,17 +2,25 @@ use crate::config::OutboundConfig;
 use crate::connection_tracker::{global_tracker, TrackedConnection};
 use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundProxy, TargetAddr};
+use crate::tls::SkipServerVerification;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes128Gcm, Nonce,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chacha20poly1305::ChaCha20Poly1305;
+use dashmap::DashMap;
 use md5::{Digest as Md5Digest, Md5};
+use quinn::{ClientConfig as QuinnClientConfig, Endpoint};
+use sha1::Sha1;
 use sha2::Sha256;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const VMESS_VERSION: u8 = 1;
@@ -89,6 +97,577 @@ bitflags::bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmessTransport {
+    Tcp,
+    Ws,
+    H2,
+    Grpc,
+    Quic,
+}
+
+impl VmessTransport {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "ws" | "websocket" => VmessTransport::Ws,
+            "h2" | "http2" => VmessTransport::H2,
+            "grpc" => VmessTransport::Grpc,
+            "quic" => VmessTransport::Quic,
+            _ => VmessTransport::Tcp,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VmessWsOptions {
+    pub path: String,
+    pub host: Option<String>,
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+impl Default for VmessWsOptions {
+    fn default() -> Self {
+        Self {
+            path: "/".to_string(),
+            host: None,
+            headers: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// UDP session state for VMess
+struct VmessUdpSession {
+    stream: tokio::sync::Mutex<Box<dyn AsyncReadWrite>>,
+    request_key: [u8; 16],
+    request_iv: [u8; 16],
+    response_key: [u8; 16],
+    response_iv: [u8; 16],
+    chunk_count: AtomicU64,
+    last_used: std::sync::RwLock<Instant>,
+}
+
+impl VmessUdpSession {
+    fn new(
+        stream: Box<dyn AsyncReadWrite>,
+        request_key: [u8; 16],
+        request_iv: [u8; 16],
+        response_key: [u8; 16],
+        response_iv: [u8; 16],
+    ) -> Self {
+        Self {
+            stream: tokio::sync::Mutex::new(stream),
+            request_key,
+            request_iv,
+            response_key,
+            response_iv,
+            chunk_count: AtomicU64::new(0),
+            last_used: std::sync::RwLock::new(Instant::now()),
+        }
+    }
+
+    fn next_chunk_count(&self) -> u16 {
+        (self.chunk_count.fetch_add(1, Ordering::SeqCst) % 65536) as u16
+    }
+
+    fn touch(&self) {
+        if let Ok(mut guard) = self.last_used.write() {
+            *guard = Instant::now();
+        }
+    }
+
+    fn is_expired(&self, timeout: Duration) -> bool {
+        if let Ok(guard) = self.last_used.read() {
+            guard.elapsed() > timeout
+        } else {
+            true
+        }
+    }
+}
+
+/// QUIC bidirectional stream wrapper that implements AsyncRead and AsyncWrite
+pub struct QuicBiStream {
+    send: quinn::SendStream,
+    recv: quinn::RecvStream,
+}
+
+impl QuicBiStream {
+    pub fn new(send: quinn::SendStream, recv: quinn::RecvStream) -> Self {
+        Self { send, recv }
+    }
+}
+
+impl AsyncRead for QuicBiStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+
+        let this = self.get_mut();
+        let recv = &mut this.recv;
+        let unfilled = buf.initialize_unfilled();
+        use futures::AsyncRead as FuturesAsyncRead;
+        let pinned = std::pin::Pin::new(recv);
+
+        match FuturesAsyncRead::poll_read(pinned, cx, unfilled) {
+            Poll::Ready(Ok(n)) => {
+                buf.advance(n);
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl AsyncWrite for QuicBiStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        let this = self.get_mut();
+        let pinned = std::pin::Pin::new(&mut this.send);
+        FuturesAsyncWrite::poll_write(pinned, cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        let this = self.get_mut();
+        let pinned = std::pin::Pin::new(&mut this.send);
+        FuturesAsyncWrite::poll_flush(pinned, cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        let this = self.get_mut();
+        let pinned = std::pin::Pin::new(&mut this.send);
+        FuturesAsyncWrite::poll_close(pinned, cx)
+    }
+}
+
+pub struct WebSocketStream<S> {
+    inner: S,
+    read_buffer: Vec<u8>,
+    read_pos: usize,
+}
+
+impl<S> WebSocketStream<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            read_buffer: Vec::new(),
+            read_pos: 0,
+        }
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
+    /// Perform WebSocket handshake
+    pub async fn handshake(
+        stream: S,
+        host: &str,
+        path: &str,
+        extra_headers: &std::collections::HashMap<String, String>,
+    ) -> Result<Self> {
+        let mut ws = Self::new(stream);
+
+        let mut key_bytes = [0u8; 16];
+        getrandom::fill(&mut key_bytes)
+            .map_err(|e| Error::protocol(format!("Failed to generate WebSocket key: {}", e)))?;
+        let ws_key = BASE64.encode(key_bytes);
+        let mut request = format!(
+            "GET {} HTTP/1.1\r\n\
+             Host: {}\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: {}\r\n\
+             Sec-WebSocket-Version: 13\r\n",
+            path, host, ws_key
+        );
+
+        // Add extra headers
+        for (key, value) in extra_headers {
+            if key.to_lowercase() != "host" {
+                request.push_str(&format!("{}: {}\r\n", key, value));
+            }
+        }
+        request.push_str("\r\n");
+        ws.inner
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|e| Error::network(format!("Failed to send WebSocket handshake: {}", e)))?;
+        ws.inner.flush().await.ok();
+
+        let mut response = Vec::with_capacity(1024);
+        let mut buf = [0u8; 1];
+        let mut found_end = false;
+
+        while response.len() < 4096 {
+            ws.inner
+                .read_exact(&mut buf)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read WebSocket response: {}", e)))?;
+            response.push(buf[0]);
+
+            // Check for \r\n\r\n
+            if response.len() >= 4 && &response[response.len() - 4..] == b"\r\n\r\n" {
+                found_end = true;
+                break;
+            }
+        }
+
+        if !found_end {
+            return Err(Error::protocol(
+                "WebSocket handshake response too long or incomplete",
+            ));
+        }
+
+        let response_str = String::from_utf8_lossy(&response);
+
+        // Verify response status
+        if !response_str.starts_with("HTTP/1.1 101") {
+            return Err(Error::protocol(format!(
+                "WebSocket handshake failed: {}",
+                response_str.lines().next().unwrap_or("unknown")
+            )));
+        }
+
+        // Verify Sec-WebSocket-Accept
+        let expected_accept = compute_websocket_accept(&ws_key);
+        let accept_found = response_str.lines().any(|line| {
+            let lower = line.to_lowercase();
+            if lower.starts_with("sec-websocket-accept:") {
+                let value = line.split(':').nth(1).map(|s| s.trim()).unwrap_or("");
+                value == expected_accept
+            } else {
+                false
+            }
+        });
+
+        if !accept_found {
+            tracing::warn!(
+                "WebSocket Sec-WebSocket-Accept header mismatch or missing, continuing anyway"
+            );
+        }
+
+        tracing::debug!("WebSocket handshake completed successfully");
+        Ok(ws)
+    }
+
+    #[allow(dead_code)]
+    pub async fn write_frame(&mut self, data: &[u8]) -> Result<()> {
+        let mut frame = Vec::with_capacity(14 + data.len());
+
+        frame.push(0x82);
+        let len = data.len();
+        if len < 126 {
+            frame.push(0x80 | len as u8);
+        } else if len < 65536 {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+
+        let mut mask = [0u8; 4];
+        getrandom::fill(&mut mask)
+            .map_err(|e| Error::protocol(format!("Failed to generate mask: {}", e)))?;
+        frame.extend_from_slice(&mask);
+
+        // Masked payload
+        for (i, byte) in data.iter().enumerate() {
+            frame.push(byte ^ mask[i % 4]);
+        }
+
+        self.inner
+            .write_all(&frame)
+            .await
+            .map_err(|e| Error::network(format!("Failed to write WebSocket frame: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Read a WebSocket frame, returns the payload data
+    #[allow(dead_code)]
+    pub async fn read_frame(&mut self) -> Result<Vec<u8>> {
+        // Read first 2 bytes
+        let mut header = [0u8; 2];
+        self.inner
+            .read_exact(&mut header)
+            .await
+            .map_err(|e| Error::network(format!("Failed to read WebSocket frame header: {}", e)))?;
+
+        let _fin = (header[0] & 0x80) != 0;
+        let opcode = header[0] & 0x0F;
+        let masked = (header[1] & 0x80) != 0;
+        let mut payload_len = (header[1] & 0x7F) as u64;
+
+        if opcode == 0x08 {
+            return Err(Error::network("WebSocket connection closed by server"));
+        }
+
+        // Handle ping frame - read payload and continue (non-recursive)
+        if opcode == 0x09 {
+            if payload_len > 0 {
+                let mut ping_data = vec![0u8; payload_len as usize];
+                self.inner.read_exact(&mut ping_data).await.ok();
+            }
+            // Return empty to signal caller should retry
+            return Ok(Vec::new());
+        }
+
+        // Extended payload length
+        if payload_len == 126 {
+            let mut ext = [0u8; 2];
+            self.inner
+                .read_exact(&mut ext)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read extended length: {}", e)))?;
+            payload_len = u16::from_be_bytes(ext) as u64;
+        } else if payload_len == 127 {
+            let mut ext = [0u8; 8];
+            self.inner
+                .read_exact(&mut ext)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read extended length: {}", e)))?;
+            payload_len = u64::from_be_bytes(ext);
+        }
+
+        let mask = if masked {
+            let mut m = [0u8; 4];
+            self.inner
+                .read_exact(&mut m)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read mask: {}", e)))?;
+            Some(m)
+        } else {
+            None
+        };
+
+        // Read payload
+        let mut payload = vec![0u8; payload_len as usize];
+        self.inner
+            .read_exact(&mut payload)
+            .await
+            .map_err(|e| Error::network(format!("Failed to read WebSocket payload: {}", e)))?;
+
+        // Unmask if needed
+        if let Some(m) = mask {
+            for (i, byte) in payload.iter_mut().enumerate() {
+                *byte ^= m[i % 4];
+            }
+        }
+
+        Ok(payload)
+    }
+
+    /// Read frame with retry for control frames
+    #[allow(dead_code)]
+    pub async fn read_frame_data(&mut self) -> Result<Vec<u8>> {
+        loop {
+            let data = self.read_frame().await?;
+            if !data.is_empty() {
+                return Ok(data);
+            }
+        }
+    }
+}
+
+fn compute_websocket_accept(key: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(key.as_bytes());
+    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    let result = hasher.finalize();
+    BASE64.encode(result)
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for WebSocketStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+
+        // If we have buffered data, return it first
+        if self.read_pos < self.read_buffer.len() {
+            let remaining = &self.read_buffer[self.read_pos..];
+            let to_copy = std::cmp::min(remaining.len(), buf.remaining());
+            buf.put_slice(&remaining[..to_copy]);
+            self.read_pos += to_copy;
+
+            // Clear buffer if fully consumed
+            if self.read_pos >= self.read_buffer.len() {
+                self.read_buffer.clear();
+                self.read_pos = 0;
+            }
+
+            return Poll::Ready(Ok(()));
+        }
+
+        // We need to read a new WebSocket frame
+        // For simplicity, we'll read the frame synchronously using a future
+        // This is not ideal but works for now
+
+        // Read 2-byte header
+        let mut header = [0u8; 2];
+        let inner = &mut self.inner;
+
+        // Try to read header
+        let mut header_buf = tokio::io::ReadBuf::new(&mut header);
+        match std::pin::Pin::new(&mut *inner).poll_read(cx, &mut header_buf) {
+            Poll::Ready(Ok(())) => {
+                if header_buf.filled().len() < 2 {
+                    // EOF or incomplete read
+                    return Poll::Ready(Ok(()));
+                }
+            }
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+            Poll::Pending => return Poll::Pending,
+        }
+
+        let opcode = header[0] & 0x0F;
+        let masked = (header[1] & 0x80) != 0;
+        let payload_len_byte = header[1] & 0x7F;
+
+        // Handle close frame
+        if opcode == 0x08 {
+            return Poll::Ready(Ok(()));
+        }
+
+        // For now, we only handle small frames (< 126 bytes) in the poll
+        // Larger frames would need more complex state management
+        if payload_len_byte >= 126 {
+            // For larger frames, we need to buffer and handle asynchronously
+            // This is a simplified implementation
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Large WebSocket frames not yet supported in poll_read",
+            )));
+        }
+
+        let payload_len = payload_len_byte as usize;
+        let mask_len = if masked { 4 } else { 0 };
+        let total_len = payload_len + mask_len;
+
+        if total_len == 0 {
+            // Empty frame (like ping response)
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+
+        // Read mask and payload
+        let mut frame_data = vec![0u8; total_len];
+        let mut frame_buf = tokio::io::ReadBuf::new(&mut frame_data);
+
+        match std::pin::Pin::new(&mut *inner).poll_read(cx, &mut frame_buf) {
+            Poll::Ready(Ok(())) => {
+                if frame_buf.filled().len() < total_len {
+                    // Incomplete read, need to buffer
+                    self.read_buffer = frame_buf.filled().to_vec();
+                    self.read_pos = 0;
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+            }
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+            Poll::Pending => return Poll::Pending,
+        }
+
+        // Extract mask and unmask payload
+        let payload = if masked {
+            let mask: [u8; 4] = [frame_data[0], frame_data[1], frame_data[2], frame_data[3]];
+            let mut payload = frame_data[4..].to_vec();
+            for (i, byte) in payload.iter_mut().enumerate() {
+                *byte ^= mask[i % 4];
+            }
+            payload
+        } else {
+            frame_data
+        };
+
+        // Copy to output buffer
+        let to_copy = std::cmp::min(payload.len(), buf.remaining());
+        buf.put_slice(&payload[..to_copy]);
+
+        // Buffer remaining data
+        if to_copy < payload.len() {
+            self.read_buffer = payload[to_copy..].to_vec();
+            self.read_pos = 0;
+        }
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+// Implement AsyncWrite for WebSocketStream
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncWrite for WebSocketStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        use std::task::Poll;
+
+        let mut frame = Vec::with_capacity(14 + buf.len());
+        frame.push(0x82);
+
+        let len = buf.len();
+        if len < 126 {
+            frame.push(0x80 | len as u8);
+        } else if len < 65536 {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+
+        let mask: [u8; 4] = rand::random();
+        frame.extend_from_slice(&mask);
+
+        for (i, byte) in buf.iter().enumerate() {
+            frame.push(byte ^ mask[i % 4]);
+        }
+
+        // Write the frame
+        let inner = &mut self.inner;
+        let pinned = std::pin::Pin::new(inner);
+
+        match pinned.poll_write(cx, &frame) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let inner = &mut self.inner;
+        std::pin::Pin::new(inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let inner = &mut self.inner;
+        std::pin::Pin::new(inner).poll_shutdown(cx)
+    }
+}
+
 pub struct VmessOutbound {
     config: OutboundConfig,
     server: String,
@@ -101,6 +680,17 @@ pub struct VmessOutbound {
     cipher: VmessCipher,
     udp_enabled: bool,
     cmd_key: [u8; 16],
+    transport: VmessTransport,
+    tls_enabled: bool,
+    skip_cert_verify: bool,
+    sni: Option<String>,
+    ws_opts: Option<VmessWsOptions>,
+    // QUIC-specific fields
+    quic_endpoint: Mutex<Option<Endpoint>>,
+    quic_connection: Mutex<Option<quinn::Connection>>,
+    quic_alpn: Vec<String>,
+    // UDP session management
+    udp_sessions: DashMap<String, Arc<VmessUdpSession>>,
 }
 
 pub struct VmessHeader {
@@ -141,8 +731,8 @@ impl VmessOutbound {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::config("Missing UUID for VMess"))?;
 
-        let uuid = Uuid::parse_str(uuid_str)
-            .map_err(|e| Error::config(format!("Invalid UUID: {}", e)))?;
+        let uuid =
+            Uuid::parse_str(uuid_str).map_err(|e| Error::config(format!("Invalid UUID: {}", e)))?;
 
         let uuid_bytes = *uuid.as_bytes();
 
@@ -164,9 +754,95 @@ impl VmessOutbound {
             .options
             .get("udp")
             .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // Parse transport type
+        let transport_str = config
+            .options
+            .get("network")
+            .and_then(|v| v.as_str())
+            .unwrap_or("tcp");
+        let transport = VmessTransport::from_str(transport_str);
+
+        // Parse TLS settings
+        let tls_enabled = config
+            .options
+            .get("tls")
+            .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let skip_cert_verify = config
+            .options
+            .get("skip-cert-verify")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let sni = config
+            .options
+            .get("sni")
+            .or_else(|| config.options.get("servername"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Parse WebSocket options
+        let ws_opts = if transport == VmessTransport::Ws {
+            let ws_opts_value = config.options.get("ws-opts");
+            let path = ws_opts_value
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("/")
+                .to_string();
+
+            let host = ws_opts_value
+                .and_then(|v| v.get("headers"))
+                .and_then(|v| v.get("Host"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            let mut headers = std::collections::HashMap::new();
+            if let Some(headers_value) = ws_opts_value.and_then(|v| v.get("headers")) {
+                if let Some(map) = headers_value.as_mapping() {
+                    for (k, v) in map {
+                        if let (Some(key), Some(value)) = (k.as_str(), v.as_str()) {
+                            headers.insert(key.to_string(), value.to_string());
+                        }
+                    }
+                }
+            }
+
+            Some(VmessWsOptions {
+                path,
+                host,
+                headers,
+            })
+        } else {
+            None
+        };
+
+        // Parse QUIC ALPN
+        let quic_alpn = config
+            .options
+            .get("quic-opts")
+            .and_then(|v| v.get("alpn"))
+            .and_then(|v| v.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| vec!["h3".to_string()]);
+
         let cmd_key = generate_cmd_key(&uuid_bytes);
+
+        tracing::info!(
+            "VMess outbound '{}' created: server={}:{}, transport={:?}, tls={}, udp={}",
+            config.tag,
+            server,
+            port,
+            transport,
+            tls_enabled,
+            udp_enabled
+        );
 
         Ok(Self {
             config,
@@ -178,6 +854,15 @@ impl VmessOutbound {
             cipher,
             udp_enabled,
             cmd_key,
+            transport,
+            tls_enabled,
+            skip_cert_verify,
+            sni,
+            ws_opts,
+            quic_endpoint: Mutex::new(None),
+            quic_connection: Mutex::new(None),
+            quic_alpn,
+            udp_sessions: DashMap::new(),
         })
     }
 
@@ -255,8 +940,14 @@ impl VmessOutbound {
         let auth_id = self.generate_auth_id(timestamp);
         let connection_nonce = generate_connection_nonce();
 
-        let header_key = kdf16(&self.cmd_key, &[b"VMess Header AEAD Key", &auth_id, &connection_nonce]);
-        let header_nonce = kdf12(&self.cmd_key, &[b"VMess Header AEAD Nonce", &auth_id, &connection_nonce]);
+        let header_key = kdf16(
+            &self.cmd_key,
+            &[b"VMess Header AEAD Key", &auth_id, &connection_nonce],
+        );
+        let header_nonce = kdf12(
+            &self.cmd_key,
+            &[b"VMess Header AEAD Nonce", &auth_id, &connection_nonce],
+        );
 
         let cipher = Aes128Gcm::new_from_slice(&header_key)
             .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
@@ -266,8 +957,18 @@ impl VmessOutbound {
             .encrypt(nonce, header_buf.as_ref())
             .map_err(|e| Error::protocol(format!("Failed to encrypt header: {}", e)))?;
 
-        let header_length_key = kdf16(&self.cmd_key, &[b"VMess Header AEAD Key Length", &auth_id, &connection_nonce]);
-        let header_length_nonce = kdf12(&self.cmd_key, &[b"VMess Header AEAD Nonce Length", &auth_id, &connection_nonce]);
+        let header_length_key = kdf16(
+            &self.cmd_key,
+            &[b"VMess Header AEAD Key Length", &auth_id, &connection_nonce],
+        );
+        let header_length_nonce = kdf12(
+            &self.cmd_key,
+            &[
+                b"VMess Header AEAD Nonce Length",
+                &auth_id,
+                &connection_nonce,
+            ],
+        );
 
         let length_cipher = Aes128Gcm::new_from_slice(&header_length_key)
             .map_err(|e| Error::protocol(format!("Failed to create length cipher: {}", e)))?;
@@ -278,7 +979,8 @@ impl VmessOutbound {
             .encrypt(length_nonce, length_bytes.as_ref())
             .map_err(|e| Error::protocol(format!("Failed to encrypt length: {}", e)))?;
 
-        let mut result = Vec::with_capacity(16 + 8 + encrypted_length.len() + encrypted_header.len());
+        let mut result =
+            Vec::with_capacity(16 + 8 + encrypted_length.len() + encrypted_header.len());
         result.extend_from_slice(&auth_id);
         result.extend_from_slice(&encrypted_length);
         result.extend_from_slice(&connection_nonce);
@@ -327,7 +1029,189 @@ impl VmessOutbound {
         Ok(stream)
     }
 
-    async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    /// Connect with TLS if enabled
+    async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+        let tcp_stream = self.connect_tcp().await?;
+
+        let sni = self.sni.as_deref().unwrap_or(&self.server);
+
+        // Build TLS config
+        let mut root_store = rustls::RootCertStore::empty();
+        let certs = rustls_native_certs::load_native_certs();
+        for cert in certs.certs {
+            root_store.add(cert).ok();
+        }
+
+        let tls_config = if self.skip_cert_verify {
+            let verifier = std::sync::Arc::new(crate::tls::SkipServerVerification);
+            rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(verifier)
+                .with_no_client_auth()
+        } else {
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        };
+
+        let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls_config));
+        let server_name = rustls::pki_types::ServerName::try_from(sni.to_string())
+            .map_err(|_| Error::config(format!("Invalid SNI: {}", sni)))?;
+
+        let tls_stream = connector
+            .connect(server_name, tcp_stream)
+            .await
+            .map_err(|e| Error::network(format!("TLS handshake failed: {}", e)))?;
+
+        Ok(tls_stream)
+    }
+
+    /// Connect and return a boxed stream (TCP, TLS, or WebSocket)
+    async fn connect_stream(&self) -> Result<Box<dyn AsyncReadWrite>> {
+        match self.transport {
+            VmessTransport::Ws => {
+                let default_ws_opts = VmessWsOptions::default();
+                let ws_opts = self.ws_opts.as_ref().unwrap_or(&default_ws_opts);
+                let host = ws_opts.host.as_deref().unwrap_or(&self.server);
+                let path = &ws_opts.path;
+
+                if self.tls_enabled {
+                    let tls_stream = self.connect_tls().await?;
+                    let ws_stream =
+                        WebSocketStream::handshake(tls_stream, host, path, &ws_opts.headers)
+                            .await?;
+                    Ok(Box::new(ws_stream) as Box<dyn AsyncReadWrite>)
+                } else {
+                    let tcp_stream = self.connect_tcp().await?;
+                    let ws_stream =
+                        WebSocketStream::handshake(tcp_stream, host, path, &ws_opts.headers)
+                            .await?;
+                    Ok(Box::new(ws_stream) as Box<dyn AsyncReadWrite>)
+                }
+            }
+            VmessTransport::Quic => {
+                let quic_stream = self.connect_quic().await?;
+                Ok(Box::new(quic_stream) as Box<dyn AsyncReadWrite>)
+            }
+            _ => {
+                // TCP or other transports
+                if self.tls_enabled {
+                    let tls_stream = self.connect_tls().await?;
+                    Ok(Box::new(tls_stream) as Box<dyn AsyncReadWrite>)
+                } else {
+                    let tcp_stream = self.connect_tcp().await?;
+                    Ok(Box::new(tcp_stream) as Box<dyn AsyncReadWrite>)
+                }
+            }
+        }
+    }
+
+    /// Connect via QUIC transport
+    async fn connect_quic(&self) -> Result<QuicBiStream> {
+        let addr = format!("{}:{}", self.server, self.port);
+        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
+            .await
+            .map_err(|e| Error::network(format!("Failed to resolve VMess server {}: {}", addr, e)))?
+            .next()
+            .ok_or_else(|| {
+                Error::network(format!("No addresses found for VMess server {}", addr))
+            })?;
+
+        // Check if we have an existing connection
+        {
+            let conn_guard = self.quic_connection.lock().await;
+            if let Some(ref conn) = *conn_guard {
+                if conn.close_reason().is_none() {
+                    // Connection is still alive, open a new stream
+                    let (send, recv) = conn.open_bi().await.map_err(|e| {
+                        Error::network(format!("Failed to open QUIC stream: {}", e))
+                    })?;
+                    return Ok(QuicBiStream::new(send, recv));
+                }
+            }
+        }
+
+        // Create new connection
+        let mut endpoint_guard = self.quic_endpoint.lock().await;
+        let endpoint = match endpoint_guard.take() {
+            Some(ep) => ep,
+            None => {
+                let bind_addr: SocketAddr = if socket_addr.is_ipv6() {
+                    "[::]:0".parse().unwrap()
+                } else {
+                    "0.0.0.0:0".parse().unwrap()
+                };
+                Endpoint::client(bind_addr)
+                    .map_err(|e| Error::network(format!("Failed to create QUIC endpoint: {}", e)))?
+            }
+        };
+
+        // Build TLS config for QUIC
+        let mut root_store = rustls::RootCertStore::empty();
+        let certs = rustls_native_certs::load_native_certs();
+        for cert in certs.certs {
+            root_store.add(cert).ok();
+        }
+
+        let mut tls_config = if self.skip_cert_verify {
+            rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
+                .with_no_client_auth()
+        } else {
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        };
+
+        tls_config.alpn_protocols = self
+            .quic_alpn
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect();
+
+        let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)
+            .map_err(|e| Error::config(format!("Failed to create QUIC config: {}", e)))?;
+
+        let mut client_config = QuinnClientConfig::new(Arc::new(quic_config));
+
+        // Configure transport
+        let mut transport_config = quinn::TransportConfig::default();
+        transport_config.max_concurrent_bidi_streams(100u32.into());
+        transport_config.max_concurrent_uni_streams(100u32.into());
+        transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
+        transport_config.keep_alive_interval(Some(Duration::from_secs(10)));
+        client_config.transport_config(Arc::new(transport_config));
+
+        let server_name = self.sni.as_deref().unwrap_or(&self.server);
+
+        let connecting = endpoint
+            .connect_with(client_config, socket_addr, server_name)
+            .map_err(|e| {
+                Error::network(format!("Failed to connect to VMess QUIC server: {}", e))
+            })?;
+
+        let connection = connecting
+            .await
+            .map_err(|e| Error::network(format!("QUIC connection failed: {}", e)))?;
+
+        tracing::debug!("VMess QUIC connection established to {}", socket_addr);
+
+        // Open a bidirectional stream
+        let (send, recv) = connection
+            .open_bi()
+            .await
+            .map_err(|e| Error::network(format!("Failed to open QUIC stream: {}", e)))?;
+
+        // Store connection and endpoint for reuse
+        *endpoint_guard = Some(endpoint);
+        let mut conn_guard = self.quic_connection.lock().await;
+        *conn_guard = Some(connection);
+
+        Ok(QuicBiStream::new(send, recv))
+    }
+
+    async fn handshake<S: AsyncRead + AsyncWrite + Unpin + ?Sized>(
         &self,
         stream: &mut S,
         target: &TargetAddr,
@@ -345,12 +1229,8 @@ impl VmessOutbound {
                 (VmessAddressType::Domain, bytes)
             }
             TargetAddr::Ip(addr) => match addr {
-                std::net::SocketAddr::V4(v4) => {
-                    (VmessAddressType::Ipv4, v4.ip().octets().to_vec())
-                }
-                std::net::SocketAddr::V6(v6) => {
-                    (VmessAddressType::Ipv6, v6.ip().octets().to_vec())
-                }
+                std::net::SocketAddr::V4(v4) => (VmessAddressType::Ipv4, v4.ip().octets().to_vec()),
+                std::net::SocketAddr::V6(v6) => (VmessAddressType::Ipv6, v6.ip().octets().to_vec()),
             },
         };
 
@@ -359,7 +1239,10 @@ impl VmessOutbound {
             request_body_iv: request_iv,
             request_body_key: request_key,
             response_header: response_header_byte,
-            option: VmessOption::CHUNK_STREAM | VmessOption::CHUNK_MASKING | VmessOption::GLOBAL_PADDING | VmessOption::AUTHENTICATED_LENGTH,
+            option: VmessOption::CHUNK_STREAM
+                | VmessOption::CHUNK_MASKING
+                | VmessOption::GLOBAL_PADDING
+                | VmessOption::AUTHENTICATED_LENGTH,
             padding_length: rand::random::<u8>() % 16,
             security: self.cipher,
             command: cmd,
@@ -375,9 +1258,10 @@ impl VmessOutbound {
 
         let sealed_header = self.seal_header(&header, timestamp)?;
 
-        stream.write_all(&sealed_header).await.map_err(|e| {
-            Error::network(format!("Failed to send VMess header: {}", e))
-        })?;
+        stream
+            .write_all(&sealed_header)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send VMess header: {}", e)))?;
         stream.flush().await.ok();
 
         tracing::debug!("VMess handshake sent for target: {}", target);
@@ -389,45 +1273,150 @@ impl VmessOutbound {
         self.udp_enabled
     }
 
-    pub async fn relay_udp(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
-        if !self.udp_enabled {
-            return Err(Error::config("UDP relay is not enabled for this VMess proxy"));
+    /// Get or create a UDP session for the given target
+    async fn get_or_create_udp_session(&self, target: &TargetAddr) -> Result<Arc<VmessUdpSession>> {
+        let session_key = target.to_string();
+        
+        // Check for existing session
+        if let Some(session) = self.udp_sessions.get(&session_key) {
+            let session = session.clone();
+            if !session.is_expired(Duration::from_secs(60)) {
+                session.touch();
+                return Ok(session);
+            }
+            // Session expired, remove it
+            self.udp_sessions.remove(&session_key);
         }
 
-        let mut stream = self.connect_tcp().await?;
-        let (request_key, request_iv, _response_header) = 
-            self.handshake(&mut stream, target, VmessCommand::Udp).await?;
-
-        let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, 0)?;
-        stream.write_all(&encrypted_data).await.map_err(|e| {
-            Error::network(format!("Failed to send UDP data: {}", e))
-        })?;
-        stream.flush().await.ok();
+        // Create new session
+        let mut stream = self.connect_stream().await?;
+        let (request_key, request_iv, _response_header) = self
+            .handshake(&mut *stream, target, VmessCommand::Udp)
+            .await?;
 
         let response_key = self.generate_response_key(&request_key);
         let response_iv = self.generate_response_iv(&request_iv);
 
-        let timeout = std::time::Duration::from_secs(30);
-        let response = tokio::time::timeout(timeout, self.read_response_chunk(&mut stream, &response_key, &response_iv))
-            .await
-            .map_err(|_| Error::network("UDP receive timeout"))?
-            .map_err(|e| Error::network(format!("Failed to receive UDP response: {}", e)))?;
+        let session = Arc::new(VmessUdpSession::new(
+            stream,
+            request_key,
+            request_iv,
+            response_key,
+            response_iv,
+        ));
+
+        self.udp_sessions.insert(session_key, session.clone());
+        
+        tracing::debug!("Created new VMess UDP session for {}", target);
+        Ok(session)
+    }
+
+    /// Clean up expired UDP sessions
+    pub fn cleanup_udp_sessions(&self) {
+        let mut expired_keys = Vec::new();
+        
+        for entry in self.udp_sessions.iter() {
+            if entry.value().is_expired(Duration::from_secs(120)) {
+                expired_keys.push(entry.key().clone());
+            }
+        }
+        
+        for key in expired_keys {
+            self.udp_sessions.remove(&key);
+            tracing::debug!("Removed expired VMess UDP session: {}", key);
+        }
+    }
+
+    pub async fn relay_udp(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
+        if !self.udp_enabled {
+            return Err(Error::config(
+                "UDP relay is not enabled for this VMess proxy",
+            ));
+        }
+
+        // Get or create a session for this target
+        let session = self.get_or_create_udp_session(target).await?;
+        
+        // Get chunk count and keys
+        let chunk_count = session.next_chunk_count();
+        let request_key = session.request_key;
+        let request_iv = session.request_iv;
+        let response_key = session.response_key;
+        let response_iv = session.response_iv;
+        let target_str = target.to_string();
+        
+        // Lock stream for write
+        let mut stream_guard = session.stream.lock().await;
+        
+        // Encrypt and send data
+        let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
+        if let Err(e) = stream_guard.write_all(&encrypted_data).await {
+            // Session might be broken, remove it
+            drop(stream_guard);
+            self.udp_sessions.remove(&target_str);
+            return Err(Error::network(format!("Failed to send UDP data: {}", e)));
+        }
+        stream_guard.flush().await.ok();
+        session.touch();
+
+        // Read response with timeout
+        let timeout = Duration::from_secs(10);
+        let response = tokio::time::timeout(
+            timeout,
+            self.read_response_chunk(&mut **stream_guard, &response_key, &response_iv),
+        )
+        .await
+        .map_err(|_| {
+            // Timeout, session might be stale
+            Error::network("UDP receive timeout")
+        })?
+        .map_err(|e| {
+            // Read error, remove session
+            Error::network(format!("Failed to receive UDP response: {}", e))
+        })?;
 
         Ok(response)
     }
 
-    fn encrypt_chunk(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    /// Relay UDP packet without waiting for response (fire and forget for some protocols)
+    pub async fn send_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<()> {
+        if !self.udp_enabled {
+            return Err(Error::config(
+                "UDP relay is not enabled for this VMess proxy",
+            ));
+        }
+
+        let session = self.get_or_create_udp_session(target).await?;
+        
+        let chunk_count = session.next_chunk_count();
+        let request_key = session.request_key;
+        let request_iv = session.request_iv;
+        
+        let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
+        
+        let mut stream_guard = session.stream.lock().await;
+        stream_guard
+            .write_all(&encrypted_data)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send UDP data: {}", e)))?;
+        stream_guard.flush().await.ok();
+        session.touch();
+
+        Ok(())
+    }
+
+    fn encrypt_chunk(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         match self.cipher {
             VmessCipher::Aes128Gcm | VmessCipher::Auto => {
                 self.encrypt_aes_gcm(data, key, iv, count)
             }
-            VmessCipher::Chacha20Poly1305 => {
-                self.encrypt_chacha20(data, key, iv, count)
-            }
+            VmessCipher::Chacha20Poly1305 => self.encrypt_chacha20(data, key, iv, count),
             VmessCipher::None | VmessCipher::Zero => {
                 let mut result = Vec::with_capacity(2 + data.len());
                 result.extend_from_slice(&(data.len() as u16).to_be_bytes());
@@ -437,7 +1426,13 @@ impl VmessOutbound {
         }
     }
 
-    fn encrypt_aes_gcm(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    fn encrypt_aes_gcm(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         let cipher = Aes128Gcm::new_from_slice(key)
             .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
 
@@ -457,7 +1452,13 @@ impl VmessOutbound {
         Ok(result)
     }
 
-    fn encrypt_chacha20(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    fn encrypt_chacha20(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         let mut full_key = [0u8; 32];
         full_key[..16].copy_from_slice(key);
         full_key[16..].copy_from_slice(key);
@@ -481,21 +1482,29 @@ impl VmessOutbound {
         Ok(result)
     }
 
-    fn decrypt_chunk(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    fn decrypt_chunk(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         match self.cipher {
             VmessCipher::Aes128Gcm | VmessCipher::Auto => {
                 self.decrypt_aes_gcm(data, key, iv, count)
             }
-            VmessCipher::Chacha20Poly1305 => {
-                self.decrypt_chacha20(data, key, iv, count)
-            }
-            VmessCipher::None | VmessCipher::Zero => {
-                Ok(data.to_vec())
-            }
+            VmessCipher::Chacha20Poly1305 => self.decrypt_chacha20(data, key, iv, count),
+            VmessCipher::None | VmessCipher::Zero => Ok(data.to_vec()),
         }
     }
 
-    fn decrypt_aes_gcm(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    fn decrypt_aes_gcm(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         let cipher = Aes128Gcm::new_from_slice(key)
             .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
 
@@ -511,7 +1520,13 @@ impl VmessOutbound {
         Ok(decrypted)
     }
 
-    fn decrypt_chacha20(&self, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+    fn decrypt_chacha20(
+        &self,
+        data: &[u8],
+        key: &[u8; 16],
+        iv: &[u8; 16],
+        count: u16,
+    ) -> Result<Vec<u8>> {
         let mut full_key = [0u8; 32];
         full_key[..16].copy_from_slice(key);
         full_key[16..].copy_from_slice(key);
@@ -531,16 +1546,17 @@ impl VmessOutbound {
         Ok(decrypted)
     }
 
-    async fn read_response_chunk<S: AsyncRead + Unpin>(
+    async fn read_response_chunk<S: AsyncRead + Unpin + ?Sized>(
         &self,
         stream: &mut S,
         key: &[u8; 16],
         iv: &[u8; 16],
     ) -> Result<Vec<u8>> {
         let mut length_buf = [0u8; 2];
-        stream.read_exact(&mut length_buf).await.map_err(|e| {
-            Error::network(format!("Failed to read chunk length: {}", e))
-        })?;
+        stream
+            .read_exact(&mut length_buf)
+            .await
+            .map_err(|e| Error::network(format!("Failed to read chunk length: {}", e)))?;
 
         let length = u16::from_be_bytes(length_buf) as usize;
         if length == 0 {
@@ -548,9 +1564,10 @@ impl VmessOutbound {
         }
 
         let mut data = vec![0u8; length];
-        stream.read_exact(&mut data).await.map_err(|e| {
-            Error::network(format!("Failed to read chunk data: {}", e))
-        })?;
+        stream
+            .read_exact(&mut data)
+            .await
+            .map_err(|e| Error::network(format!("Failed to read chunk data: {}", e)))?;
 
         self.decrypt_chunk(&data, key, iv, 0)
     }
@@ -581,6 +1598,19 @@ impl OutboundProxy for VmessOutbound {
         Some((self.server.clone(), self.port))
     }
 
+    fn supports_udp(&self) -> bool {
+        self.udp_enabled
+    }
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
+        if !self.udp_enabled {
+            return Err(Error::config(
+                "UDP relay is not enabled for this VMess proxy",
+            ));
+        }
+        self.relay_udp(target, data).await
+    }
+
     async fn test_http_latency(
         &self,
         test_url: &str,
@@ -598,33 +1628,44 @@ impl OutboundProxy for VmessOutbound {
         let url_port = url
             .port()
             .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
 
         let start = Instant::now();
 
-        let mut stream = tokio::time::timeout(timeout, self.connect_tcp())
+        // Use connect_stream to support TLS
+        let mut stream = tokio::time::timeout(timeout, self.connect_stream())
             .await
             .map_err(|_| Error::network("Connection timeout"))?
-            .map_err(|e| Error::network(format!("TCP connection failed: {}", e)))?;
+            .map_err(|e| Error::network(format!("Connection failed: {}", e)))?;
 
         let target = TargetAddr::Domain(host.clone(), url_port);
-        let (request_key, request_iv, _) = self.handshake(&mut stream, &target, VmessCommand::Tcp).await?;
+        let (request_key, request_iv, _) = self
+            .handshake(&mut *stream, &target, VmessCommand::Tcp)
+            .await?;
 
         let http_request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
             path, host
         );
 
-        let encrypted_request = self.encrypt_chunk(http_request.as_bytes(), &request_key, &request_iv, 0)?;
-        stream.write_all(&encrypted_request).await.map_err(|e| {
-            Error::network(format!("Failed to send HTTP request: {}", e))
-        })?;
+        let encrypted_request =
+            self.encrypt_chunk(http_request.as_bytes(), &request_key, &request_iv, 0)?;
+        stream
+            .write_all(&encrypted_request)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;
 
         let response_key = self.generate_response_key(&request_key);
         let response_iv = self.generate_response_iv(&request_iv);
 
         let result = tokio::time::timeout(timeout, async {
-            let response = self.read_response_chunk(&mut stream, &response_key, &response_iv).await?;
+            let response = self
+                .read_response_chunk(&mut *stream, &response_key, &response_iv)
+                .await?;
             let response_str = String::from_utf8_lossy(&response);
             if response_str.starts_with("HTTP/") {
                 Ok(())
@@ -661,18 +1702,21 @@ impl OutboundProxy for VmessOutbound {
         target: TargetAddr,
         connection: Option<Arc<TrackedConnection>>,
     ) -> Result<()> {
-        let mut stream = self.connect_tcp().await?;
-        let (request_key, request_iv, _response_header) = 
-            self.handshake(&mut stream, &target, VmessCommand::Tcp).await?;
+        // Use connect_stream to support TLS
+        let mut stream = self.connect_stream().await?;
+        let (request_key, request_iv, _response_header) = self
+            .handshake(&mut *stream, &target, VmessCommand::Tcp)
+            .await?;
 
         let response_key = self.generate_response_key(&request_key);
         let response_iv = self.generate_response_iv(&request_iv);
 
         tracing::debug!(
-            "VMess: relaying TCP to {} via {}:{}",
+            "VMess: relaying TCP to {} via {}:{} (tls={})",
             target,
             self.server,
-            self.port
+            self.port,
+            self.tls_enabled
         );
 
         let tracker = global_tracker();
@@ -687,19 +1731,21 @@ impl OutboundProxy for VmessOutbound {
             let mut buf = vec![0u8; 16 * 1024];
             let mut count: u16 = 0;
             loop {
-                let n = ri.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from inbound: {}", e))
-                })?;
+                let n = ri
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
                 if n == 0 {
                     let end_chunk = [0u8; 2];
                     wo.write_all(&end_chunk).await.ok();
                     break;
                 }
 
-                let encrypted = encrypt_chunk_static(cipher, &buf[..n], &request_key, &request_iv, count)?;
-                wo.write_all(&encrypted).await.map_err(|e| {
-                    Error::network(format!("Failed to write to VMess: {}", e))
-                })?;
+                let encrypted =
+                    encrypt_chunk_static(cipher, &buf[..n], &request_key, &request_iv, count)?;
+                wo.write_all(&encrypted)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to VMess: {}", e)))?;
 
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -727,14 +1773,15 @@ impl OutboundProxy for VmessOutbound {
                 }
 
                 let mut data = vec![0u8; length];
-                ro.read_exact(&mut data).await.map_err(|e| {
-                    Error::network(format!("Failed to read chunk: {}", e))
-                })?;
+                ro.read_exact(&mut data)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read chunk: {}", e)))?;
 
-                let decrypted = decrypt_chunk_static(cipher, &data, &response_key, &response_iv, count)?;
-                wi.write_all(&decrypted).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
+                let decrypted =
+                    decrypt_chunk_static(cipher, &data, &response_key, &response_iv, count)?;
+                wi.write_all(&decrypted)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to inbound: {}", e)))?;
 
                 tracker.add_global_download(decrypted.len() as u64);
                 if let Some(ref conn) = conn_download {
@@ -817,7 +1864,13 @@ fn fnv1a_hash(data: &[u8]) -> u32 {
     hash
 }
 
-fn encrypt_chunk_static(cipher: VmessCipher, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+fn encrypt_chunk_static(
+    cipher: VmessCipher,
+    data: &[u8],
+    key: &[u8; 16],
+    iv: &[u8; 16],
+    count: u16,
+) -> Result<Vec<u8>> {
     match cipher {
         VmessCipher::Aes128Gcm | VmessCipher::Auto => {
             let aes_cipher = Aes128Gcm::new_from_slice(key)
@@ -870,7 +1923,13 @@ fn encrypt_chunk_static(cipher: VmessCipher, data: &[u8], key: &[u8; 16], iv: &[
     }
 }
 
-fn decrypt_chunk_static(cipher: VmessCipher, data: &[u8], key: &[u8; 16], iv: &[u8; 16], count: u16) -> Result<Vec<u8>> {
+fn decrypt_chunk_static(
+    cipher: VmessCipher,
+    data: &[u8],
+    key: &[u8; 16],
+    iv: &[u8; 16],
+    count: u16,
+) -> Result<Vec<u8>> {
     match cipher {
         VmessCipher::Aes128Gcm | VmessCipher::Auto => {
             let aes_cipher = Aes128Gcm::new_from_slice(key)
@@ -906,9 +1965,7 @@ fn decrypt_chunk_static(cipher: VmessCipher, data: &[u8], key: &[u8; 16], iv: &[
 
             Ok(decrypted)
         }
-        VmessCipher::None | VmessCipher::Zero => {
-            Ok(data.to_vec())
-        }
+        VmessCipher::None | VmessCipher::Zero => Ok(data.to_vec()),
     }
 }
 
@@ -920,7 +1977,10 @@ mod tests {
     fn test_vmess_cipher_from_str() {
         assert_eq!(VmessCipher::from_str("aes-128-gcm"), VmessCipher::Aes128Gcm);
         assert_eq!(VmessCipher::from_str("aes128gcm"), VmessCipher::Aes128Gcm);
-        assert_eq!(VmessCipher::from_str("chacha20-poly1305"), VmessCipher::Chacha20Poly1305);
+        assert_eq!(
+            VmessCipher::from_str("chacha20-poly1305"),
+            VmessCipher::Chacha20Poly1305
+        );
         assert_eq!(VmessCipher::from_str("none"), VmessCipher::None);
         assert_eq!(VmessCipher::from_str("zero"), VmessCipher::Zero);
         assert_eq!(VmessCipher::from_str("auto"), VmessCipher::Auto);
@@ -946,8 +2006,10 @@ mod tests {
 
     #[test]
     fn test_generate_cmd_key() {
-        let uuid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10];
+        let uuid = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10,
+        ];
         let key = generate_cmd_key(&uuid);
         assert_eq!(key.len(), 16);
 
@@ -1202,7 +2264,9 @@ mod tests {
         assert!(encrypted.len() > data.len());
 
         let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-        let decrypted = outbound.decrypt_aes_gcm(&encrypted[2..2+length], &key, &iv, 0).unwrap();
+        let decrypted = outbound
+            .decrypt_aes_gcm(&encrypted[2..2 + length], &key, &iv, 0)
+            .unwrap();
         assert_eq!(decrypted, data);
     }
 
@@ -1236,7 +2300,9 @@ mod tests {
         assert!(encrypted.len() > data.len());
 
         let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-        let decrypted = outbound.decrypt_chacha20(&encrypted[2..2+length], &key, &iv, 0).unwrap();
+        let decrypted = outbound
+            .decrypt_chacha20(&encrypted[2..2 + length], &key, &iv, 0)
+            .unwrap();
         assert_eq!(decrypted, data);
     }
 
@@ -1270,7 +2336,9 @@ mod tests {
         let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
         assert_eq!(length, data.len());
 
-        let decrypted = outbound.decrypt_chunk(&encrypted[2..], &key, &iv, 0).unwrap();
+        let decrypted = outbound
+            .decrypt_chunk(&encrypted[2..], &key, &iv, 0)
+            .unwrap();
         assert_eq!(decrypted, data);
     }
 }

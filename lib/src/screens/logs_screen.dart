@@ -56,7 +56,8 @@ class _LogsScreenState extends State<LogsScreen> {
         return;
       }
 
-      final logs = await rust_api.getLogs(lines: 500);
+      // Request more logs (up to 2000) to show more history
+      final logs = await rust_api.getLogs(lines: 2000);
       if (mounted) {
         setState(() {
           _logs = logs;
