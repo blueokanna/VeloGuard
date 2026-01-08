@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub struct ApiState {
     pub proxy_manager: Arc<ProxyManager>,
     pub health_monitor: Arc<HealthMonitor>,
-    pub traffic_stats: Arc<Arc<TrafficStatsManager>>,
+    pub traffic_stats: Arc<TrafficStatsManager>,
 }
 
 /// API response wrapper
@@ -103,7 +103,7 @@ impl ApiServer {
         let state = ApiState {
             proxy_manager,
             health_monitor,
-            traffic_stats: Arc::new(traffic_stats),
+            traffic_stats,
         };
 
         let router = Router::new()

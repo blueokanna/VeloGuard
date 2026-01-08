@@ -449,8 +449,10 @@ impl RuleProvider {
     }
 }
 
+type RuleProviderMap = Arc<RwLock<HashMap<String, Arc<RuleProvider>>>>;
+
 pub struct RuleProviderManager {
-    providers: Arc<RwLock<HashMap<String, Arc<RuleProvider>>>>,
+    providers: RuleProviderMap,
 }
 
 impl RuleProviderManager {

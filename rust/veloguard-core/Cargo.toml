@@ -14,6 +14,7 @@ jaeger = [
 ]
 
 [dependencies]
+aes = { workspace = true }
 aes-gcm = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -22,15 +23,18 @@ base64 = { workspace = true }
 bitflags = { workspace = true }
 blake3 = { workspace = true }
 bytes = { workspace = true }
+cfb-mode = { workspace = true }
 chacha20poly1305 = { workspace = true }
 chrono = { workspace = true }
 cidr = { workspace = true }
+crc32fast = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 getrandom = { workspace = true }
 h2 = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
+hmac = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
@@ -48,12 +52,14 @@ quinn = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+rsntp = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
+sha3 = { workspace = true }
 socket2 = { workspace = true }
 rustls-native-certs = { workspace = true }
 thiserror = { workspace = true }

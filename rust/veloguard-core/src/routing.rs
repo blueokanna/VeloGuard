@@ -73,16 +73,17 @@ impl Router {
         let config = self.config.read().await;
         
         let runtime_mode = get_runtime_proxy_mode();
+        // 0 = use config mode, 1 = global, 2 = direct, 3 = rule
         let effective_mode = match runtime_mode {
             1 => Mode::Global,
             2 => Mode::Direct,
             3 => Mode::Rule,
-            _ => config.general.mode,
+            _ => config.general.mode, // 0 or any other value uses config mode
         };
         
         tracing::debug!(
-            "Routing request: domain={:?}, ip={:?}, port={:?}, mode={:?}",
-            domain, ip, port, effective_mode
+            "Routing request: domain={:?}, ip={:?}, port={:?}, runtime_mode={}, effective_mode={:?}",
+            domain, ip, port, runtime_mode, effective_mode
         );
         
         if matches!(effective_mode, Mode::Global) {

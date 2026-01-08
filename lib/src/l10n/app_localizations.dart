@@ -210,8 +210,8 @@ class AppLocalizations {
   String get disclaimerContent => _getLocalizedString('disclaimerContent');
   String get disclaimerWarning => _getLocalizedString('disclaimerWarning');
   String get understood => _getLocalizedString('understood');
-  String get aboutCatClash => _getLocalizedString('aboutCatClash');
-  String get aboutCatClashDesc => _getLocalizedString('aboutCatClashDesc');
+  String get aboutVeloguard => _getLocalizedString('aboutVeloguard');
+  String get aboutVeloguardDesc => _getLocalizedString('aboutVeloguardDesc');
   String get aboutDescription => _getLocalizedString('aboutDescription');
   String get features => _getLocalizedString('features');
   String get featureSpeed => _getLocalizedString('featureSpeed');
@@ -601,8 +601,8 @@ const Map<String, String> _deStrings = {
   'disclaimerWarning':
       'Die illegale Nutzung von Proxy-Tools kann rechtliche Konsequenzen haben.',
   'understood': 'Verstanden',
-  'aboutCatClash': 'Über VeloGuard',
-  'aboutCatClashDesc': 'Erfahren Sie mehr über diese App',
+  'aboutVeloguard': 'Über VeloGuard',
+  'aboutVeloguardDesc': 'Erfahren Sie mehr über diese App',
   'aboutDescription':
       'VeloGuard ist ein moderner plattformübergreifender Proxy-Client, der mit Flutter und Rust entwickelt wurde.',
   'features': 'Funktionen',
@@ -867,8 +867,8 @@ const Map<String, String> _enStrings = {
   'disclaimerWarning':
       'Illegal use of proxy tools may result in legal consequences.',
   'understood': 'Understood',
-  'aboutCatClash': 'About VeloGuard',
-  'aboutCatClashDesc': 'Learn more about this app',
+  'aboutVeloguard': 'About VeloGuard',
+  'aboutVeloguardDesc': 'Learn more about this app',
   'aboutDescription':
       'VeloGuard is a modern cross-platform proxy client built with Flutter and Rust. It provides a beautiful Material You interface and powerful proxy features.',
   'features': 'Features',
@@ -1205,8 +1205,8 @@ const Map<String, String> _esStrings = {
   'disclaimerWarning':
       'El uso ilegal de herramientas de proxy puede tener consecuencias legales.',
   'understood': 'Entendido',
-  'aboutCatClash': 'Acerca de VeloGuard',
-  'aboutCatClashDesc': 'Más información sobre esta aplicación',
+  'aboutVeloguard': 'Acerca de VeloGuard',
+  'aboutVeloguardDesc': 'Más información sobre esta aplicación',
   'aboutDescription':
       'VeloGuard es un cliente proxy multiplataforma moderno construido con Flutter y Rust.',
   'features': 'Características',
@@ -1476,8 +1476,8 @@ const Map<String, String> _frStrings = {
   'disclaimerWarning':
       'L\'utilisation illégale d\'outils de proxy peut entraîner des conséquences juridiques.',
   'understood': 'Compris',
-  'aboutCatClash': 'À propos de VeloGuard',
-  'aboutCatClashDesc': 'En savoir plus sur cette application',
+  'aboutVeloguard': 'À propos de VeloGuard',
+  'aboutVeloguardDesc': 'En savoir plus sur cette application',
   'aboutDescription':
       'VeloGuard est un client proxy multiplateforme moderne construit avec Flutter et Rust.',
   'features': 'Fonctionnalités',
@@ -1744,8 +1744,8 @@ const Map<String, String> _itStrings = {
   'disclaimerWarning':
       'L\'uso illegale di strumenti proxy può comportare conseguenze legali.',
   'understood': 'Capito',
-  'aboutCatClash': 'Info su VeloGuard',
-  'aboutCatClashDesc': 'Scopri di più su questa app',
+  'aboutVeloguard': 'Info su VeloGuard',
+  'aboutVeloguardDesc': 'Scopri di più su questa app',
   'aboutDescription':
       'VeloGuard è un client proxy multipiattaforma moderno costruito con Flutter e Rust.',
   'features': 'Funzionalità',
@@ -2006,8 +2006,8 @@ const Map<String, String> _jaStrings = {
   'disclaimerContent': 'VeloGuardは合法的な使用のみを目的としたネットワークプロキシツールです。',
   'disclaimerWarning': 'プロキシツールの違法使用は法的結果を招く可能性があります。',
   'understood': '了解',
-  'aboutCatClash': 'VeloGuardについて',
-  'aboutCatClashDesc': 'このアプリについて詳しく',
+  'aboutVeloguard': 'VeloGuardについて',
+  'aboutVeloguardDesc': 'このアプリについて詳しく',
   'aboutDescription': 'VeloGuardはFlutterとRustで構築された最新のクロスプラットフォームプロキシクライアントです。',
   'features': '機能',
   'featureSpeed': '高性能Rustコア',
@@ -2266,8 +2266,8 @@ const Map<String, String> _koStrings = {
   'disclaimerContent': 'VeloGuard는 합법적인 용도로만 사용되는 네트워크 프록시 도구입니다.',
   'disclaimerWarning': '프록시 도구의 불법 사용은 법적 결과를 초래할 수 있습니다.',
   'understood': '이해했습니다',
-  'aboutCatClash': 'VeloGuard 정보',
-  'aboutCatClashDesc': '이 앱에 대해 자세히 알아보기',
+  'aboutVeloguard': 'VeloGuard 정보',
+  'aboutVeloguardDesc': '이 앱에 대해 자세히 알아보기',
   'aboutDescription':
       'VeloGuard는 Flutter와 Rust로 구축된 현대적인 크로스 플랫폼 프록시 클라이언트입니다.',
   'features': '기능',
@@ -2534,8 +2534,8 @@ const Map<String, String> _ptStrings = {
   'disclaimerWarning':
       'O uso ilegal de ferramentas de proxy pode resultar em consequências legais.',
   'understood': 'Entendido',
-  'aboutCatClash': 'Sobre VeloGuard',
-  'aboutCatClashDesc': 'Saiba mais sobre este app',
+  'aboutVeloguard': 'Sobre VeloGuard',
+  'aboutVeloguardDesc': 'Saiba mais sobre este app',
   'aboutDescription':
       'VeloGuard é um cliente proxy multiplataforma moderno construído com Flutter e Rust.',
   'features': 'Recursos',
@@ -2802,8 +2802,8 @@ const Map<String, String> _ruStrings = {
   'disclaimerWarning':
       'Незаконное использование прокси-инструментов может повлечь юридические последствия.',
   'understood': 'Понятно',
-  'aboutCatClash': 'О VeloGuard',
-  'aboutCatClashDesc': 'Узнать больше об этом приложении',
+  'aboutVeloguard': 'О VeloGuard',
+  'aboutVeloguardDesc': 'Узнать больше об этом приложении',
   'aboutDescription':
       'VeloGuard - современный кроссплатформенный прокси-клиент, созданный на Flutter и Rust.',
   'features': 'Функции',
@@ -3064,8 +3064,8 @@ const Map<String, String> _zhCNStrings = {
   'disclaimerContent': 'VeloGuard 是一款网络代理工具，仅供合法用途使用。',
   'disclaimerWarning': '非法使用代理工具可能导致法律后果。',
   'understood': '我已了解',
-  'aboutCatClash': '关于 VeloGuard',
-  'aboutCatClashDesc': '了解更多关于此应用',
+  'aboutVeloguard': '关于 VeloGuard',
+  'aboutVeloguardDesc': '了解更多关于此应用',
   'aboutDescription':
       'VeloGuard 是一款现代化的跨平台代理客户端，使用 Flutter 和 Rust 构建。它提供了精美的 Material You 界面和强大的代理功能。',
   'features': '功能特性',
@@ -3379,8 +3379,8 @@ const Map<String, String> _zhTWStrings = {
   'disclaimerContent': 'VeloGuard 是一款網路代理工具，僅供合法用途使用。',
   'disclaimerWarning': '非法使用代理工具可能導致法律後果。',
   'understood': '我已了解',
-  'aboutCatClash': '關於 VeloGuard',
-  'aboutCatClashDesc': '了解更多關於此應用程式',
+  'aboutVeloguard': '關於 VeloGuard',
+  'aboutVeloguardDesc': '了解更多關於此應用程式',
   'aboutDescription':
       'VeloGuard 是一款現代化的跨平台代理用戶端，使用 Flutter 和 Rust 建置。它提供了精美的 Material You 介面和強大的代理功能。',
   'features': '功能特性',

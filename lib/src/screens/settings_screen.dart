@@ -410,8 +410,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       AdaptiveListTile(
-                        title: Text(l10n?.aboutCatClash ?? '关于 VeloGuard'),
-                        subtitle: Text(l10n?.aboutCatClashDesc ?? '了解更多关于此应用'),
+                        title: Text(l10n?.aboutVeloguard ?? '关于 VeloGuard'),
+                        subtitle: Text(l10n?.aboutVeloguardDesc ?? '了解更多关于此应用'),
                         leading: Icon(
                           Icons.flash_on_outlined,
                           color: colorScheme.primary,

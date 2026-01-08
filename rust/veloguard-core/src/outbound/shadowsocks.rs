@@ -11,8 +11,9 @@ use hkdf::Hkdf;
 use sha1::Sha1;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::UdpSocket;
 
 /// Shadowsocks outbound proxy
 pub struct ShadowsocksOutbound {
@@ -98,27 +99,9 @@ impl OutboundProxy for ShadowsocksOutbound {
         let server_addr = format!("{}:{}", self.server, self.port);
         tracing::debug!("SS latency test: resolving {}", server_addr);
         
-        // Use tokio's DNS resolution with timeout
-        let addrs = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            tokio::net::lookup_host(&server_addr)
-        ).await
-            .map_err(|_| Error::network("DNS resolution timeout"))?
-            .map_err(|e| Error::network(format!("DNS resolution failed: {}", e)))?
-            .collect::<Vec<_>>();
-        
-        if addrs.is_empty() {
-            return Err(Error::network("No addresses found for server"));
-        }
-        
-        tracing::debug!("SS latency test: connecting to {:?}", addrs[0]);
-        
-        // Connect to the Shadowsocks server
-        let stream = tokio::time::timeout(
-            timeout,
-            tokio::net::TcpStream::connect(&addrs[0])
-        ).await
-            .map_err(|_| Error::network("Connection timeout"))?
+        // Connect to the Shadowsocks server with protection
+        let stream = crate::socket_protect::connect_protected_timeout(&server_addr, timeout)
+            .await
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
         
         // Disable Nagle's algorithm for lower latency
@@ -251,12 +234,14 @@ impl OutboundProxy for ShadowsocksOutbound {
         let cipher_spec = CipherSpec::new(&self.cipher)?;
 
         let server_addr = format!("{}:{}", self.server, self.port);
-        let mut outbound = TcpStream::connect(&server_addr).await.map_err(|e| {
-            Error::network(format!(
+        
+        // Use protected connection on Android to prevent routing loop
+        let mut outbound = crate::socket_protect::connect_protected(&server_addr)
+            .await
+            .map_err(|e| Error::network(format!(
                 "Failed to connect to SS server {}: {}",
                 server_addr, e
-            ))
-        })?;
+            )))?;
         
         // Disable Nagle's algorithm for lower latency
         outbound.set_nodelay(true).ok();
@@ -320,8 +305,30 @@ impl OutboundProxy for ShadowsocksOutbound {
         let remote_to_client = async {
             // First, read the server's salt
             let mut server_salt = vec![0u8; cipher_spec.salt_len];
-            ro.read_exact(&mut server_salt).await
-                .map_err(|e| Error::network(format!("Failed to read server salt: {}", e)))?;
+            
+            // 使用超时读取，避免无限等待
+            let salt_read_result = tokio::time::timeout(
+                Duration::from_secs(10),
+                ro.read_exact(&mut server_salt)
+            ).await;
+            
+            match salt_read_result {
+                Ok(Ok(_)) => {
+                    // 成功读取salt
+                }
+                Ok(Err(e)) => {
+                    // 读取错误 - 可能是连接立即关闭
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        tracing::debug!("SS: server closed connection without sending data (early eof) - this is normal for some connections");
+                        return Ok(());
+                    }
+                    return Err(Error::network(format!("Failed to read server salt: {}", e)));
+                }
+                Err(_) => {
+                    tracing::debug!("SS: timeout waiting for server salt - connection may be idle");
+                    return Ok(());
+                }
+            }
             
             // Derive decryption key from server's salt
             let dec_subkey = derive_subkey_for_cipher(&password, &server_salt, &cipher_spec)?;

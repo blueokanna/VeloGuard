@@ -42,48 +42,14 @@ class IpCheckCard extends StatefulWidget {
   State<IpCheckCard> createState() => _IpCheckCardState();
 }
 
-/// Global IP info cache for IpCheckCard
-class _IpCheckCache {
-  IpInfo? ipInfo;
-  DateTime? lastFetchTime;
-  bool? lastProxyState;
-
-  /// Cache duration - 5 minutes
-  static const cacheDuration = Duration(minutes: 5);
-
-  bool shouldRefresh(bool isProxyRunning) {
-    // Refresh if proxy state changed
-    if (lastProxyState != null && lastProxyState != isProxyRunning) {
-      return true;
-    }
-    // Refresh if cache expired
-    if (lastFetchTime == null) {
-      return true;
-    }
-    return DateTime.now().difference(lastFetchTime!) > cacheDuration;
-  }
-
-  void update({required IpInfo? info, required bool proxyState}) {
-    ipInfo = info;
-    lastFetchTime = DateTime.now();
-    lastProxyState = proxyState;
-  }
-
-  void clear() {
-    ipInfo = null;
-    lastFetchTime = null;
-    lastProxyState = null;
-  }
-}
-
-final _ipCheckCache = _IpCheckCache();
-
 class _IpCheckCardState extends State<IpCheckCard>
     with SingleTickerProviderStateMixin {
   IpInfo? _ipInfo;
   bool _isLoading = false;
   String? _error;
   late AnimationController _refreshController;
+  Timer? _autoRefreshTimer;
+  String? _lastKnownIp;
 
   @override
   void initState() {
@@ -93,14 +59,38 @@ class _IpCheckCardState extends State<IpCheckCard>
       vsync: this,
     );
 
-    // Use cached data if available
-    if (_ipCheckCache.ipInfo != null) {
-      _ipInfo = _ipCheckCache.ipInfo;
-    }
+    // 立即获取 IP（不使用缓存）
+    _checkIp();
 
-    // Only fetch if cache needs refresh
-    if (_ipCheckCache.shouldRefresh(widget.isProxyRunning)) {
-      _checkIp();
+    // 启动自动检测定时器（每 30 秒检测一次 IP 变化）
+    _startAutoRefresh();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _checkIpSilently();
+    });
+  }
+
+  /// 静默检测 IP 变化（不显示 loading 状态）
+  Future<void> _checkIpSilently() async {
+    if (_isLoading) return;
+
+    try {
+      final ip = await _fetchIpFromIpSb();
+      if (ip != null && mounted) {
+        // 检测 IP 是否发生变化
+        if (_lastKnownIp != null && _lastKnownIp != ip) {
+          // IP 发生变化，触发完整刷新
+          debugPrint('IP changed: $_lastKnownIp -> $ip');
+          _checkIp();
+        } else if (_lastKnownIp == null) {
+          _lastKnownIp = ip;
+        }
+      }
+    } catch (e) {
+      debugPrint('Silent IP check failed: $e');
     }
   }
 
@@ -109,8 +99,6 @@ class _IpCheckCardState extends State<IpCheckCard>
     super.didUpdateWidget(oldWidget);
     // 代理状态变化时自动刷新
     if (widget.isProxyRunning != oldWidget.isProxyRunning) {
-      // Clear cache when proxy state changes
-      _ipCheckCache.clear();
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _checkIp();
       });
@@ -120,6 +108,7 @@ class _IpCheckCardState extends State<IpCheckCard>
   @override
   void dispose() {
     _refreshController.dispose();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -134,15 +123,13 @@ class _IpCheckCardState extends State<IpCheckCard>
     _refreshController.repeat();
 
     try {
-      // 使用 ip.sb 获取 IP
+      // 使用 ip.sb 获取 IP（不使用缓存）
       final ip = await _fetchIpFromIpSb();
       if (ip != null && mounted) {
+        _lastKnownIp = ip;
         // 尝试获取更多 IP 信息
         final ipInfo = await _fetchIpDetails(ip);
         final result = ipInfo ?? IpInfo(ip: ip);
-
-        // Update cache
-        _ipCheckCache.update(info: result, proxyState: widget.isProxyRunning);
 
         setState(() {
           _ipInfo = result;

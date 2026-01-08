@@ -126,7 +126,7 @@ fn init_logging_inner(level: LogLevel) -> Result<()> {
 
     // If tracing was already initialized, that's fine - just log to buffer
     if result.is_err() {
-        add_log(format!("[INFO] Tracing already initialized, using existing subscriber"));
+        add_log("[INFO] Tracing already initialized, using existing subscriber".to_string());
     } else {
         // Add initial log entry
         add_log(format!("[INFO] Logging initialized at level: {:?}", level));

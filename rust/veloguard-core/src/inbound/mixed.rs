@@ -1,11 +1,11 @@
 use crate::config::InboundConfig;
-use crate::connection_tracker::{TrackedConnection, global_tracker};
+use crate::connection_tracker::{global_tracker, TrackedConnection};
 use crate::error::{Error, Result};
 use crate::inbound::InboundListener;
 use crate::outbound::{OutboundManager, TargetAddr};
 use crate::routing::Router;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Uri};
@@ -16,8 +16,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
-/// Mixed HTTP/SOCKS5 proxy inbound listener
-/// Automatically detects protocol based on first byte
 pub struct MixedInbound {
     config: InboundConfig,
     router: Arc<Router>,
@@ -26,7 +24,6 @@ pub struct MixedInbound {
     running: Arc<std::sync::atomic::AtomicBool>,
 }
 
-// SOCKS5 constants
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_NONE: u8 = 0x00;
 const SOCKS5_CMD_CONNECT: u8 = 0x01;
@@ -50,7 +47,11 @@ impl InboundListener for MixedInbound {
 }
 
 impl MixedInbound {
-    pub fn new(config: InboundConfig, router: Arc<Router>, outbound_manager: Arc<OutboundManager>) -> Self {
+    pub fn new(
+        config: InboundConfig,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Self {
         Self {
             config,
             router,
@@ -74,7 +75,6 @@ impl MixedInbound {
             .parse()
             .map_err(|e| Error::config(format!("Invalid listen address: {}", e)))?;
 
-        // Try to bind with SO_REUSEADDR
         let socket = socket2::Socket::new(
             socket2::Domain::for_address(addr),
             socket2::Type::STREAM,
@@ -90,9 +90,9 @@ impl MixedInbound {
             .set_nonblocking(true)
             .map_err(|e| Error::network(format!("Failed to set non-blocking: {}", e)))?;
 
-        socket
-            .bind(&addr.into())
-            .map_err(|e| Error::network(format!("Failed to bind Mixed listener to {}: {}", addr, e)))?;
+        socket.bind(&addr.into()).map_err(|e| {
+            Error::network(format!("Failed to bind Mixed listener to {}: {}", addr, e))
+        })?;
 
         socket
             .listen(1024)
@@ -164,20 +164,20 @@ impl MixedInbound {
         router: Arc<Router>,
         outbound_manager: Arc<OutboundManager>,
     ) -> Result<()> {
-        // Peek at first byte to detect protocol
         let mut peek_buf = [0u8; 1];
         stream.peek(&mut peek_buf).await.map_err(|e| {
-            Error::network(format!("Failed to peek connection from {}: {}", peer_addr, e))
+            Error::network(format!(
+                "Failed to peek connection from {}: {}",
+                peer_addr, e
+            ))
         })?;
 
         let first_byte = peek_buf[0];
 
         if first_byte == SOCKS5_VERSION {
-            // SOCKS5 protocol
             tracing::debug!("Detected SOCKS5 protocol from {}", peer_addr);
             Self::handle_socks5(stream, peer_addr, router, outbound_manager).await
         } else {
-            // Assume HTTP protocol
             tracing::debug!("Detected HTTP protocol from {}", peer_addr);
             Self::handle_http(stream, peer_addr, router, outbound_manager).await
         }
@@ -224,18 +224,16 @@ impl MixedInbound {
         peer_addr: SocketAddr,
         router: Arc<Router>,
         outbound_manager: Arc<OutboundManager>,
-    ) -> std::result::Result<Response<BoxBody<Bytes, std::io::Error>>, std::convert::Infallible> {
+    ) -> std::result::Result<Response<BoxBody<Bytes, std::io::Error>>, std::convert::Infallible>
+    {
         let method = req.method().clone();
         let uri = req.uri().clone();
 
         tracing::debug!("HTTP {} {} from {}", method, uri, peer_addr);
-
-        // Handle CONNECT method for HTTPS tunneling
         if method == Method::CONNECT {
             return Ok(Self::handle_http_connect(req, router, outbound_manager).await);
         }
 
-        // Handle regular HTTP proxy request
         match Self::handle_http_proxy(req, router, outbound_manager).await {
             Ok(response) => Ok(response),
             Err(e) => {
@@ -279,8 +277,6 @@ impl MixedInbound {
             .await;
 
         tracing::info!("CONNECT {}:{} -> {}", host, port, outbound_tag);
-
-        // Get the outbound proxy
         let outbound = match outbound_manager.get_proxy(&outbound_tag) {
             Some(proxy) => proxy,
             None => {
@@ -288,30 +284,30 @@ impl MixedInbound {
                 return Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(
-                        Full::new(Bytes::from(format!("Outbound '{}' not found", outbound_tag)))
-                            .map_err(|_| std::io::Error::other("body error"))
-                            .boxed(),
+                        Full::new(Bytes::from(format!(
+                            "Outbound '{}' not found",
+                            outbound_tag
+                        )))
+                        .map_err(|_| std::io::Error::other("body error"))
+                        .boxed(),
                     )
                     .unwrap();
             }
         };
 
-        // Spawn the relay task using the outbound proxy
         let target = TargetAddr::new_domain(host.clone(), port);
         let outbound_tag_clone = outbound_tag.clone();
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     let upgraded = TokioIo::new(upgraded);
-                    
-                    // Try to resolve the destination IP for display
+
                     let destination_ip = tokio::net::lookup_host(format!("{}:{}", host, port))
                         .await
                         .ok()
                         .and_then(|mut addrs| addrs.next())
                         .map(|addr| addr.ip().to_string());
-                    
-                    // Track the connection with IP address
+
                     let tracked_conn = TrackedConnection::new_with_ip(
                         "mixed".to_string(),
                         outbound_tag_clone.clone(),
@@ -326,12 +322,14 @@ impl MixedInbound {
                     let tracker = global_tracker();
                     let tracked = tracker.track(tracked_conn);
                     let conn_arc = Arc::clone(&tracked);
-                    
+
                     // Use the outbound proxy to relay traffic with connection tracking
-                    if let Err(e) = outbound.relay_tcp_with_connection(Box::new(upgraded), target, Some(conn_arc)).await {
+                    if let Err(e) = outbound
+                        .relay_tcp_with_connection(Box::new(upgraded), target, Some(conn_arc))
+                        .await
+                    {
                         tracing::debug!("CONNECT relay error via '{}': {}", outbound.tag(), e);
                     }
-                    // Untrack the connection
                     tracker.untrack(&tracked.id);
                 }
                 Err(e) => {
@@ -366,12 +364,10 @@ impl MixedInbound {
 
         tracing::info!("HTTP {} -> {}", uri, outbound_tag);
 
-        // Get outbound instance
         let outbound = outbound_manager
             .get_proxy(&outbound_tag)
             .ok_or_else(|| Error::config(format!("Outbound '{}' not found", outbound_tag)))?;
 
-        // Build original HTTP request (remove proxy-related headers)
         let method = req.method().clone();
         let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
         let mut request_bytes = Vec::new();
@@ -379,12 +375,13 @@ impl MixedInbound {
         for (key, value) in req.headers() {
             let key_str = key.as_str().to_lowercase();
             if key_str != "proxy-connection" && key_str != "proxy-authorization" {
-                request_bytes.extend_from_slice(format!("{}: {}\r\n", key, value.to_str().unwrap_or("")).as_bytes());
+                request_bytes.extend_from_slice(
+                    format!("{}: {}\r\n", key, value.to_str().unwrap_or("")).as_bytes(),
+                );
             }
         }
         request_bytes.extend_from_slice(b"\r\n");
 
-        // Read body
         let body = req.into_body();
         let body_bytes = body
             .collect()
@@ -395,59 +392,51 @@ impl MixedInbound {
             request_bytes.extend_from_slice(&body_bytes);
         }
 
-        // For plain HTTP proxy, we use a duplex stream
-        // Shutdown write side AFTER writing request to signal EOF to relay_tcp
         let target = TargetAddr::new_domain(host.clone(), port);
-        
-        // Create duplex stream for bidirectional communication
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-        
-        // Spawn the outbound relay task
-        let relay_handle = tokio::spawn(async move {
-            outbound.relay_tcp(Box::new(server_side), target).await
-        });
-        
-        // Use the client side to send request and receive response
+
+        let relay_handle =
+            tokio::spawn(async move { outbound.relay_tcp(Box::new(server_side), target).await });
+
         let (mut read_half, mut write_half) = tokio::io::split(client_side);
-        
-        // Write the HTTP request and shutdown write side to signal end of request
-        write_half.write_all(&request_bytes).await
+        write_half
+            .write_all(&request_bytes)
+            .await
             .map_err(|e| Error::network(format!("Failed to write request: {}", e)))?;
-        
-        // Shutdown write side to signal EOF to relay_tcp
-        write_half.shutdown().await
+
+        write_half
+            .shutdown()
+            .await
             .map_err(|e| Error::network(format!("Failed to shutdown write: {}", e)))?;
-        
-        // Read the response with a timeout
+
         let mut response_buf = Vec::new();
         let mut temp_buf = [0u8; 8192];
         let mut headers_complete = false;
         let mut content_length: Option<usize> = None;
         let mut body_read = 0usize;
-        
+
         let read_timeout = tokio::time::Duration::from_secs(30);
         let start = tokio::time::Instant::now();
-        
+
         loop {
             if start.elapsed() > read_timeout {
                 break;
             }
-            
+
             let read_result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(5),
-                read_half.read(&mut temp_buf)
-            ).await;
-            
+                read_half.read(&mut temp_buf),
+            )
+            .await;
+
             match read_result {
-                Ok(Ok(0)) => break, // EOF
+                Ok(Ok(0)) => break,
                 Ok(Ok(n)) => {
                     response_buf.extend_from_slice(&temp_buf[..n]);
-                    
-                    // Check if we've received complete headers
+
                     if !headers_complete {
                         if let Some(header_end) = find_header_end(&response_buf) {
                             headers_complete = true;
-                            // Parse Content-Length if present
                             let headers_str = String::from_utf8_lossy(&response_buf[..header_end]);
                             for line in headers_str.lines() {
                                 if line.to_lowercase().starts_with("content-length:") {
@@ -456,13 +445,12 @@ impl MixedInbound {
                                     }
                                 }
                             }
-                            body_read = response_buf.len() - header_end - 4; // 4 for \r\n\r\n
+                            body_read = response_buf.len() - header_end - 4;
                         }
                     } else {
                         body_read += n;
                     }
-                    
-                    // Check if we've received the complete response
+
                     if headers_complete {
                         if let Some(cl) = content_length {
                             if body_read >= cl {
@@ -476,17 +464,14 @@ impl MixedInbound {
                     break;
                 }
                 Err(_) => {
-                    // Timeout - if we have headers, we might have the complete response
                     if headers_complete && !response_buf.is_empty() {
                         break;
                     }
                 }
             }
         }
-        
-        // Cleanup - relay_handle should complete when remote closes connection
-        let _ = relay_handle.await;
 
+        let _ = relay_handle.await;
         if response_buf.is_empty() {
             return Err(Error::network("No response received from server"));
         }
@@ -508,7 +493,6 @@ impl MixedInbound {
             return Some((host, port));
         }
 
-        // Some clients send path as host:port
         let path = uri.path().trim_start_matches('/');
         if let Some((host, port_str)) = path.rsplit_once(':') {
             if let Ok(port) = port_str.parse::<u16>() {
@@ -516,7 +500,6 @@ impl MixedInbound {
             }
         }
 
-        // Try to parse as host:port directly
         let uri_str = uri.to_string();
         if let Some((host, port_str)) = uri_str.rsplit_once(':') {
             if let Ok(port) = port_str.parse::<u16>() {
@@ -558,7 +541,10 @@ impl MixedInbound {
         // Read authentication request
         let mut header = [0u8; 2];
         stream.read_exact(&mut header).await.map_err(|e| {
-            Error::protocol(format!("Failed to read SOCKS5 header from {}: {}", peer_addr, e))
+            Error::protocol(format!(
+                "Failed to read SOCKS5 header from {}: {}",
+                peer_addr, e
+            ))
         })?;
 
         let version = header[0];
@@ -573,9 +559,10 @@ impl MixedInbound {
 
         // Read auth methods
         let mut methods = vec![0u8; nmethods];
-        stream.read_exact(&mut methods).await.map_err(|e| {
-            Error::protocol(format!("Failed to read SOCKS5 methods: {}", e))
-        })?;
+        stream
+            .read_exact(&mut methods)
+            .await
+            .map_err(|e| Error::protocol(format!("Failed to read SOCKS5 methods: {}", e)))?;
 
         // For now, only support no authentication
         if !methods.contains(&SOCKS5_AUTH_NONE) {
@@ -592,9 +579,10 @@ impl MixedInbound {
 
         // Read connection request
         let mut request = [0u8; 4];
-        stream.read_exact(&mut request).await.map_err(|e| {
-            Error::protocol(format!("Failed to read SOCKS5 request: {}", e))
-        })?;
+        stream
+            .read_exact(&mut request)
+            .await
+            .map_err(|e| Error::protocol(format!("Failed to read SOCKS5 request: {}", e)))?;
 
         let version = request[0];
         let cmd = request[1];
@@ -604,63 +592,100 @@ impl MixedInbound {
             return Err(Error::protocol("Invalid SOCKS5 version in request"));
         }
 
-        if cmd != SOCKS5_CMD_CONNECT {
-            // Only support CONNECT command
-            Self::send_socks5_error(&mut stream, 0x07).await; // Command not supported
-            return Err(Error::protocol(format!("Unsupported SOCKS5 command: {}", cmd)));
+        // 支持 CONNECT (0x01) 和 UDP ASSOCIATE (0x03) 命令
+        match cmd {
+            SOCKS5_CMD_CONNECT => {
+                // TCP连接，继续处理
+            }
+            0x03 => {
+                // UDP ASSOCIATE - 返回成功但不实际处理
+                // 这是为了兼容某些客户端的UDP请求
+                tracing::debug!("SOCKS5 UDP ASSOCIATE request from {} - returning success", peer_addr);
+                
+                // 返回成功响应，绑定地址为 0.0.0.0:0
+                let response = [
+                    SOCKS5_VERSION, 0x00, 0x00,  // VER, REP=成功, RSV
+                    0x01,                         // ATYP=IPv4
+                    0, 0, 0, 0,                   // BND.ADDR = 0.0.0.0
+                    0, 0,                         // BND.PORT = 0
+                ];
+                stream.write_all(&response).await.ok();
+                stream.flush().await.ok();
+                
+                // 保持连接打开，直到客户端关闭
+                let mut buf = [0u8; 1];
+                let _ = stream.read(&mut buf).await;
+                return Ok(());
+            }
+            _ => {
+                // 不支持的命令
+                Self::send_socks5_error(&mut stream, 0x07).await; // Command not supported
+                return Err(Error::protocol(format!(
+                    "Unsupported SOCKS5 command: {}",
+                    cmd
+                )));
+            }
         }
 
         // Parse destination address
-        let target = match atyp {
-            SOCKS5_ADDR_IPV4 => {
-                let mut addr = [0u8; 4];
-                stream.read_exact(&mut addr).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read IPv4 address: {}", e))
-                })?;
-                let ip = Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3]);
-                let mut port_buf = [0u8; 2];
-                stream.read_exact(&mut port_buf).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read port: {}", e))
-                })?;
-                let port = u16::from_be_bytes(port_buf);
-                TargetAddr::Ip(SocketAddr::new(IpAddr::V4(ip), port))
-            }
-            SOCKS5_ADDR_DOMAIN => {
-                let mut len = [0u8; 1];
-                stream.read_exact(&mut len).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read domain length: {}", e))
-                })?;
-                let mut domain = vec![0u8; len[0] as usize];
-                stream.read_exact(&mut domain).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read domain: {}", e))
-                })?;
-                let domain = String::from_utf8(domain)
-                    .map_err(|_| Error::protocol("Invalid domain encoding"))?;
-                let mut port_buf = [0u8; 2];
-                stream.read_exact(&mut port_buf).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read port: {}", e))
-                })?;
-                let port = u16::from_be_bytes(port_buf);
-                TargetAddr::Domain(domain, port)
-            }
-            SOCKS5_ADDR_IPV6 => {
-                let mut addr = [0u8; 16];
-                stream.read_exact(&mut addr).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read IPv6 address: {}", e))
-                })?;
-                let ip = Ipv6Addr::from(addr);
-                let mut port_buf = [0u8; 2];
-                stream.read_exact(&mut port_buf).await.map_err(|e| {
-                    Error::protocol(format!("Failed to read port: {}", e))
-                })?;
-                let port = u16::from_be_bytes(port_buf);
-                TargetAddr::Ip(SocketAddr::new(IpAddr::V6(ip), port))
-            }
-            _ => {
-                Self::send_socks5_error(&mut stream, 0x08).await; // Address type not supported
-                return Err(Error::protocol(format!("Unsupported address type: {}", atyp)));
-            }
-        };
+        let target =
+            match atyp {
+                SOCKS5_ADDR_IPV4 => {
+                    let mut addr = [0u8; 4];
+                    stream.read_exact(&mut addr).await.map_err(|e| {
+                        Error::protocol(format!("Failed to read IPv4 address: {}", e))
+                    })?;
+                    let ip = Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3]);
+                    let mut port_buf = [0u8; 2];
+                    stream
+                        .read_exact(&mut port_buf)
+                        .await
+                        .map_err(|e| Error::protocol(format!("Failed to read port: {}", e)))?;
+                    let port = u16::from_be_bytes(port_buf);
+                    TargetAddr::Ip(SocketAddr::new(IpAddr::V4(ip), port))
+                }
+                SOCKS5_ADDR_DOMAIN => {
+                    let mut len = [0u8; 1];
+                    stream.read_exact(&mut len).await.map_err(|e| {
+                        Error::protocol(format!("Failed to read domain length: {}", e))
+                    })?;
+                    let mut domain = vec![0u8; len[0] as usize];
+                    stream
+                        .read_exact(&mut domain)
+                        .await
+                        .map_err(|e| Error::protocol(format!("Failed to read domain: {}", e)))?;
+                    let domain = String::from_utf8(domain)
+                        .map_err(|_| Error::protocol("Invalid domain encoding"))?;
+                    let mut port_buf = [0u8; 2];
+                    stream
+                        .read_exact(&mut port_buf)
+                        .await
+                        .map_err(|e| Error::protocol(format!("Failed to read port: {}", e)))?;
+                    let port = u16::from_be_bytes(port_buf);
+                    TargetAddr::Domain(domain, port)
+                }
+                SOCKS5_ADDR_IPV6 => {
+                    let mut addr = [0u8; 16];
+                    stream.read_exact(&mut addr).await.map_err(|e| {
+                        Error::protocol(format!("Failed to read IPv6 address: {}", e))
+                    })?;
+                    let ip = Ipv6Addr::from(addr);
+                    let mut port_buf = [0u8; 2];
+                    stream
+                        .read_exact(&mut port_buf)
+                        .await
+                        .map_err(|e| Error::protocol(format!("Failed to read port: {}", e)))?;
+                    let port = u16::from_be_bytes(port_buf);
+                    TargetAddr::Ip(SocketAddr::new(IpAddr::V6(ip), port))
+                }
+                _ => {
+                    Self::send_socks5_error(&mut stream, 0x08).await; // Address type not supported
+                    return Err(Error::protocol(format!(
+                        "Unsupported address type: {}",
+                        atyp
+                    )));
+                }
+            };
 
         // Route the connection
         let outbound_tag = router
@@ -675,7 +700,10 @@ impl MixedInbound {
             None => {
                 tracing::error!("Outbound '{}' not found", outbound_tag);
                 Self::send_socks5_error(&mut stream, 0x01).await; // General failure
-                return Err(Error::config(format!("Outbound '{}' not found", outbound_tag)));
+                return Err(Error::config(format!(
+                    "Outbound '{}' not found",
+                    outbound_tag
+                )));
             }
         };
 
@@ -713,8 +741,16 @@ impl MixedInbound {
         let conn_arc = Arc::clone(&tracked);
 
         // Relay data through the outbound proxy with connection tracking
-        if let Err(e) = outbound.relay_tcp_with_connection(Box::new(stream), target.clone(), Some(conn_arc)).await {
-            tracing::debug!("SOCKS5 relay error via '{}' to {}: {}", outbound.tag(), target, e);
+        if let Err(e) = outbound
+            .relay_tcp_with_connection(Box::new(stream), target.clone(), Some(conn_arc))
+            .await
+        {
+            tracing::debug!(
+                "SOCKS5 relay error via '{}' to {}: {}",
+                outbound.tag(),
+                target,
+                e
+            );
         }
 
         // Untrack the connection
@@ -729,8 +765,12 @@ impl MixedInbound {
             error_code,
             0x00, // Reserved
             SOCKS5_ADDR_IPV4,
-            0, 0, 0, 0, // Bind address
-            0, 0, // Bind port
+            0,
+            0,
+            0,
+            0, // Bind address
+            0,
+            0, // Bind port
         ];
         let _ = stream.write_all(&response).await;
     }
@@ -773,7 +813,7 @@ impl MixedInbound {
         // Use tokio::select with biased to handle both directions properly
         let result = tokio::select! {
             biased;
-            
+
             result = tokio::io::copy(&mut ar, &mut bw) => {
                 let _ = bw.shutdown().await;
                 result.map(|_| ())
@@ -800,5 +840,5 @@ impl MixedInbound {
 
 /// Find the end of HTTP headers (position of \r\n\r\n)
 fn find_header_end(data: &[u8]) -> Option<usize> {
-    (0..data.len().saturating_sub(3)).find(|&i| &data[i..i+4] == b"\r\n\r\n")
+    (0..data.len().saturating_sub(3)).find(|&i| &data[i..i + 4] == b"\r\n\r\n")
 }

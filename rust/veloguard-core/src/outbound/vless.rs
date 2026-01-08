@@ -41,6 +41,7 @@ pub enum VlessFlow {
 }
 
 impl VlessFlow {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "xtls-rprx-vision" | "vision" => VlessFlow::XtlsRprxVision,
@@ -206,9 +207,11 @@ impl VlessOutbound {
 
     async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
         let addr = format!("{}:{}", self.server, self.port);
-        let stream = TcpStream::connect(&addr).await.map_err(|e| {
-            Error::network(format!("Failed to connect to VLess server {}: {}", addr, e))
-        })?;
+        
+        // Use protected connection on Android to prevent routing loop
+        let stream = crate::socket_protect::connect_protected(&addr)
+            .await
+            .map_err(|e| Error::network(format!("Failed to connect to VLess server {}: {}", addr, e)))?;
 
         stream.set_nodelay(true).ok();
 

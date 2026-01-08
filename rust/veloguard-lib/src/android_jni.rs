@@ -125,8 +125,17 @@ pub extern "system" fn Java_com_blueokanna_veloguard_VeloGuardVpnService_nativeC
         *service_guard = None;
     }
     
-    // Clear the protect callback
+    // Clear the protect callback for veloguard-netstack (android_tun.rs)
     veloguard_netstack::clear_protect_callback();
+    android_log("INFO", "Cleared protect callback for android_tun");
+    
+    // Clear the protect callback for veloguard-netstack (solidtcp/stack.rs)
+    veloguard_netstack::solidtcp::clear_protect_callback();
+    android_log("INFO", "Cleared protect callback for solidtcp");
+    
+    // Clear the protect callback for veloguard-core
+    veloguard_core::clear_protect_callback();
+    android_log("INFO", "Cleared protect callback for veloguard-core");
 
     android_log("INFO", "JNI bridge cleared completely");
     info!("JNI bridge cleared completely");
@@ -218,22 +227,56 @@ pub fn protect_socket_via_jni(fd: i32) -> bool {
     }
 }
 
-/// Set up the protect callback in veloguard-solidtcp
+/// Set up the protect callback in all modules that need socket protection
 fn setup_protect_callback() {
+    // 1. Set up callback for veloguard-netstack (android_tun.rs)
     android_log(
         "INFO",
-        "Setting up socket protect callback for veloguard-netstack",
+        "Setting up socket protect callback for veloguard-netstack (android_tun)",
     );
     veloguard_netstack::set_protect_callback(|fd| {
-        let msg = format!("protect_socket callback called for fd={}", fd);
+        let msg = format!("protect_socket callback called for fd={} (android_tun)", fd);
         android_log("DEBUG", &msg);
         protect_socket_via_jni(fd)
     });
     android_log(
         "INFO",
-        "Socket protect callback configured for veloguard-netstack",
+        "Socket protect callback configured for veloguard-netstack (android_tun)",
     );
-    info!("Socket protect callback configured for veloguard-netstack");
+    info!("Socket protect callback configured for veloguard-netstack (android_tun)");
+    
+    // 2. Set up callback for veloguard-netstack solidtcp stack
+    // This is a SEPARATE static variable in solidtcp/stack.rs!
+    android_log(
+        "INFO",
+        "Setting up socket protect callback for veloguard-netstack (solidtcp)",
+    );
+    veloguard_netstack::solidtcp::set_protect_callback(|fd| {
+        let msg = format!("protect_socket callback called for fd={} (solidtcp)", fd);
+        android_log("DEBUG", &msg);
+        protect_socket_via_jni(fd)
+    });
+    android_log(
+        "INFO",
+        "Socket protect callback configured for veloguard-netstack (solidtcp)",
+    );
+    info!("Socket protect callback configured for veloguard-netstack (solidtcp)");
+    
+    // 3. Set up callback for veloguard-core outbound protocols
+    android_log(
+        "INFO",
+        "Setting up socket protect callback for veloguard-core",
+    );
+    veloguard_core::set_protect_callback(|fd| {
+        let msg = format!("protect_socket callback called for fd={} (core)", fd);
+        android_log("DEBUG", &msg);
+        protect_socket_via_jni(fd)
+    });
+    android_log(
+        "INFO",
+        "Socket protect callback configured for veloguard-core",
+    );
+    info!("Socket protect callback configured for veloguard-core");
 }
 
 /// Check if JNI bridge is initialized

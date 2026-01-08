@@ -18,7 +18,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as TokioTcpStream;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 #[cfg(target_os = "android")]
 use std::os::unix::io::AsRawFd;
@@ -316,6 +316,22 @@ impl SolidStack {
         tcp_info: &TcpInfo,
         _parsed: &ParsedPacket,
     ) -> Result<()> {
+        // 防止回环：检查目标是否为本地代理端口
+        if let IpAddr::V4(ip) = dst_addr.ip() {
+            if ip.is_loopback() && dst_addr.port() == self.config.proxy_port {
+                warn!(
+                    "Blocking loopback connection attempt: {} -> 127.0.0.1:{} (proxy port)",
+                    src_addr, self.config.proxy_port
+                );
+                self.send_tcp_packet(
+                    dst_addr, src_addr,
+                    0, tcp_info.seq.wrapping_add(1),
+                    TcpFlags::rst_ack(), &[], None,
+                ).await?;
+                return Ok(());
+            }
+        }
+
         let domain = if let IpAddr::V4(ip) = dst_addr.ip() {
             let d = self.fake_ip_pool.lookup(ip);
             if d.is_none() && self.fake_ip_pool.is_fake_ip(ip) {
@@ -380,6 +396,7 @@ impl SolidStack {
             proxy_port: self.config.proxy_port,
             tun_tx: self.tun_tx.clone(),
             tcp_manager: self.tcp_manager.clone(),
+            udp_manager: self.udp_manager.clone(),
             nat_table: self.nat_table.clone(),
             stats: self.stats.clone(),
             running: self.running.clone(),
@@ -518,25 +535,90 @@ impl SolidStack {
         dst_addr: SocketAddr,
         payload: &[u8],
     ) -> Result<()> {
+        use crate::solidtcp::udp::UdpSessionType;
+        
         let domain = if let IpAddr::V4(ip) = dst_addr.ip() {
             self.fake_ip_pool.lookup(ip)
         } else {
             None
         };
 
-        debug!(
-            "UDP data: {} -> {} ({} bytes, domain: {:?})",
-            src_addr, dst_addr, payload.len(), domain
+        // Detect session type (QUIC, DNS, Regular)
+        let session_type = UdpSessionType::detect(
+            dst_addr.port(),
+            payload,
+            &[443, 8443, 4433, 8080], // Common QUIC ports
         );
 
-        let _session = self.udp_manager.get_or_create_session(src_addr, dst_addr, domain.clone())?;
+        let type_str = match session_type {
+            UdpSessionType::Quic => "QUIC",
+            UdpSessionType::Dns => "DNS",
+            UdpSessionType::Regular => "UDP",
+            UdpSessionType::Unknown => "UNKNOWN",
+        };
+
+        debug!(
+            "{} data: {} -> {} ({} bytes, domain: {:?})",
+            type_str, src_addr, dst_addr, payload.len(), domain
+        );
+
+        // Get or create session with type detection
+        let session = self.udp_manager.get_or_create_session_with_detection(
+            src_addr, dst_addr, domain.clone(), payload
+        )?;
+        
         self.udp_manager.record_sent(src_addr, dst_addr, payload.len());
 
+        // Check if session already has an active relay - use a block to limit lock scope
+        let has_relay = {
+            let sess = session.read();
+            sess.relay_socket().is_some() || sess.proxy_tx().is_some()
+        };
+
+        if has_relay {
+            // Get relay info without holding lock across await
+            let relay_info = {
+                let sess = session.read();
+                if let Some(relay_socket) = sess.relay_socket() {
+                    Some((relay_socket.clone(), true))
+                } else if sess.proxy_tx().is_some() {
+                    // For proxy_tx, we need to clone it
+                    None // Will handle separately
+                } else {
+                    None
+                }
+            };
+            
+            if let Some((relay_socket, _)) = relay_info {
+                // Direct relay - send to target
+                let target = match &domain {
+                    Some(d) => {
+                        // Resolve domain
+                        match tokio::net::lookup_host(format!("{}:{}", d, dst_addr.port())).await {
+                            Ok(mut addrs) => addrs.next().unwrap_or(dst_addr),
+                            Err(_) => dst_addr,
+                        }
+                    }
+                    None => dst_addr,
+                };
+                
+                if let Err(e) = relay_socket.send_to(payload, target).await {
+                    debug!("UDP relay send error: {}", e);
+                }
+                return Ok(());
+            }
+        }
+
+        // Create new relay for this session
         let stack = self.clone_for_proxy();
         let payload_vec = payload.to_vec();
+        let session_clone = session.clone();
+        let is_quic = session_type == UdpSessionType::Quic;
         
         tokio::spawn(async move {
-            if let Err(e) = stack.forward_udp(src_addr, dst_addr, domain, &payload_vec).await {
+            if let Err(e) = stack.forward_udp_with_session(
+                src_addr, dst_addr, domain, &payload_vec, session_clone, is_quic
+            ).await {
                 debug!("UDP forward error: {} -> {}: {}", src_addr, dst_addr, e);
             }
         });
@@ -641,6 +723,7 @@ struct StackProxy {
     proxy_port: u16,
     tun_tx: Option<mpsc::Sender<BytesMut>>,
     tcp_manager: Arc<TcpManager>,
+    udp_manager: Arc<UdpManager>,
     #[allow(dead_code)]
     nat_table: Arc<NatTable>,
     stats: Arc<StackStats>,
@@ -649,6 +732,292 @@ struct StackProxy {
 
 
 impl StackProxy {
+    /// Forward UDP with session management for QUIC support
+    async fn forward_udp_with_session(
+        &self,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        domain: Option<String>,
+        payload: &[u8],
+        _session: Arc<parking_lot::RwLock<crate::solidtcp::udp::UdpSession>>,
+        is_quic: bool,
+    ) -> Result<()> {
+        use tokio::net::UdpSocket;
+        
+        let proxy_addr: SocketAddr = format!("127.0.0.1:{}", self.proxy_port)
+            .parse()
+            .map_err(|e| SolidTcpError::ProxyError(format!("Invalid proxy address: {}", e)))?;
+        
+        // Create TCP socket for SOCKS5 UDP ASSOCIATE
+        let tcp_socket = tokio::net::TcpSocket::new_v4()
+            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to create TCP socket: {}", e)))?;
+        
+        #[cfg(target_os = "android")]
+        {
+            let fd = tcp_socket.as_raw_fd();
+            if !protect_socket(fd) {
+                warn!("Failed to protect UDP associate TCP socket fd={}", fd);
+            } else {
+                debug!("Protected UDP associate TCP socket fd={}", fd);
+            }
+        }
+        
+        let mut tcp_stream = tcp_socket.connect(proxy_addr).await
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate connect failed: {}", e)))?;
+
+        // SOCKS5 handshake
+        tcp_stream.write_all(&[0x05, 0x01, 0x00]).await
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP greeting failed: {}", e)))?;
+
+        let mut response = [0u8; 2];
+        tcp_stream.read_exact(&mut response).await
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP response failed: {}", e)))?;
+
+        if response[0] != 0x05 || response[1] != 0x00 {
+            return Err(SolidTcpError::ProxyAuthFailed);
+        }
+
+        // UDP ASSOCIATE request
+        let request = [
+            0x05, 0x03, 0x00,  // VER, CMD=UDP ASSOCIATE, RSV
+            0x01,              // ATYP=IPv4
+            0x00, 0x00, 0x00, 0x00,  // BND.ADDR (0.0.0.0)
+            0x00, 0x00,        // BND.PORT (0)
+        ];
+        tcp_stream.write_all(&request).await
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate request failed: {}", e)))?;
+
+        let mut assoc_response = [0u8; 10];
+        tcp_stream.read_exact(&mut assoc_response).await
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate response failed: {}", e)))?;
+
+        if assoc_response[1] != 0x00 {
+            return Err(SolidTcpError::ProxyError(format!(
+                "UDP ASSOCIATE failed: {}",
+                assoc_response[1]
+            )));
+        }
+
+        // Parse relay address
+        let relay_addr = match assoc_response[3] {
+            0x01 => {
+                let ip = Ipv4Addr::new(
+                    assoc_response[4], assoc_response[5],
+                    assoc_response[6], assoc_response[7],
+                );
+                let port = u16::from_be_bytes([assoc_response[8], assoc_response[9]]);
+                // 如果服务器返回 0.0.0.0，使用代理服务器地址
+                let ip = if ip.is_unspecified() { 
+                    Ipv4Addr::new(127, 0, 0, 1) 
+                } else { 
+                    ip 
+                };
+                // 验证端口有效性
+                if port == 0 {
+                    return Err(SolidTcpError::ProxyError(
+                        "Invalid relay port 0 from SOCKS5 server".to_string()
+                    ));
+                }
+                SocketAddr::new(IpAddr::V4(ip), port)
+            }
+            _ => {
+                return Err(SolidTcpError::ProxyError("Unsupported relay address type".to_string()));
+            }
+        };
+
+        if is_quic {
+            info!("QUIC UDP relay established: {} -> {} via {}", src_addr, dst_addr, relay_addr);
+        } else {
+            debug!("UDP relay address: {}", relay_addr);
+        }
+
+        // Create UDP socket for relay
+        let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP socket bind failed: {}", e)))?;
+        
+        #[cfg(target_os = "android")]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = std_socket.as_raw_fd();
+            if !protect_socket(fd) {
+                warn!("Failed to protect UDP relay socket fd={}", fd);
+            } else {
+                debug!("Protected UDP relay socket fd={}", fd);
+            }
+        }
+        
+        std_socket.set_nonblocking(true)
+            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to set nonblocking: {}", e)))?;
+        let udp_socket = Arc::new(UdpSocket::from_std(std_socket)
+            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to convert UDP socket: {}", e)))?);
+
+        // Build SOCKS5 UDP request
+        let mut udp_request = Vec::with_capacity(payload.len() + 262);
+        udp_request.extend_from_slice(&[0x00, 0x00, 0x00]); // RSV, FRAG
+
+        if let Some(ref domain) = domain {
+            udp_request.push(0x03); // ATYP=Domain
+            udp_request.push(domain.len() as u8);
+            udp_request.extend_from_slice(domain.as_bytes());
+        } else {
+            match dst_addr.ip() {
+                IpAddr::V4(ip) => {
+                    udp_request.push(0x01); // ATYP=IPv4
+                    udp_request.extend_from_slice(&ip.octets());
+                }
+                IpAddr::V6(ip) => {
+                    udp_request.push(0x04); // ATYP=IPv6
+                    udp_request.extend_from_slice(&ip.octets());
+                }
+            }
+        }
+        udp_request.extend_from_slice(&dst_addr.port().to_be_bytes());
+        udp_request.extend_from_slice(payload);
+
+        // 验证UDP请求包大小
+        if udp_request.len() > 65507 {
+            warn!("UDP request too large: {} bytes, truncating", udp_request.len());
+            udp_request.truncate(65507);
+        }
+
+        // Send initial packet with error handling
+        match udp_socket.send_to(&udp_request, relay_addr).await {
+            Ok(sent) => {
+                if is_quic {
+                    debug!("QUIC packet forwarded: {} -> {} ({}/{} bytes sent)", 
+                           src_addr, dst_addr, sent, udp_request.len());
+                } else {
+                    debug!("UDP forwarded: {} -> {} ({}/{} bytes sent)", 
+                           src_addr, dst_addr, sent, udp_request.len());
+                }
+            }
+            Err(e) => {
+                // 详细记录错误信息
+                let error_kind = e.kind();
+                let error_code = e.raw_os_error();
+                warn!(
+                    "UDP send failed: {} -> {} via {}: {} (kind: {:?}, os_error: {:?})",
+                    src_addr, dst_addr, relay_addr, e, error_kind, error_code
+                );
+                return Err(SolidTcpError::ProxyError(format!(
+                    "UDP send failed: {} (os error: {:?})",
+                    e, error_code
+                )));
+            }
+        }
+
+        // Set up bidirectional relay for QUIC
+        let tun_tx = self.tun_tx.clone();
+        let stats = self.stats.clone();
+        let running = self.running.clone();
+        let udp_manager = self.udp_manager.clone();
+        let udp_socket_clone = udp_socket.clone();
+        let _domain_clone = domain.clone();
+
+        // Timeout based on session type
+        let recv_timeout = if is_quic {
+            Duration::from_secs(300) // 5 minutes for QUIC
+        } else {
+            Duration::from_secs(30) // 30 seconds for regular UDP
+        };
+
+        // Spawn receiver task for responses
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65535];
+            
+            loop {
+                let timeout_result = tokio::time::timeout(
+                    recv_timeout,
+                    udp_socket_clone.recv_from(&mut buf)
+                ).await;
+
+                match timeout_result {
+                    Ok(Ok((n, _from))) => {
+                        if n <= 10 {
+                            continue;
+                        }
+
+                        // Parse SOCKS5 UDP response header
+                        let atyp = buf[3];
+                        let header_len = match atyp {
+                            0x01 => 10, // IPv4
+                            0x03 => 7 + buf[4] as usize, // Domain
+                            0x04 => 22, // IPv6
+                            _ => {
+                                debug!("Unknown ATYP in UDP response: {}", atyp);
+                                continue;
+                            }
+                        };
+
+                        if n <= header_len {
+                            continue;
+                        }
+
+                        let response_payload = &buf[header_len..n];
+                        
+                        // Record received data
+                        udp_manager.record_recv(src_addr, dst_addr, response_payload.len());
+
+                        // Send response back to TUN
+                        if let Some(ref tx) = tun_tx {
+                            let (src_ip, dst_ip) = match (dst_addr.ip(), src_addr.ip()) {
+                                (IpAddr::V4(s), IpAddr::V4(d)) => (s, d),
+                                _ => continue,
+                            };
+
+                            let packet = build_ipv4_udp(
+                                src_ip, dst_ip,
+                                dst_addr.port(), src_addr.port(),
+                                response_payload,
+                            );
+
+                            stats.record_sent(packet.len());
+                            if tx.send(BytesMut::from(&packet[..])).await.is_err() {
+                                debug!("Failed to send UDP response to TUN");
+                                break;
+                            }
+
+                            if is_quic {
+                                trace!("QUIC response: {} <- {} ({} bytes)", src_addr, dst_addr, response_payload.len());
+                            }
+                        }
+
+                        // For non-QUIC, we might exit after first response
+                        if !is_quic && !running.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        debug!("UDP recv error: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout
+                        if is_quic {
+                            debug!("QUIC session timeout: {} -> {}", src_addr, dst_addr);
+                        } else {
+                            debug!("UDP recv timeout");
+                        }
+                        break;
+                    }
+                }
+
+                // Check if we should continue
+                if !running.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+
+            // Cleanup
+            drop(tcp_stream);
+            debug!("UDP relay closed: {} -> {}", src_addr, dst_addr);
+        });
+
+        Ok(())
+    }
+
+    /// Legacy forward_udp for backward compatibility
+    #[allow(dead_code)]
     async fn forward_udp(
         &self,
         src_addr: SocketAddr,
@@ -742,7 +1111,7 @@ impl StackProxy {
         
         std_socket.set_nonblocking(true)
             .map_err(|e| SolidTcpError::ProxyError(format!("Failed to set nonblocking: {}", e)))?;
-        let udp_socket = UdpSocket::from_std(std_socket)
+        let _udp_socket = UdpSocket::from_std(std_socket)
             .map_err(|e| SolidTcpError::ProxyError(format!("Failed to convert UDP socket: {}", e)))?;
 
         let mut udp_request = Vec::with_capacity(payload.len() + 262);
@@ -767,10 +1136,98 @@ impl StackProxy {
         udp_request.extend_from_slice(&dst_addr.port().to_be_bytes());
         udp_request.extend_from_slice(payload);
 
-        udp_socket.send_to(&udp_request, relay_addr).await
-            .map_err(|e| SolidTcpError::ProxyError(format!("UDP send failed: {}", e)))?;
+        // Parse relay address
+        let relay_addr = match assoc_response[3] {
+            0x01 => {
+                let ip = Ipv4Addr::new(
+                    assoc_response[4], assoc_response[5],
+                    assoc_response[6], assoc_response[7],
+                );
+                let port = u16::from_be_bytes([assoc_response[8], assoc_response[9]]);
+                let ip = if ip.is_unspecified() { Ipv4Addr::new(127, 0, 0, 1) } else { ip };
+                // 验证端口有效性
+                if port == 0 {
+                    return Err(SolidTcpError::ProxyError(
+                        "Invalid relay port 0 from SOCKS5 server".to_string()
+                    ));
+                }
+                SocketAddr::new(IpAddr::V4(ip), port)
+            }
+            _ => {
+                return Err(SolidTcpError::ProxyError("Unsupported relay address type".to_string()));
+            }
+        };
 
-        debug!("UDP forwarded: {} -> {} ({} bytes)", src_addr, dst_addr, payload.len());
+        debug!("UDP relay address: {}", relay_addr);
+
+        // Create UDP socket for relay
+        let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")
+            .map_err(|e| SolidTcpError::ProxyError(format!("UDP socket bind failed: {}", e)))?;
+        
+        #[cfg(target_os = "android")]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = std_socket.as_raw_fd();
+            if !protect_socket(fd) {
+                warn!("Failed to protect UDP relay socket fd={}", fd);
+            } else {
+                debug!("Protected UDP relay socket fd={}", fd);
+            }
+        }
+        
+        std_socket.set_nonblocking(true)
+            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to set nonblocking: {}", e)))?;
+        let udp_socket = Arc::new(UdpSocket::from_std(std_socket)
+            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to convert UDP socket: {}", e)))?);
+
+        // Build SOCKS5 UDP request
+        let mut udp_request = Vec::with_capacity(payload.len() + 262);
+        udp_request.extend_from_slice(&[0x00, 0x00, 0x00]); // RSV, FRAG
+
+        if let Some(ref domain) = domain {
+            udp_request.push(0x03); // ATYP=Domain
+            udp_request.push(domain.len() as u8);
+            udp_request.extend_from_slice(domain.as_bytes());
+        } else {
+            match dst_addr.ip() {
+                IpAddr::V4(ip) => {
+                    udp_request.push(0x01); // ATYP=IPv4
+                    udp_request.extend_from_slice(&ip.octets());
+                }
+                IpAddr::V6(ip) => {
+                    udp_request.push(0x04); // ATYP=IPv6
+                    udp_request.extend_from_slice(&ip.octets());
+                }
+            }
+        }
+        udp_request.extend_from_slice(&dst_addr.port().to_be_bytes());
+        udp_request.extend_from_slice(payload);
+
+        // 验证UDP请求包大小
+        if udp_request.len() > 65507 {
+            warn!("UDP request too large: {} bytes, truncating", udp_request.len());
+            udp_request.truncate(65507);
+        }
+
+        // Send packet with error handling
+        match udp_socket.send_to(&udp_request, relay_addr).await {
+            Ok(sent) => {
+                debug!("UDP forwarded: {} -> {} ({}/{} bytes sent)", 
+                       src_addr, dst_addr, sent, udp_request.len());
+            }
+            Err(e) => {
+                let error_kind = e.kind();
+                let error_code = e.raw_os_error();
+                warn!(
+                    "UDP send failed: {} -> {} via {}: {} (kind: {:?}, os_error: {:?})",
+                    src_addr, dst_addr, relay_addr, e, error_kind, error_code
+                );
+                return Err(SolidTcpError::ProxyError(format!(
+                    "UDP send failed: {} (os error: {:?})",
+                    e, error_code
+                )));
+            }
+        }
 
         let tun_tx = self.tun_tx.clone();
         let stats = self.stats.clone();

@@ -24,12 +24,14 @@ impl Default for ProviderUpdaterConfig {
     }
 }
 
+type ShutdownSender = Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>;
+
 pub struct ProviderUpdater {
     config: ProviderUpdaterConfig,
     proxy_provider_manager: Option<Arc<ProxyProviderManager>>,
     rule_provider_manager: Option<Arc<RuleProviderManager>>,
     running: Arc<RwLock<bool>>,
-    shutdown_tx: Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>,
+    shutdown_tx: ShutdownSender,
 }
 
 impl ProviderUpdater {

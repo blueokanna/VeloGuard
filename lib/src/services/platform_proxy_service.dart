@@ -381,18 +381,28 @@ class PlatformProxyService {
         return false;
       }
 
-      // Set VPN fd in Rust layer and start processing
+      // CRITICAL: Set VPN fd in Rust layer BEFORE starting processing
+      // The order is important:
+      // 1. Set fd first
+      // 2. Set proxy mode
+      // 3. Start VPN processing
       try {
         debugPrint(
-          '_enableAndroidVpn: Setting VPN fd=$_vpnFd in Rust layer...',
+          '_enableAndroidVpn: Step 1 - Setting VPN fd=$_vpnFd in Rust layer...',
         );
         rust_api.setAndroidVpnFd(fd: _vpnFd);
 
-        debugPrint('_enableAndroidVpn: Setting proxy mode to ${mode.name}...');
-        rust_api.setAndroidProxyMode(mode: mode.name);
+        // Small delay to ensure fd is set
+        await Future.delayed(const Duration(milliseconds: 50));
 
         debugPrint(
-          '_enableAndroidVpn: Starting Android VPN packet processing in Rust...',
+          '_enableAndroidVpn: Step 2 - Setting proxy mode to ${mode.name}...',
+        );
+        rust_api.setAndroidProxyMode(mode: mode.name);
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        debugPrint(
+          '_enableAndroidVpn: Step 3 - Starting Android VPN packet processing in Rust...',
         );
         final vpnStarted = await rust_api.startAndroidVpn();
         debugPrint(
@@ -411,6 +421,7 @@ class PlatformProxyService {
               '_enableAndroidVpn: Failed to stop Android VPN after Rust failure: $e',
             );
           }
+          rust_api.clearAndroidVpnFd();
           _vpnFd = -1;
           return false;
         }
@@ -421,6 +432,7 @@ class PlatformProxyService {
         try {
           await _channel.invokeMethod('stopVpn');
         } catch (_) {}
+        rust_api.clearAndroidVpnFd();
         _vpnFd = -1;
         return false;
       }

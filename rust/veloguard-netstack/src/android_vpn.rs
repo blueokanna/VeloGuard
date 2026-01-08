@@ -3,8 +3,8 @@
 //! This module provides the integration between Android VPN service
 //! and the SolidTCP user-space TCP/IP stack.
 
-use bytes::BytesMut;
 use crate::solidtcp::{SolidStack, StackBuilder, StackStats};
+use bytes::BytesMut;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -41,8 +41,11 @@ pub struct VpnTrafficStats {
 impl AndroidVpnProcessor {
     /// Create a new Android VPN processor
     pub fn new(proxy_port: u16, tun_tx: mpsc::Sender<BytesMut>) -> Self {
-        info!("Creating AndroidVpnProcessor with proxy_port={}", proxy_port);
-        
+        info!(
+            "Creating AndroidVpnProcessor with proxy_port={}",
+            proxy_port
+        );
+
         // Build the SolidTCP stack with configuration
         let mut stack = StackBuilder::new()
             .proxy_port(proxy_port)
@@ -53,7 +56,7 @@ impl AndroidVpnProcessor {
         // Set the TUN write channel
         stack.set_tun_tx(tun_tx.clone());
         stack.start();
-        
+
         info!("SolidTCP stack started");
 
         let stack = Arc::new(stack);
@@ -79,7 +82,7 @@ impl AndroidVpnProcessor {
         }
 
         let count = self.packet_count.fetch_add(1, Ordering::Relaxed);
-        
+
         // Log packet info for first 100 packets and periodically
         if count < 100 || count % 500 == 0 {
             // Parse IP version and protocol
@@ -92,19 +95,25 @@ impl AndroidVpnProcessor {
                     1 => "ICMP",
                     _ => "OTHER",
                 };
-                
+
                 // Parse source and destination IPs
                 let src_ip = if packet.len() >= 16 {
-                    format!("{}.{}.{}.{}", packet[12], packet[13], packet[14], packet[15])
+                    format!(
+                        "{}.{}.{}.{}",
+                        packet[12], packet[13], packet[14], packet[15]
+                    )
                 } else {
                     "?".to_string()
                 };
                 let dst_ip = if packet.len() >= 20 {
-                    format!("{}.{}.{}.{}", packet[16], packet[17], packet[18], packet[19])
+                    format!(
+                        "{}.{}.{}.{}",
+                        packet[16], packet[17], packet[18], packet[19]
+                    )
                 } else {
                     "?".to_string()
                 };
-                
+
                 // Parse ports for TCP/UDP
                 let ports = if protocol == 6 || protocol == 17 {
                     let ihl = ((packet[0] & 0x0F) as usize) * 4;
@@ -118,10 +127,14 @@ impl AndroidVpnProcessor {
                 } else {
                     format!(" {} -> {}", src_ip, dst_ip)
                 };
-                
+
                 info!(
                     "TUN packet #{}: {} bytes, IPv{}, {}{}",
-                    count, packet.len(), version, proto_name, ports
+                    count,
+                    packet.len(),
+                    version,
+                    proto_name,
+                    ports
                 );
             }
         }
@@ -169,7 +182,10 @@ impl AndroidVpnProcessor {
         self.running.store(false, Ordering::Relaxed);
         self.stack.stop();
         let total = self.packet_count.load(Ordering::Relaxed);
-        info!("Android VPN processor stopped, processed {} packets total", total);
+        info!(
+            "Android VPN processor stopped, processed {} packets total",
+            total
+        );
     }
 
     /// Reset the Fake-IP pool
@@ -181,19 +197,14 @@ impl AndroidVpnProcessor {
 
     /// Reset the entire stack state for restart
     pub fn reset(&self) {
-        // Clear Fake-IP pool
         self.stack.fake_ip_pool().clear();
-        // Clear NAT table
         self.stack.nat_table().clear();
-        // Cleanup TCP/UDP managers
         self.stack.tcp_manager().cleanup();
         self.stack.udp_manager().cleanup();
-        // Reset packet counter
         self.packet_count.store(0, Ordering::Relaxed);
         info!("AndroidVpnProcessor fully reset");
     }
 }
 
-/// Legacy exports for backward compatibility
-pub use crate::solidtcp::TcpState;
 pub use crate::solidtcp::NatEntry as TcpNatEntry;
+pub use crate::solidtcp::TcpState;

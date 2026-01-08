@@ -56,13 +56,10 @@ impl OutboundProxy for HttpOutbound {
         
         let start = Instant::now();
         
-        // Connect to HTTP proxy
+        // Connect to HTTP proxy with protection
         let server_addr = format!("{}:{}", self.server, self.port);
-        let mut stream = tokio::time::timeout(
-            timeout,
-            TcpStream::connect(&server_addr)
-        ).await
-            .map_err(|_| Error::network("Connection timeout"))?
+        let mut stream = crate::socket_protect::connect_protected_timeout(&server_addr, timeout)
+            .await
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
         
         // Send CONNECT request to establish tunnel
@@ -152,9 +149,11 @@ impl OutboundProxy for HttpOutbound {
     ) -> Result<()> {
         // Connect to HTTP proxy
         let server_addr = format!("{}:{}", self.server, self.port);
-        let outbound = TcpStream::connect(&server_addr).await.map_err(|e| {
-            Error::network(format!("Failed to connect to HTTP proxy {}: {}", server_addr, e))
-        })?;
+        
+        // Use protected connection on Android to prevent routing loop
+        let outbound = crate::socket_protect::connect_protected(&server_addr)
+            .await
+            .map_err(|e| Error::network(format!("Failed to connect to HTTP proxy {}: {}", server_addr, e)))?;
         
         tracing::debug!("HTTP proxy: connected to {} for target {}", server_addr, target);
         

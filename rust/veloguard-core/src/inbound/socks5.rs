@@ -340,6 +340,8 @@ impl Socks5Inbound {
         outbound_manager: Arc<OutboundManager>,
     ) -> Result<()> {
         let mut buf = vec![0u8; 65535];
+        // Cache for UDP sessions to maintain connection state for QUIC
+        let session_cache: Arc<DashMap<String, Arc<UdpSocket>>> = Arc::new(DashMap::new());
         
         loop {
             let (n, src_addr) = match tokio::time::timeout(
@@ -352,7 +354,8 @@ impl Socks5Inbound {
                     continue;
                 }
                 Err(_) => {
-                    // Timeout, continue waiting
+                    // Timeout, cleanup old sessions and continue
+                    session_cache.retain(|_, _| true); // Keep all for now
                     continue;
                 }
             };
@@ -436,7 +439,105 @@ impl Socks5Inbound {
                 src_addr, target_addr, outbound_tag, payload.len()
             );
 
-            // Get the outbound proxy
+            // For direct outbound, use a more efficient approach
+            if outbound_tag == "direct" {
+                // Resolve target address
+                let resolved_addr = match &target_addr {
+                    TargetAddr::Ip(addr) => *addr,
+                    TargetAddr::Domain(domain, port) => {
+                        match tokio::net::lookup_host(format!("{}:{}", domain, port)).await {
+                            Ok(mut addrs) => match addrs.next() {
+                                Some(addr) => addr,
+                                None => continue,
+                            },
+                            Err(_) => continue,
+                        }
+                    }
+                };
+
+                // Get or create session socket for this target
+                let session_key = resolved_addr.to_string();
+                let session_socket = if let Some(socket) = session_cache.get(&session_key) {
+                    socket.clone()
+                } else {
+                    let new_socket = match UdpSocket::bind("0.0.0.0:0").await {
+                        Ok(s) => Arc::new(s),
+                        Err(_) => continue,
+                    };
+                    session_cache.insert(session_key.clone(), new_socket.clone());
+                    
+                    // Start a receiver task for this session
+                    let recv_socket = new_socket.clone();
+                    let reply_socket = Arc::clone(&udp_socket);
+                    let reply_addr = src_addr;
+                    let target_for_reply = target_addr.clone();
+                    
+                    tokio::spawn(async move {
+                        let mut recv_buf = vec![0u8; 65535];
+                        loop {
+                            match tokio::time::timeout(
+                                Duration::from_secs(60),
+                                recv_socket.recv_from(&mut recv_buf)
+                            ).await {
+                                Ok(Ok((recv_n, _from_addr))) => {
+                                    if recv_n == 0 {
+                                        continue;
+                                    }
+                                    
+                                    // Build SOCKS5 UDP response
+                                    let mut response_packet = Vec::with_capacity(recv_n + 22);
+                                    response_packet.extend_from_slice(&[0x00, 0x00, 0x00]); // RSV, FRAG
+                                    
+                                    match &target_for_reply {
+                                        TargetAddr::Ip(addr) => {
+                                            match addr.ip() {
+                                                IpAddr::V4(ip) => {
+                                                    response_packet.push(0x01);
+                                                    response_packet.extend_from_slice(&ip.octets());
+                                                }
+                                                IpAddr::V6(ip) => {
+                                                    response_packet.push(0x04);
+                                                    response_packet.extend_from_slice(&ip.octets());
+                                                }
+                                            }
+                                            response_packet.extend_from_slice(&addr.port().to_be_bytes());
+                                        }
+                                        TargetAddr::Domain(domain, port) => {
+                                            response_packet.push(0x03);
+                                            response_packet.push(domain.len() as u8);
+                                            response_packet.extend_from_slice(domain.as_bytes());
+                                            response_packet.extend_from_slice(&port.to_be_bytes());
+                                        }
+                                    }
+                                    response_packet.extend_from_slice(&recv_buf[..recv_n]);
+
+                                    if let Err(e) = reply_socket.send_to(&response_packet, reply_addr).await {
+                                        tracing::debug!("Failed to send UDP response: {}", e);
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::debug!("UDP session recv error: {}", e);
+                                    break;
+                                }
+                                Err(_) => {
+                                    // Timeout - session expired
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                    
+                    new_socket
+                };
+
+                // Send the packet directly
+                if let Err(e) = session_socket.send_to(payload, resolved_addr).await {
+                    tracing::debug!("Failed to send UDP packet: {}", e);
+                }
+                continue;
+            }
+
+            // Get the outbound proxy for non-direct
             let outbound = match outbound_manager.get_proxy(&outbound_tag) {
                 Some(proxy) => proxy,
                 None => {

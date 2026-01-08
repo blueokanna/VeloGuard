@@ -482,8 +482,10 @@ impl ProxyProvider {
     }
 }
 
+type ProxyProviderMap = Arc<RwLock<HashMap<String, Arc<ProxyProvider>>>>;
+
 pub struct ProxyProviderManager {
-    providers: Arc<RwLock<HashMap<String, Arc<ProxyProvider>>>>,
+    providers: ProxyProviderMap,
 }
 
 impl ProxyProviderManager {

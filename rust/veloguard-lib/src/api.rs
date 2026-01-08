@@ -49,7 +49,6 @@ fn init_tracing_safe() -> std::result::Result<(), ()> {
     #[cfg(not(target_os = "android"))]
     {
         use tracing_subscriber::fmt;
-
         let result = tracing_subscriber::registry()
             .with(filter)
             .with(
@@ -819,7 +818,8 @@ pub async fn get_veloguard_status() -> Result<ProxyStatus> {
             {
                 if let Some(processor) = crate::get_android_vpn_processor() {
                     let vpn_stats = processor.get_traffic_stats();
-                    let vpn_connections = (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u32;
+                    let vpn_connections =
+                        (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u32;
                     base_count.max(vpn_connections)
                 } else {
                     base_count
@@ -2577,7 +2577,7 @@ pub fn set_android_proxy_mode(mode: String) {
         "global" => 1,
         "direct" => 2,
         "rule" => 3,
-        _ => 0,
+        _ => 3,
     };
 
     veloguard_core::set_runtime_proxy_mode(mode_int);
@@ -2615,13 +2615,24 @@ pub async fn start_android_vpn() -> Result<bool> {
 
         let fd = veloguard_netstack::get_android_vpn_fd();
         if fd < 0 {
-            tracing::error!("Android VPN fd not set");
+            tracing::error!("Android VPN fd not set. Please call setAndroidVpnFd first.");
+            return Ok(false);
+        }
+
+        // Validate fd is actually usable
+        let fd_valid = unsafe {
+            // Use fcntl to check if fd is valid
+            libc::fcntl(fd, libc::F_GETFD) != -1
+        };
+        if !fd_valid {
+            tracing::error!("Android VPN fd {} is invalid (fcntl check failed)", fd);
             return Ok(false);
         }
 
         tracing::info!("=== Starting Android VPN packet processing ===");
-        tracing::info!("VPN fd={}", fd);
+        tracing::info!("VPN fd={} (validated)", fd);
 
+        // Cleanup any existing processor
         if let Some(old_processor) = crate::get_android_vpn_processor() {
             tracing::info!("Cleaning up existing VPN processor before restart");
             old_processor.stop();
@@ -2629,17 +2640,29 @@ pub async fn start_android_vpn() -> Result<bool> {
         }
         crate::clear_android_vpn_processor();
 
+        // Check JNI status
         let jni_status = crate::android_jni::get_jni_status();
         tracing::info!("JNI Status: {}", jni_status);
 
         if !crate::android_jni::is_jni_initialized() {
             tracing::error!("JNI bridge not initialized! Socket protection will not work.");
+            tracing::error!("VPN service must call nativeInitRustBridge() in onCreate()");
+            // Don't return false here - let it try anyway, but warn loudly
         }
 
-        if veloguard_netstack::has_protect_callback() {
-            tracing::info!("Socket protect callback is SET");
-        } else {
-            tracing::error!("Socket protect callback is NOT SET! This will cause routing loops.");
+        // Check protect callbacks in all modules
+        let has_netstack_callback = veloguard_netstack::has_protect_callback();
+        let has_solidtcp_callback = veloguard_netstack::solidtcp::has_protect_callback();
+        let has_core_callback = veloguard_core::has_protect_callback();
+        
+        tracing::info!(
+            "Protect callback status: netstack={}, solidtcp={}, core={}",
+            has_netstack_callback, has_solidtcp_callback, has_core_callback
+        );
+
+        if !has_netstack_callback || !has_solidtcp_callback || !has_core_callback {
+            tracing::warn!("Some protect callbacks are NOT SET! This may cause routing loops.");
+            tracing::warn!("Ensure VPN service calls nativeInitRustBridge() before starting VPN.");
         }
 
         let proxy_port = {
@@ -2691,9 +2714,10 @@ pub async fn start_android_vpn() -> Result<bool> {
 
         let dup_fd = unsafe { libc::dup(fd) };
         if dup_fd < 0 {
+            let err = std::io::Error::last_os_error();
             tracing::error!(
-                "Failed to duplicate VPN fd: {}",
-                std::io::Error::last_os_error()
+                "Failed to duplicate VPN fd {}: {} (errno={})",
+                fd, err, err.raw_os_error().unwrap_or(-1)
             );
             return Ok(false);
         }

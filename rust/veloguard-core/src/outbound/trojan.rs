@@ -139,9 +139,11 @@ impl TrojanOutbound {
 
     async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
         let addr = format!("{}:{}", self.server, self.port);
-        let stream = TcpStream::connect(&addr).await.map_err(|e| {
-            Error::network(format!("Failed to connect to Trojan server {}: {}", addr, e))
-        })?;
+        
+        // Use protected connection on Android to prevent routing loop
+        let stream = crate::socket_protect::connect_protected(&addr)
+            .await
+            .map_err(|e| Error::network(format!("Failed to connect to Trojan server {}: {}", addr, e)))?;
 
         stream.set_nodelay(true).ok();
 

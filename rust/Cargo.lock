@@ -428,6 +428,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
 
 [[package]]
+name = "cfb-mode"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "738b8d467867f80a71351933f70461f5b56f24d5c93e0cf216e59229c968d330"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1665,6 +1674,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2654,6 +2672,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsntp"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c475cc467404cd97386127e5c40be936ce69cf77767306fbc5ec0dc812afd87"
+dependencies = [
+ "chrono",
+ "tokio",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2919,6 +2947,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
 ]
 
 [[package]]
@@ -3632,6 +3670,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 name = "veloguard-core"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "anyhow",
  "async-trait",
@@ -3640,15 +3679,18 @@ dependencies = [
  "bitflags 2.10.0",
  "blake3",
  "bytes",
+ "cfb-mode",
  "chacha20poly1305",
  "chrono",
  "cidr",
+ "crc32fast",
  "dashmap 6.1.0",
  "futures",
  "getrandom 0.3.4",
  "h2",
  "hex",
  "hkdf",
+ "hmac",
  "http",
  "http-body-util",
  "hyper",
@@ -3670,6 +3712,7 @@ dependencies = [
  "rand",
  "regex",
  "reqwest",
+ "rsntp",
  "rustls",
  "rustls-native-certs",
  "serde",
@@ -3677,6 +3720,7 @@ dependencies = [
  "serde_yaml",
  "sha1",
  "sha2",
+ "sha3",
  "socket2",
  "thiserror 2.0.17",
  "tokio",

@@ -1,47 +1,62 @@
 #[macro_use]
 pub mod macros;
-pub mod config;
-pub mod proxy;
-pub mod routing;
-pub mod inbound;
-pub mod outbound;
-pub mod dns;
-pub mod netstack;
-pub mod error;
-pub mod logging;
-pub mod jaeger_tracing;
-pub mod tls;
-pub mod connection_pool;
-pub mod health_check;
-pub mod traffic_stats;
-pub mod connection_tracker;
 pub mod api;
+pub mod config;
+pub mod connection_pool;
+pub mod connection_tracker;
+pub mod dispatcher;
+pub mod dns;
+pub mod error;
 pub mod geoip;
-pub mod rule_provider;
-pub mod proxy_provider;
-pub mod provider_updater;
+pub mod health_check;
+pub mod inbound;
+pub mod jaeger_tracing;
+pub mod logging;
+pub mod netstack;
+pub mod outbound;
 pub mod process;
+pub mod provider_updater;
+pub mod proxy;
+pub mod proxy_provider;
+pub mod routing;
+pub mod rule_provider;
+pub mod socket_protect;
+pub mod time_sync;
+pub mod tls;
+pub mod traffic_stats;
+pub mod transport;
 
 #[cfg(test)]
 mod tests;
 
 pub use config::*;
-pub use proxy::*;
-pub use error::*;
 pub use connection_pool::*;
+pub use connection_tracker::global_tracker;
+pub use connection_tracker::ConnectionHandle;
+pub use connection_tracker::ConnectionTracker;
+pub use connection_tracker::TrackedConnection;
+pub use dispatcher::{Dispatcher, DispatchContext};
+pub use error::*;
 pub use health_check::*;
+pub use proxy::*;
+pub use routing::{get_runtime_proxy_mode, set_runtime_proxy_mode};
+pub use socket_protect::{
+    clear_protect_callback, has_protect_callback, protect_socket, protect_tcp_stream,
+    set_protect_callback,
+};
 pub use traffic_stats::TrafficStats;
 pub use traffic_stats::TrafficStatsManager;
 pub use traffic_stats::TrafficSummary;
-pub use connection_tracker::ConnectionTracker;
-pub use connection_tracker::TrackedConnection;
-pub use connection_tracker::ConnectionHandle;
-pub use connection_tracker::global_tracker;
-pub use routing::{set_runtime_proxy_mode, get_runtime_proxy_mode};
+
+// 导出时间同步模块
+pub use time_sync::{
+    get_corrected_timestamp, get_vmess_timestamp, get_vmess_timestamp_bytes,
+    get_time_offset_ms, init_time_sync, sync_time_async,
+    sync_time_blocking, ensure_time_synced, SyncResult,
+};
 
 use std::time::Instant;
 
-/// The main VeloGuard proxy server
 pub struct VeloGuard {
     config: Config,
     proxy_manager: std::sync::Arc<ProxyManager>,
@@ -54,6 +69,23 @@ impl VeloGuard {
     pub async fn new(config: Config) -> Result<Self> {
         config.validate()?;
         logging::init_logging(config.general.log_level)?;
+
+        // 初始化 NTP 时间同步
+        // VMess 协议要求客户端和服务器时间差在 ±30 秒内
+        tracing::info!("Initializing NTP time synchronization...");
+        let sync_result = time_sync::sync_time_blocking();
+        if sync_result.success {
+            tracing::info!(
+                "NTP sync successful: server={}, offset={}ms",
+                sync_result.server.unwrap_or_default(),
+                sync_result.offset_ms
+            );
+        } else {
+            tracing::warn!(
+                "NTP sync failed: {}. Using local time (VMess may fail if time is out of sync)",
+                sync_result.error.unwrap_or_default()
+            );
+        }
 
         let proxy_manager = ProxyManager::new(config.clone()).await?;
         let traffic_stats = TrafficStatsManager::new();
@@ -69,19 +101,14 @@ impl VeloGuard {
         })
     }
 
-
     /// Start the proxy server
     pub async fn start(&self) -> Result<()> {
         let _perf = logging::time_operation("VeloGuard startup");
-
-        // Start inbound listeners
         self.proxy_manager.start_inbounds().await?;
-
-        // Start outbound connections pool
         self.proxy_manager.start_outbounds().await?;
 
-        // Mark as running and record start time
-        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Ok(mut start_time) = self.start_time.write() {
             *start_time = Some(Instant::now());
         }
@@ -90,14 +117,13 @@ impl VeloGuard {
         Ok(())
     }
 
-    /// Stop the proxy server
     pub async fn stop(&self) -> Result<()> {
         let _perf = logging::time_operation("VeloGuard shutdown");
 
         match self.proxy_manager.stop().await {
             Ok(()) => {
-                // Mark as not running and clear start time
-                self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 if let Ok(mut start_time) = self.start_time.write() {
                     *start_time = None;
                 }
@@ -105,8 +131,8 @@ impl VeloGuard {
                 Ok(())
             }
             Err(e) => {
-                // Mark as not running even on error
-                self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 if let Ok(mut start_time) = self.start_time.write() {
                     *start_time = None;
                 }
@@ -116,12 +142,10 @@ impl VeloGuard {
         }
     }
 
-    /// Check if the proxy server is running
     pub async fn is_running(&self) -> Result<bool> {
         Ok(self.running.load(std::sync::atomic::Ordering::Relaxed))
     }
 
-    /// Get uptime in seconds
     pub fn uptime_secs(&self) -> u64 {
         if let Ok(start_time) = self.start_time.read() {
             if let Some(start) = *start_time {
@@ -131,7 +155,6 @@ impl VeloGuard {
         0
     }
 
-    /// Reload configuration
     pub async fn reload(&mut self, config: Config) -> Result<()> {
         tracing::info!("Reloading VeloGuard configuration");
         self.proxy_manager.reload(config.clone()).await?;
@@ -140,17 +163,14 @@ impl VeloGuard {
         Ok(())
     }
 
-    /// Get a reference to the proxy manager
     pub fn proxy_manager(&self) -> std::sync::Arc<ProxyManager> {
         std::sync::Arc::clone(&self.proxy_manager)
     }
 
-    /// Get a reference to the traffic stats manager
     pub fn traffic_stats(&self) -> std::sync::Arc<TrafficStatsManager> {
         std::sync::Arc::clone(&self.traffic_stats)
     }
 
-    /// Get current configuration
     pub fn config(&self) -> &Config {
         &self.config
     }

@@ -59,13 +59,10 @@ impl OutboundProxy for Socks5Outbound {
         
         let start = Instant::now();
         
-        // Connect to SOCKS5 server
+        // Connect to SOCKS5 server with protection
         let server_addr = format!("{}:{}", self.server, self.port);
-        let mut stream = tokio::time::timeout(
-            timeout,
-            TcpStream::connect(&server_addr)
-        ).await
-            .map_err(|_| Error::network("Connection timeout"))?
+        let mut stream = crate::socket_protect::connect_protected_timeout(&server_addr, timeout)
+            .await
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
         
         // Perform SOCKS5 handshake
@@ -123,9 +120,11 @@ impl OutboundProxy for Socks5Outbound {
     ) -> Result<()> {
         // Connect to SOCKS5 server
         let server_addr = format!("{}:{}", self.server, self.port);
-        let mut outbound = TcpStream::connect(&server_addr).await.map_err(|e| {
-            Error::network(format!("Failed to connect to SOCKS5 server {}: {}", server_addr, e))
-        })?;
+        
+        // Use protected connection on Android to prevent routing loop
+        let mut outbound = crate::socket_protect::connect_protected(&server_addr)
+            .await
+            .map_err(|e| Error::network(format!("Failed to connect to SOCKS5 server {}: {}", server_addr, e)))?;
         
         tracing::debug!("SOCKS5: connected to {} for target {}", server_addr, target);
         

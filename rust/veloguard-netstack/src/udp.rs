@@ -4,15 +4,69 @@ use dashmap::DashMap;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::Waker;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, info, trace};
 
 const NAT_TIMEOUT: Duration = Duration::from_secs(300);
+const QUIC_NAT_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_NAT_ENTRIES: usize = 65535;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UdpSessionType {
+    Regular,
+    Quic,
+    Dns,
+}
+
+impl UdpSessionType {
+    pub fn detect(dst_port: u16, payload: &[u8]) -> Self {
+        // DNS detection
+        if dst_port == 53 {
+            return Self::Dns;
+        }
+
+        if matches!(dst_port, 443 | 8443 | 4433 | 8080)
+            && Self::is_quic_packet(payload) {
+                return Self::Quic;
+            }
+
+        if Self::is_quic_packet(payload) {
+            return Self::Quic;
+        }
+
+        Self::Regular
+    }
+
+    fn is_quic_packet(payload: &[u8]) -> bool {
+        if payload.is_empty() {
+            return false;
+        }
+
+        let first_byte = payload[0];
+
+        if first_byte & 0x80 != 0 && payload.len() >= 5 {
+            let version = u32::from_be_bytes([payload[1], payload[2], payload[3], payload[4]]);
+            return matches!(version,
+                0x00000001 |  // QUIC v1
+                0x6b3343cf |  // QUIC v2
+                0xff000000..=0xffffffff | // Draft versions
+                0x51303030..=0x51303939   // Google QUIC
+            );
+        }
+        (first_byte & 0x40) != 0 && payload.len() >= 20
+    }
+
+    pub fn timeout(&self) -> Duration {
+        match self {
+            Self::Quic => QUIC_NAT_TIMEOUT,
+            _ => NAT_TIMEOUT,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UdpPacket {
@@ -36,6 +90,7 @@ struct NatEntry {
     original_src: SocketAddr,
     original_dst: SocketAddr,
     last_activity: Instant,
+    session_type: UdpSessionType,
 }
 
 pub struct UdpNatTable {
@@ -56,10 +111,26 @@ impl UdpNatTable {
     }
 
     pub fn get_or_create(&self, src: SocketAddr, dst: SocketAddr) -> Result<u16> {
+        self.get_or_create_with_type(src, dst, UdpSessionType::Regular)
+    }
+
+    pub fn get_or_create_with_type(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+        session_type: UdpSessionType,
+    ) -> Result<u16> {
         let key = (src, dst);
         if let Some(port) = self.forward.get(&key) {
             if let Some(mut entry) = self.reverse.get_mut(&port) {
                 entry.last_activity = Instant::now();
+                // Upgrade to QUIC if detected
+                if session_type == UdpSessionType::Quic
+                    && entry.session_type != UdpSessionType::Quic
+                {
+                    entry.session_type = UdpSessionType::Quic;
+                    info!("NAT entry upgraded to QUIC: {} -> {}", src, dst);
+                }
             }
             return Ok(*port);
         }
@@ -79,10 +150,19 @@ impl UdpNatTable {
                 original_src: src,
                 original_dst: dst,
                 last_activity: Instant::now(),
+                session_type,
             },
         );
 
-        debug!("NAT mapping created: {}:{} -> port {}", src, dst, port);
+        let type_str = match session_type {
+            UdpSessionType::Quic => "QUIC",
+            UdpSessionType::Dns => "DNS",
+            UdpSessionType::Regular => "UDP",
+        };
+        debug!(
+            "{} NAT mapping created: {}:{} -> port {}",
+            type_str, src, dst, port
+        );
         Ok(port)
     }
 
@@ -105,7 +185,10 @@ impl UdpNatTable {
         let expired: Vec<u16> = self
             .reverse
             .iter()
-            .filter(|entry| now.duration_since(entry.last_activity) > NAT_TIMEOUT)
+            .filter(|entry| {
+                let timeout = entry.session_type.timeout();
+                now.duration_since(entry.last_activity) > timeout
+            })
             .map(|entry| *entry.key())
             .collect();
 
@@ -113,9 +196,16 @@ impl UdpNatTable {
             if let Some((_, entry)) = self.reverse.remove(&port) {
                 self.forward
                     .remove(&(entry.original_src, entry.original_dst));
-                debug!(
-                    "NAT mapping expired: {}:{}",
-                    entry.original_src, entry.original_dst
+                let type_str = match entry.session_type {
+                    UdpSessionType::Quic => "QUIC",
+                    UdpSessionType::Dns => "DNS",
+                    UdpSessionType::Regular => "UDP",
+                };
+                trace!(
+                    "{} NAT mapping expired: {}:{}",
+                    type_str,
+                    entry.original_src,
+                    entry.original_dst
                 );
             }
         }
@@ -164,15 +254,28 @@ pub struct UdpSession {
     send_tx: mpsc::Sender<UdpPacket>,
     upload_bytes: AtomicU64,
     download_bytes: AtomicU64,
-    closed: Arc<std::sync::atomic::AtomicBool>,
+    closed: Arc<AtomicBool>,
+    session_type: UdpSessionType,
+    created_at: Instant,
 }
 
 impl UdpSession {
+    #[allow(dead_code)]
     fn new(
         id: u16,
         src_addr: SocketAddr,
         dst_addr: SocketAddr,
         send_tx: mpsc::Sender<UdpPacket>,
+    ) -> Self {
+        Self::new_with_type(id, src_addr, dst_addr, send_tx, UdpSessionType::Regular)
+    }
+
+    fn new_with_type(
+        id: u16,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        send_tx: mpsc::Sender<UdpPacket>,
+        session_type: UdpSessionType,
     ) -> Self {
         Self {
             id,
@@ -183,8 +286,25 @@ impl UdpSession {
             send_tx,
             upload_bytes: AtomicU64::new(0),
             download_bytes: AtomicU64::new(0),
-            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            closed: Arc::new(AtomicBool::new(false)),
+            session_type,
+            created_at: Instant::now(),
         }
+    }
+
+    /// Get session type
+    pub fn session_type(&self) -> UdpSessionType {
+        self.session_type
+    }
+
+    /// Check if this is a QUIC session
+    pub fn is_quic(&self) -> bool {
+        self.session_type == UdpSessionType::Quic
+    }
+
+    /// Get session duration
+    pub fn duration(&self) -> Duration {
+        self.created_at.elapsed()
     }
 
     pub async fn send(&self, data: Bytes) -> Result<()> {
@@ -306,24 +426,44 @@ impl UdpStack {
         dst_addr: SocketAddr,
         data: Bytes,
     ) -> Result<()> {
-        let nat_port = self.nat_table.get_or_create(src_addr, dst_addr)?;
+        self.process_packet_with_detection(src_addr, dst_addr, data)
+    }
+
+    pub fn process_packet_with_detection(
+        &self,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        data: Bytes,
+    ) -> Result<()> {
+        // Detect session type
+        let session_type = UdpSessionType::detect(dst_addr.port(), &data);
+
+        let nat_port = self
+            .nat_table
+            .get_or_create_with_type(src_addr, dst_addr, session_type)?;
         let session = if let Some(session) = self.sessions.get(&nat_port) {
             session.clone()
         } else {
-            let session = Arc::new(UdpSession::new(
+            let session = Arc::new(UdpSession::new_with_type(
                 nat_port,
                 src_addr,
                 dst_addr,
                 self.send_tx.clone(),
+                session_type,
             ));
             self.sessions.insert(nat_port, session.clone());
             self.session_counter.fetch_add(1, Ordering::Relaxed);
 
             let _ = self.new_session_tx.try_send(session.clone());
 
+            let type_str = match session_type {
+                UdpSessionType::Quic => "QUIC",
+                UdpSessionType::Dns => "DNS",
+                UdpSessionType::Regular => "UDP",
+            };
             debug!(
-                "UDP session created: {} -> {} (port {})",
-                src_addr, dst_addr, nat_port
+                "{} session created: {} -> {} (port {})",
+                type_str, src_addr, dst_addr, nat_port
             );
             session
         };

@@ -3,38 +3,25 @@ pub mod validator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Main configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    /// General settings
     #[serde(default)]
     pub general: GeneralConfig,
-
-    /// DNS configuration
     #[serde(default)]
     pub dns: DnsConfig,
-
-    /// Inbound configurations
     #[serde(default)]
     pub inbounds: Vec<InboundConfig>,
-
-    /// Outbound configurations
     #[serde(default)]
     pub outbounds: Vec<OutboundConfig>,
-
-    /// Routing rules
     #[serde(default)]
     pub rules: Vec<RuleConfig>,
 }
 
 impl Config {
-    /// Validate the configuration
     pub fn validate(&self) -> crate::error::Result<()> {
         crate::config::validator::ConfigValidator::validate(self)
     }
 
-    /// Create a new config with validation
     pub fn new_validated(
         general: GeneralConfig,
         dns: DnsConfig,
@@ -54,60 +41,29 @@ impl Config {
     }
 }
 
-
-/// General configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneralConfig {
-    /// Listening port for HTTP proxy
     #[serde(default = "default_port")]
     pub port: u16,
-
-    /// Listening port for SOCKS5 proxy
     pub socks_port: Option<u16>,
-
-    /// Listening port for redir proxy (Linux only)
     pub redir_port: Option<u16>,
-
-    /// Listening port for TProxy (Linux only)
     pub tproxy_port: Option<u16>,
-
-    /// Listening port for mixed proxy
     pub mixed_port: Option<u16>,
-
-    /// Authentication settings
     pub authentication: Option<Vec<AuthenticationConfig>>,
-
-    /// Allow LAN access
     #[serde(default)]
     pub allow_lan: bool,
-
-    /// Bind address
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
-
-    /// Mode: Rule, Global, Direct
     #[serde(default)]
     pub mode: Mode,
-
-    /// Log level
     #[serde(default)]
     pub log_level: LogLevel,
-
-    /// IPv6 support
     #[serde(default)]
     pub ipv6: bool,
-
-    /// TCP concurrent connections
     #[serde(default)]
     pub tcp_concurrent: bool,
-
-    /// External controller settings
     pub external_controller: Option<String>,
-
-    /// External UI
     pub external_ui: Option<String>,
-
-    /// Secret for external controller
     pub secret: Option<String>,
 }
 
@@ -133,26 +89,16 @@ impl Default for GeneralConfig {
     }
 }
 
-/// DNS configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsConfig {
-    /// Enable DNS server
     #[serde(default)]
     pub enable: bool,
-
-    /// Listen address for DNS server
     #[serde(default = "default_dns_listen")]
     pub listen: String,
-
-    /// Default DNS nameservers
     #[serde(default)]
     pub nameservers: Vec<String>,
-
-    /// Fallback DNS nameservers
     #[serde(default)]
     pub fallback: Vec<String>,
-
-    /// Enhanced mode
     #[serde(default)]
     pub enhanced_mode: DnsMode,
 }
@@ -169,67 +115,38 @@ impl Default for DnsConfig {
     }
 }
 
-/// Inbound configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboundConfig {
-    /// Inbound type
     #[serde(rename = "type")]
     pub inbound_type: InboundType,
-
-    /// Tag for routing
     pub tag: String,
-
-    /// Listening address
     #[serde(default = "default_bind_address")]
     pub listen: String,
-
-    /// Listening port
     pub port: u16,
-
-    /// Protocol-specific options
     #[serde(flatten)]
     pub options: HashMap<String, serde_yaml::Value>,
 }
 
-/// Outbound configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundConfig {
-    /// Outbound type
     #[serde(rename = "type")]
     pub outbound_type: OutboundType,
-
-    /// Tag for routing
     pub tag: String,
-
-    /// Server address
     pub server: Option<String>,
-
-    /// Server port
     pub port: Option<u16>,
-
-    /// Protocol-specific options
     #[serde(flatten)]
     pub options: HashMap<String, serde_yaml::Value>,
 }
 
-/// Routing rule configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleConfig {
-    /// Rule type
     #[serde(rename = "type")]
     pub rule_type: RuleType,
-
-    /// Payload (match pattern)
     pub payload: String,
-
-    /// Target outbound tag
     pub outbound: String,
-
-    /// Process name (for PROCESS rule)
     pub process_name: Option<String>,
 }
 
-/// Authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthenticationConfig {
     pub username: String,
@@ -277,6 +194,12 @@ pub enum InboundType {
     Redir,
     Tproxy,
     Tun,
+    Vmess,
+    Vless,
+    Shadowsocks,
+    Trojan,
+    #[serde(alias = "dokodemo-door", alias = "dokodemo")]
+    Dokodemo,
 }
 
 /// Outbound protocol types

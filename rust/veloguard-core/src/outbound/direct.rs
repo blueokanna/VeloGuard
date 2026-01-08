@@ -2,7 +2,6 @@ use crate::config::OutboundConfig;
 use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundProxy, TargetAddr};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 
 pub struct DirectOutbound {
     config: OutboundConfig,
@@ -55,22 +54,34 @@ impl OutboundProxy for DirectOutbound {
             }
         };
         
-        // Create UDP socket
+        // Create UDP socket and connect to target for better performance
         let socket = UdpSocket::bind("0.0.0.0:0").await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
         
-        // Send data
-        socket.send_to(data, target_addr).await
+        // Connect the socket to the target for connected UDP semantics
+        socket.connect(target_addr).await
+            .map_err(|e| Error::network(format!("Failed to connect UDP socket: {}", e)))?;
+        
+        // Send data using connected socket
+        socket.send(data).await
             .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
         
-        // Receive response with timeout
+        // Receive response with timeout - use shorter timeout for QUIC compatibility
         let mut buf = vec![0u8; 65535];
-        let timeout = Duration::from_secs(30);
+        let timeout = Duration::from_secs(5);
         
-        match tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await {
-            Ok(Ok((n, _))) => Ok(buf[..n].to_vec()),
-            Ok(Err(e)) => Err(Error::network(format!("Failed to receive UDP response: {}", e))),
-            Err(_) => Err(Error::network("UDP response timeout")),
+        match tokio::time::timeout(timeout, socket.recv(&mut buf)).await {
+            Ok(Ok(n)) => Ok(buf[..n].to_vec()),
+            Ok(Err(e)) => {
+                // For QUIC, some packets may not have immediate responses
+                tracing::debug!("UDP recv error (may be normal for QUIC): {}", e);
+                Ok(Vec::new())
+            },
+            Err(_) => {
+                // Timeout is normal for QUIC - not all packets expect responses
+                tracing::debug!("UDP response timeout (normal for QUIC one-way packets)");
+                Ok(Vec::new())
+            },
         }
     }
     
@@ -94,13 +105,10 @@ impl OutboundProxy for DirectOutbound {
         
         let start = Instant::now();
         
-        // Direct connection to target
+        // Direct connection to target with protection
         let addr = format!("{}:{}", host, url_port);
-        let mut stream = tokio::time::timeout(
-            timeout,
-            TcpStream::connect(&addr)
-        ).await
-            .map_err(|_| Error::network("Connection timeout"))?
+        let mut stream = crate::socket_protect::connect_protected_timeout(&addr, timeout)
+            .await
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
         
         // Send HTTP request
@@ -150,9 +158,11 @@ impl OutboundProxy for DirectOutbound {
         
         // Connect directly to target
         let target_str = target.to_string();
-        let mut outbound = TcpStream::connect(&target_str).await.map_err(|e| {
-            Error::network(format!("Direct connect to {} failed: {}", target_str, e))
-        })?;
+        
+        // Use protected connection on Android to prevent routing loop
+        let mut outbound = crate::socket_protect::connect_protected(&target_str)
+            .await
+            .map_err(|e| Error::network(format!("Direct connect to {} failed: {}", target_str, e)))?;
         
         // Disable Nagle's algorithm
         outbound.set_nodelay(true).ok();
