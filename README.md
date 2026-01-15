@@ -1,7 +1,7 @@
 # VeloGuard 🛡️
 
 <p align="center">
-  <img src="assets/icon.png" alt="VeloGuard Logo" width="128" height="128" />
+  <img src="assets/veloguard_icon.png" alt="VeloGuard Logo" width="128" height="128" />
 </p>
 
 ## 我能用它做什么？
