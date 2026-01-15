@@ -5,12 +5,18 @@
 //! - WebSocket: WebSocket-based transport for HTTP proxy bypass
 //! - mKCP: KCP-based UDP transport for lossy networks
 //! - Mux: Connection multiplexing
+//! - H2: HTTP/2 transport with multiplexing
+//! - gRPC: gRPC-based transport using Gun protocol
 
+pub mod grpc;
+pub mod h2;
 pub mod mkcp;
 pub mod mux;
 pub mod tcp;
 pub mod websocket;
 
+pub use grpc::{GrpcClient, GrpcConfig, GrpcStream};
+pub use h2::{H2Client, H2Config, H2Stream};
 pub use mkcp::{MkcpConfig, MkcpStream, MkcpTransport};
 pub use mux::{MuxConfig, MuxConnection, MuxStream};
 pub use tcp::{TcpConfig, TcpTransportStream};

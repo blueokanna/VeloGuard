@@ -103,8 +103,8 @@ impl OutboundProxy for HttpOutbound {
         
         // Now send HTTP request through the tunnel
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
         
         // Get the underlying stream back

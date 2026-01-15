@@ -129,8 +129,8 @@ impl OutboundProxy for ShadowsocksOutbound {
         
         // Build HTTP request
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
         
         // Combine address header and HTTP request into one payload
@@ -284,14 +284,20 @@ impl OutboundProxy for ShadowsocksOutbound {
         let client_to_remote = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ri
-                    .read(&mut buf)
-                    .await
-                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
-                if n == 0 {
+                let n = match ri.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) if is_ss_connection_closed(&e) => {
+                        tracing::debug!("SS: client closed connection");
+                        break;
+                    }
+                    Err(e) => return Err(Error::network(format!("Failed to read from inbound: {}", e))),
+                };
+                
+                if let Err(e) = send_encrypted_chunk(&mut wo, &mut enc, &buf[..n]).await {
+                    tracing::debug!("SS: failed to send to server: {}", e);
                     break;
                 }
-                send_encrypted_chunk(&mut wo, &mut enc, &buf[..n]).await?;
                 
                 // Update upload traffic stats (global + per-connection)
                 tracker.add_global_upload(n as u64);
@@ -318,8 +324,8 @@ impl OutboundProxy for ShadowsocksOutbound {
                 }
                 Ok(Err(e)) => {
                     // 读取错误 - 可能是连接立即关闭
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                        tracing::debug!("SS: server closed connection without sending data (early eof) - this is normal for some connections");
+                    if is_ss_connection_closed(&e) {
+                        tracing::debug!("SS: server closed connection without sending data - this is normal for some connections");
                         return Ok(());
                     }
                     return Err(Error::network(format!("Failed to read server salt: {}", e)));
@@ -336,9 +342,13 @@ impl OutboundProxy for ShadowsocksOutbound {
             
             while let Some(chunk) = recv_decrypted_chunk(&mut ro, &mut dec).await? {
                 let chunk_len = chunk.len();
-                wi.write_all(&chunk).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
+                if let Err(e) = wi.write_all(&chunk).await {
+                    if is_ss_connection_closed(&e) {
+                        tracing::debug!("SS: client closed connection while writing");
+                        break;
+                    }
+                    return Err(Error::network(format!("Failed to write to inbound: {}", e)));
+                }
                 
                 // Update download traffic stats (global + per-connection)
                 tracker.add_global_download(chunk_len as u64);
@@ -349,9 +359,34 @@ impl OutboundProxy for ShadowsocksOutbound {
             Ok::<(), Error>(())
         };
 
-        tokio::try_join!(client_to_remote, remote_to_client)?;
-        Ok(())
+        // Run both directions concurrently
+        let (upload_result, download_result) = tokio::join!(client_to_remote, remote_to_client);
+        
+        // Handle results - connection close is normal
+        match (upload_result, download_result) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
+                tracing::debug!("SS relay partial error: {}", e);
+                Ok(()) // One direction succeeded, consider it normal
+            }
+            (Err(e1), Err(e2)) => {
+                tracing::debug!("SS relay errors: {} / {}", e1, e2);
+                Ok(()) // Don't propagate errors for connection issues
+            }
+        }
     }
+}
+
+/// Check if an error indicates a normal connection close for Shadowsocks
+fn is_ss_connection_closed(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 impl ShadowsocksOutbound {
@@ -815,14 +850,14 @@ async fn send_encrypted_chunk<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-/// 接收并解密一个数据块；返�?None 表示 EOF
+/// 接收并解密一个数据块；返回 None 表示 EOF
 async fn recv_decrypted_chunk<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
     dec: &mut AeadCipher,
 ) -> Result<Option<Vec<u8>>> {
     let tag = dec.tag_len;
 
-    // 读取并解密长�?
+    // 读取并解密长度
     let mut enc_len_buf = vec![0u8; 2 + tag];
     match reader.read_exact(&mut enc_len_buf).await {
         Ok(_) => {}
@@ -838,6 +873,15 @@ async fn recv_decrypted_chunk<R: tokio::io::AsyncRead + Unpin>(
 
     if data_len == 0 {
         return Ok(None);
+    }
+
+    // 验证数据长度不超过 16KB (0x3fff)
+    if data_len > 0x3fff {
+        tracing::warn!("SS: received chunk length {} exceeds 16KB limit, possible decryption error or protocol mismatch", data_len);
+        return Err(Error::protocol(format!(
+            "Shadowsocks chunk too large: {} bytes (max 16KB). This usually indicates decryption failure or wrong password/cipher",
+            data_len
+        )));
     }
 
     // 读取并解密数据块

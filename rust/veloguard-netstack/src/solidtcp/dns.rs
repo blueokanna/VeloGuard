@@ -24,7 +24,7 @@ impl Default for FakeIpConfig {
         Self {
             range_start: Ipv4Addr::new(198, 18, 0, 0),
             pool_size: 65536,
-            ttl: Duration::from_secs(600),
+            ttl: Duration::from_secs(3600), // 1 hour TTL to match veloguard-dns
         }
     }
 }

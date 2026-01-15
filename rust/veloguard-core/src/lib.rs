@@ -29,6 +29,15 @@ pub mod transport;
 #[cfg(test)]
 mod tests;
 
+/// VeloGuard User-Agent string - generated from Cargo.toml version
+pub const USER_AGENT: &str = concat!("Veloguard/v", env!("CARGO_PKG_VERSION"));
+
+/// Get the User-Agent string
+/// Returns format: "Veloguard/v0.1.0"
+pub fn user_agent() -> &'static str {
+    USER_AGENT
+}
+
 pub use config::*;
 pub use connection_pool::*;
 pub use connection_tracker::global_tracker;
@@ -53,6 +62,7 @@ pub use time_sync::{
     get_corrected_timestamp, get_vmess_timestamp, get_vmess_timestamp_bytes,
     get_time_offset_ms, init_time_sync, sync_time_async,
     sync_time_blocking, ensure_time_synced, SyncResult,
+    get_timestamp_diagnostics, get_vmess_timestamp_with_diagnostics, TimestampDiagnostics,
 };
 
 use std::time::Instant;
@@ -157,6 +167,10 @@ impl VeloGuard {
 
     pub async fn reload(&mut self, config: Config) -> Result<()> {
         tracing::info!("Reloading VeloGuard configuration");
+        
+        // Validate configuration before applying
+        config.validate()?;
+        
         self.proxy_manager.reload(config.clone()).await?;
         self.config = config;
         tracing::info!("VeloGuard configuration reloaded");

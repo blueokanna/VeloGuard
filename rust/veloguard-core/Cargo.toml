@@ -32,6 +32,8 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 getrandom = { workspace = true }
 h2 = { workspace = true }
+h3 = { workspace = true }
+h3-quinn = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
@@ -48,6 +50,7 @@ md-5 = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
+prost = { workspace = true }
 quinn = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }

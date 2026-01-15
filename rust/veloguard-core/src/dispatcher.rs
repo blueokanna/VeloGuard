@@ -1,11 +1,3 @@
-//! Dispatcher module - Core traffic routing between Inbound and Outbound
-//! 
-//! The Dispatcher is responsible for:
-//! - Receiving connections from Inbound handlers
-//! - Using Router to determine the target Outbound
-//! - Forwarding traffic to the selected Outbound
-//! - Managing connection lifecycle
-
 use crate::connection_tracker::{global_tracker, TrackedConnection};
 use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundManager, TargetAddr};
@@ -13,7 +5,6 @@ use crate::routing::Router;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// Dispatcher handles traffic routing between Inbound and Outbound proxies
 pub struct Dispatcher {
     router: Arc<Router>,
     outbound_manager: Arc<OutboundManager>,
@@ -35,29 +26,59 @@ impl Dispatcher {
         inbound_tag: &str,
         source_addr: Option<std::net::SocketAddr>,
     ) -> Result<()> {
-        // Use router to determine outbound
-        let outbound_tag = self.router.match_outbound(
-            Some(&target.host()),
-            source_addr.map(|a| a.ip()),
-            Some(target.port()),
-            None,
-        ).await;
+        // For domain targets, route based on domain first, not resolved IP
+        // This prevents private IP detection from interfering with domain-based routing
+        let (domain_for_routing, ip_for_routing) = match &target {
+            TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            TargetAddr::Domain(domain, _) => {
+                // Use domain for routing, don't resolve IP here
+                // IP resolution will happen in the outbound proxy
+                (Some(domain.as_str()), None)
+            }
+        };
+
+        let outbound_tag = self
+            .router
+            .match_outbound(domain_for_routing.or(Some(&target.host())), ip_for_routing, Some(target.port()), None)
+            .await;
 
         tracing::info!(
-            "[Dispatcher] {} -> {} via {} from {:?}",
-            inbound_tag, target, outbound_tag, source_addr
+            "[Dispatcher] TCP {} -> {} via '{}' (source: {:?})",
+            inbound_tag,
+            target,
+            outbound_tag,
+            source_addr
         );
 
-        // Get the outbound proxy
-        let outbound = self.outbound_manager.get_proxy(&outbound_tag)
-            .ok_or_else(|| Error::config(format!("Outbound '{}' not found", outbound_tag)))?;
+        let outbound = self
+            .outbound_manager
+            .get_proxy(&outbound_tag)
+            .ok_or_else(|| {
+                tracing::error!("[Dispatcher] Outbound '{}' not found in manager!", outbound_tag);
+                Error::config(format!("Outbound '{}' not found", outbound_tag))
+            })?;
+        
+        tracing::debug!("[Dispatcher] Using outbound '{}' (type: {})", 
+            outbound.tag(), std::any::type_name_of_val(&*outbound));
 
-        // Create tracked connection
+        // Only resolve IP for connection tracking display, not for routing
+        let destination_ip = match &target {
+            TargetAddr::Ip(addr) => Some(addr.ip().to_string()),
+            TargetAddr::Domain(domain, _) => {
+                // Try to resolve for display purposes only
+                tokio::net::lookup_host(format!("{}:0", domain))
+                    .await
+                    .ok()
+                    .and_then(|mut addrs| addrs.next())
+                    .map(|addr| addr.ip().to_string())
+            }
+        };
+
         let tracked_conn = TrackedConnection::new_with_ip(
             inbound_tag.to_string(),
             outbound_tag.clone(),
             target.host(),
-            source_addr.map(|a| a.ip().to_string()),
+            destination_ip,
             target.port(),
             inbound_tag.to_string(),
             "tcp".to_string(),
@@ -70,44 +91,47 @@ impl Dispatcher {
         let conn_arc = Arc::clone(&tracked);
 
         // Relay traffic through outbound
-        let result = outbound.relay_tcp_with_connection(
-            inbound_stream,
-            target.clone(),
-            Some(conn_arc),
-        ).await;
+        let result = outbound
+            .relay_tcp_with_connection(inbound_stream, target.clone(), Some(conn_arc))
+            .await;
 
         tracker.untrack(&tracked.id);
 
         if let Err(ref e) = result {
-            tracing::debug!("[Dispatcher] Relay error: {}", e);
+            tracing::info!("[Dispatcher] Relay error for {}: {}", target, e);
         }
 
         result
     }
 
-    /// Dispatch a UDP packet to the appropriate outbound
     pub async fn dispatch_udp(
         &self,
         data: &[u8],
         target: TargetAddr,
         inbound_tag: &str,
-        source_addr: Option<std::net::SocketAddr>,
+        _source_addr: Option<std::net::SocketAddr>,
     ) -> Result<Vec<u8>> {
-        // Use router to determine outbound
-        let outbound_tag = self.router.match_outbound(
-            Some(&target.host()),
-            source_addr.map(|a| a.ip()),
-            Some(target.port()),
-            None,
-        ).await;
+        // For domain targets, route based on domain first, not resolved IP
+        let (domain_for_routing, ip_for_routing) = match &target {
+            TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            TargetAddr::Domain(domain, _) => (Some(domain.as_str()), None),
+        };
+
+        let outbound_tag = self
+            .router
+            .match_outbound(domain_for_routing.or(Some(&target.host())), ip_for_routing, Some(target.port()), None)
+            .await;
 
         tracing::debug!(
             "[Dispatcher] UDP {} -> {} via {}",
-            inbound_tag, target, outbound_tag
+            inbound_tag,
+            target,
+            outbound_tag
         );
 
-        // Get the outbound proxy
-        let outbound = self.outbound_manager.get_proxy(&outbound_tag)
+        let outbound = self
+            .outbound_manager
+            .get_proxy(&outbound_tag)
             .ok_or_else(|| Error::config(format!("Outbound '{}' not found", outbound_tag)))?;
 
         if !outbound.supports_udp() {
@@ -120,28 +144,21 @@ impl Dispatcher {
         outbound.relay_udp_packet(&target, data).await
     }
 
-    /// Get the router reference
     pub fn router(&self) -> &Arc<Router> {
         &self.router
     }
 
-    /// Get the outbound manager reference
     pub fn outbound_manager(&self) -> &Arc<OutboundManager> {
         &self.outbound_manager
     }
 
-    /// Resolve outbound tag for a target (useful for logging/debugging)
     pub async fn resolve_outbound(&self, target: &TargetAddr) -> String {
-        self.router.match_outbound(
-            Some(&target.host()),
-            None,
-            Some(target.port()),
-            None,
-        ).await
+        self.router
+            .match_outbound(Some(&target.host()), None, Some(target.port()), None)
+            .await
     }
 }
 
-/// DispatchContext carries information about a dispatched connection
 #[derive(Debug, Clone)]
 pub struct DispatchContext {
     pub inbound_tag: String,
@@ -172,6 +189,5 @@ impl DispatchContext {
     }
 }
 
-/// Trait for streams that can be dispatched
 pub trait Dispatchable: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Dispatchable for T {}

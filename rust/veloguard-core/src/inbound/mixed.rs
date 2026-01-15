@@ -5,6 +5,7 @@ use crate::inbound::InboundListener;
 use crate::outbound::{OutboundManager, TargetAddr};
 use crate::routing::Router;
 use bytes::Bytes;
+use dashmap::DashMap;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -12,9 +13,12 @@ use hyper::{Method, Request, Response, StatusCode, Uri};
 use hyper_util::rt::TokioIo;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio_util::sync::CancellationToken;
+
+const UDP_SESSION_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct MixedInbound {
     config: InboundConfig,
@@ -538,7 +542,6 @@ impl MixedInbound {
         router: Arc<Router>,
         outbound_manager: Arc<OutboundManager>,
     ) -> Result<()> {
-        // Read authentication request
         let mut header = [0u8; 2];
         stream.read_exact(&mut header).await.map_err(|e| {
             Error::protocol(format!(
@@ -557,21 +560,17 @@ impl MixedInbound {
             )));
         }
 
-        // Read auth methods
         let mut methods = vec![0u8; nmethods];
         stream
             .read_exact(&mut methods)
             .await
             .map_err(|e| Error::protocol(format!("Failed to read SOCKS5 methods: {}", e)))?;
 
-        // For now, only support no authentication
         if !methods.contains(&SOCKS5_AUTH_NONE) {
-            // Send "no acceptable methods"
             stream.write_all(&[SOCKS5_VERSION, 0xFF]).await.ok();
             return Err(Error::protocol("No acceptable SOCKS5 auth methods"));
         }
 
-        // Send auth method selection (no auth)
         stream
             .write_all(&[SOCKS5_VERSION, SOCKS5_AUTH_NONE])
             .await
@@ -592,30 +591,13 @@ impl MixedInbound {
             return Err(Error::protocol("Invalid SOCKS5 version in request"));
         }
 
-        // 支持 CONNECT (0x01) 和 UDP ASSOCIATE (0x03) 命令
         match cmd {
-            SOCKS5_CMD_CONNECT => {
-                // TCP连接，继续处理
-            }
+            SOCKS5_CMD_CONNECT => {}
             0x03 => {
-                // UDP ASSOCIATE - 返回成功但不实际处理
-                // 这是为了兼容某些客户端的UDP请求
-                tracing::debug!("SOCKS5 UDP ASSOCIATE request from {} - returning success", peer_addr);
-                
-                // 返回成功响应，绑定地址为 0.0.0.0:0
-                let response = [
-                    SOCKS5_VERSION, 0x00, 0x00,  // VER, REP=成功, RSV
-                    0x01,                         // ATYP=IPv4
-                    0, 0, 0, 0,                   // BND.ADDR = 0.0.0.0
-                    0, 0,                         // BND.PORT = 0
-                ];
-                stream.write_all(&response).await.ok();
-                stream.flush().await.ok();
-                
-                // 保持连接打开，直到客户端关闭
-                let mut buf = [0u8; 1];
-                let _ = stream.read(&mut buf).await;
-                return Ok(());
+                // UDP ASSOCIATE - Full implementation for QUIC/gRPC support
+                tracing::info!("SOCKS5 UDP ASSOCIATE request from {}", peer_addr);
+                return Self::handle_udp_associate(stream, peer_addr, router, outbound_manager)
+                    .await;
             }
             _ => {
                 // 不支持的命令
@@ -687,9 +669,19 @@ impl MixedInbound {
                 }
             };
 
-        // Route the connection
+        // Route the connection - properly handle IP vs Domain targets
+        let (domain_for_routing, ip_for_routing) = match &target {
+            TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            TargetAddr::Domain(domain, _) => (Some(domain.as_str()), None),
+        };
+
         let outbound_tag = router
-            .match_outbound(Some(&target.host()), None, Some(target.port()), None)
+            .match_outbound(
+                domain_for_routing,
+                ip_for_routing,
+                Some(target.port()),
+                None,
+            )
             .await;
 
         tracing::info!("SOCKS5 {} -> {} (from {})", target, outbound_tag, peer_addr);
@@ -707,8 +699,6 @@ impl MixedInbound {
             }
         };
 
-        // Send success response first (with dummy bind address)
-        // We don't know the actual bind address yet since we're using outbound proxy
         let dummy_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
         Self::send_socks5_success(&mut stream, dummy_addr).await?;
 
@@ -740,17 +730,37 @@ impl MixedInbound {
         let tracked = tracker.track(tracked_conn);
         let conn_arc = Arc::clone(&tracked);
 
-        // Relay data through the outbound proxy with connection tracking
         if let Err(e) = outbound
             .relay_tcp_with_connection(Box::new(stream), target.clone(), Some(conn_arc))
             .await
         {
-            tracing::debug!(
-                "SOCKS5 relay error via '{}' to {}: {}",
-                outbound.tag(),
-                target,
-                e
-            );
+            let is_private = if let TargetAddr::Ip(addr) = &target {
+                crate::routing::Router::is_private_ip(addr.ip())
+            } else {
+                false
+            };
+            let is_probe_port = matches!(target.port(), 7 | 9 | 13 | 17 | 19 | 37);
+
+            if is_private && is_probe_port {
+                // Completely silent for probe ports on private addresses
+                tracing::trace!("SOCKS5 relay to private probe port {}: {}", target, e);
+            } else if is_private {
+                // Trace level for other private address failures
+                tracing::trace!(
+                    "SOCKS5 relay error via '{}' to {}: {}",
+                    outbound.tag(),
+                    target,
+                    e
+                );
+            } else {
+                // Debug level for public address failures
+                tracing::debug!(
+                    "SOCKS5 relay error via '{}' to {}: {}",
+                    outbound.tag(),
+                    target,
+                    e
+                );
+            }
         }
 
         // Untrack the connection
@@ -799,6 +809,335 @@ impl MixedInbound {
         Ok(())
     }
 
+    // ============== UDP ASSOCIATE Handling ==============
+
+    /// Handle SOCKS5 UDP ASSOCIATE command for QUIC/gRPC protocols
+    async fn handle_udp_associate(
+        mut stream: TcpStream,
+        peer_addr: SocketAddr,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Result<()> {
+        // Bind a UDP socket for the client
+        let udp_socket = UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
+
+        let local_addr = udp_socket
+            .local_addr()
+            .map_err(|e| Error::network(format!("Failed to get UDP socket address: {}", e)))?;
+
+        tracing::info!(
+            "UDP relay socket bound to {} for client {}",
+            local_addr,
+            peer_addr
+        );
+
+        // Send success reply with the UDP relay address
+        Self::send_socks5_success(&mut stream, local_addr).await?;
+
+        // Start UDP relay task
+        let udp_socket = Arc::new(udp_socket);
+        let udp_socket_clone = Arc::clone(&udp_socket);
+        let router_clone = Arc::clone(&router);
+        let outbound_manager_clone = Arc::clone(&outbound_manager);
+
+        // Spawn UDP relay handler
+        tokio::spawn(async move {
+            if let Err(e) = Self::run_udp_relay(
+                udp_socket_clone,
+                peer_addr,
+                router_clone,
+                outbound_manager_clone,
+            )
+            .await
+            {
+                tracing::debug!("UDP relay error for {}: {}", peer_addr, e);
+            }
+        });
+
+        // Keep TCP connection alive - UDP ASSOCIATE is valid while TCP connection is open
+        let mut buf = [0u8; 1];
+        loop {
+            match tokio::time::timeout(Duration::from_secs(60), stream.read(&mut buf)).await {
+                Ok(Ok(0)) => {
+                    tracing::info!("UDP ASSOCIATE client {} disconnected", peer_addr);
+                    break;
+                }
+                Ok(Ok(_)) => {
+                    // Unexpected data, ignore
+                }
+                Ok(Err(e)) => {
+                    tracing::debug!("UDP ASSOCIATE TCP error for {}: {}", peer_addr, e);
+                    break;
+                }
+                Err(_) => {
+                    // Timeout, check if still connected
+                    continue;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Run UDP relay for SOCKS5 UDP ASSOCIATE
+    async fn run_udp_relay(
+        udp_socket: Arc<UdpSocket>,
+        _client_addr: SocketAddr,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Result<()> {
+        let mut buf = vec![0u8; 65535];
+        // Cache for UDP sessions to maintain connection state for QUIC
+        let session_cache: Arc<DashMap<String, Arc<UdpSocket>>> = Arc::new(DashMap::new());
+
+        loop {
+            let (n, src_addr) =
+                match tokio::time::timeout(UDP_SESSION_TIMEOUT, udp_socket.recv_from(&mut buf))
+                    .await
+                {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(e)) => {
+                        tracing::debug!("UDP recv error: {}", e);
+                        continue;
+                    }
+                    Err(_) => {
+                        // Timeout, cleanup old sessions and continue
+                        session_cache.retain(|_, _| true);
+                        continue;
+                    }
+                };
+
+            if n < 10 {
+                continue; // Too short for SOCKS5 UDP header
+            }
+
+            // Parse SOCKS5 UDP request header
+            // +----+------+------+----------+----------+----------+
+            // |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            // +----+------+------+----------+----------+----------+
+            // | 2  |  1   |  1   | Variable |    2     | Variable |
+            // +----+------+------+----------+----------+----------+
+
+            let frag = buf[2];
+            if frag != 0 {
+                tracing::debug!("UDP fragmentation not supported");
+                continue;
+            }
+
+            let atyp = buf[3];
+            let (target_addr, target_port, header_len) = match atyp {
+                SOCKS5_ADDR_IPV4 => {
+                    if n < 10 {
+                        continue;
+                    }
+                    let ip = Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
+                    let port = u16::from_be_bytes([buf[8], buf[9]]);
+                    (
+                        TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(ip), port)),
+                        port,
+                        10,
+                    )
+                }
+                SOCKS5_ADDR_DOMAIN => {
+                    let domain_len = buf[4] as usize;
+                    if n < 7 + domain_len {
+                        continue;
+                    }
+                    let domain = match String::from_utf8(buf[5..5 + domain_len].to_vec()) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
+                    let port = u16::from_be_bytes([buf[5 + domain_len], buf[6 + domain_len]]);
+                    (TargetAddr::new_domain(domain, port), port, 7 + domain_len)
+                }
+                SOCKS5_ADDR_IPV6 => {
+                    if n < 22 {
+                        continue;
+                    }
+                    let mut octets = [0u8; 16];
+                    octets.copy_from_slice(&buf[4..20]);
+                    let ip = Ipv6Addr::from(octets);
+                    let port = u16::from_be_bytes([buf[20], buf[21]]);
+                    (
+                        TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(ip), port)),
+                        port,
+                        22,
+                    )
+                }
+                _ => continue,
+            };
+
+            let payload = &buf[header_len..n];
+            if payload.is_empty() {
+                continue;
+            }
+
+            // Route the UDP packet
+            let (domain, ip) = match &target_addr {
+                TargetAddr::Domain(d, _) => (Some(d.clone()), None),
+                TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            };
+
+            let outbound_tag = router
+                .match_outbound(domain.as_deref(), ip, Some(target_port), None)
+                .await;
+
+            tracing::debug!(
+                "UDP relay: {} -> {} via {} ({} bytes)",
+                src_addr,
+                target_addr,
+                outbound_tag,
+                payload.len()
+            );
+
+            // For direct outbound, use a more efficient approach
+            if outbound_tag == "direct" {
+                let resolved_addr = match &target_addr {
+                    TargetAddr::Ip(addr) => *addr,
+                    TargetAddr::Domain(domain, port) => {
+                        match tokio::net::lookup_host(format!("{}:{}", domain, port)).await {
+                            Ok(mut addrs) => match addrs.next() {
+                                Some(addr) => addr,
+                                None => continue,
+                            },
+                            Err(_) => continue,
+                        }
+                    }
+                };
+
+                let session_key = resolved_addr.to_string();
+                let session_socket = if let Some(socket) = session_cache.get(&session_key) {
+                    socket.clone()
+                } else {
+                    let new_socket = match UdpSocket::bind("0.0.0.0:0").await {
+                        Ok(s) => Arc::new(s),
+                        Err(_) => continue,
+                    };
+                    session_cache.insert(session_key.clone(), new_socket.clone());
+
+                    // Start a receiver task for this session
+                    let recv_socket = new_socket.clone();
+                    let reply_socket = Arc::clone(&udp_socket);
+                    let reply_addr = src_addr;
+                    let target_for_reply = target_addr.clone();
+
+                    tokio::spawn(async move {
+                        let mut recv_buf = vec![0u8; 65535];
+                        loop {
+                            match tokio::time::timeout(
+                                Duration::from_secs(60),
+                                recv_socket.recv_from(&mut recv_buf),
+                            )
+                            .await
+                            {
+                                Ok(Ok((recv_n, _from_addr))) => {
+                                    if recv_n == 0 {
+                                        continue;
+                                    }
+
+                                    // Build SOCKS5 UDP response
+                                    let response_packet = Self::build_udp_response(
+                                        &target_for_reply,
+                                        &recv_buf[..recv_n],
+                                    );
+                                    if let Err(e) =
+                                        reply_socket.send_to(&response_packet, reply_addr).await
+                                    {
+                                        tracing::debug!("Failed to send UDP response: {}", e);
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::debug!("UDP session recv error: {}", e);
+                                    break;
+                                }
+                                Err(_) => {
+                                    break;
+                                }
+                            }
+                        }
+                    });
+
+                    new_socket
+                };
+
+                if let Err(e) = session_socket.send_to(payload, resolved_addr).await {
+                    tracing::debug!("Failed to send UDP packet: {}", e);
+                }
+                continue;
+            }
+
+            let outbound = match outbound_manager.get_proxy(&outbound_tag) {
+                Some(proxy) => proxy,
+                None => {
+                    tracing::warn!("Outbound '{}' not found for UDP", outbound_tag);
+                    continue;
+                }
+            };
+
+            if !outbound.supports_udp() {
+                tracing::debug!("Outbound '{}' does not support UDP, skipping", outbound_tag);
+                continue;
+            }
+
+            let udp_socket_clone = Arc::clone(&udp_socket);
+            let target_addr_clone = target_addr.clone();
+            let payload_vec = payload.to_vec();
+
+            tokio::spawn(async move {
+                match outbound
+                    .relay_udp_packet(&target_addr_clone, &payload_vec)
+                    .await
+                {
+                    Ok(response) => {
+                        if !response.is_empty() {
+                            let response_packet =
+                                Self::build_udp_response(&target_addr_clone, &response);
+                            if let Err(e) =
+                                udp_socket_clone.send_to(&response_packet, src_addr).await
+                            {
+                                tracing::debug!("Failed to send UDP response: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("UDP relay error via '{}': {}", outbound.tag(), e);
+                    }
+                }
+            });
+        }
+    }
+
+    fn build_udp_response(target: &TargetAddr, data: &[u8]) -> Vec<u8> {
+        let mut response_packet = Vec::with_capacity(data.len() + 22);
+        response_packet.extend_from_slice(&[0x00, 0x00, 0x00]);
+
+        match target {
+            TargetAddr::Ip(addr) => {
+                match addr.ip() {
+                    IpAddr::V4(ip) => {
+                        response_packet.push(SOCKS5_ADDR_IPV4);
+                        response_packet.extend_from_slice(&ip.octets());
+                    }
+                    IpAddr::V6(ip) => {
+                        response_packet.push(SOCKS5_ADDR_IPV6);
+                        response_packet.extend_from_slice(&ip.octets());
+                    }
+                }
+                response_packet.extend_from_slice(&addr.port().to_be_bytes());
+            }
+            TargetAddr::Domain(domain, port) => {
+                response_packet.push(SOCKS5_ADDR_DOMAIN);
+                response_packet.push(domain.len() as u8);
+                response_packet.extend_from_slice(domain.as_bytes());
+                response_packet.extend_from_slice(&port.to_be_bytes());
+            }
+        }
+        response_packet.extend_from_slice(data);
+        response_packet
+    }
+
     // ============== Common Relay ==============
 
     #[allow(dead_code)]
@@ -824,7 +1163,6 @@ impl MixedInbound {
             }
         };
 
-        // Log non-common errors
         if let Err(ref e) = result {
             if e.kind() != std::io::ErrorKind::ConnectionReset
                 && e.kind() != std::io::ErrorKind::BrokenPipe
@@ -838,7 +1176,6 @@ impl MixedInbound {
     }
 }
 
-/// Find the end of HTTP headers (position of \r\n\r\n)
 fn find_header_end(data: &[u8]) -> Option<usize> {
     (0..data.len().saturating_sub(3)).find(|&i| &data[i..i + 4] == b"\r\n\r\n")
 }

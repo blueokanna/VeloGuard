@@ -414,8 +414,8 @@ impl OutboundProxy for VlessOutbound {
             .await?;
 
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
 
         tls_stream
@@ -492,15 +492,23 @@ impl OutboundProxy for VlessOutbound {
         let client_to_remote = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ri.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from inbound: {}", e))
-                })?;
-                if n == 0 {
-                    break;
+                let n = match ri.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) if is_vless_connection_closed(&e) => {
+                        tracing::debug!("VLess: client closed connection");
+                        break;
+                    }
+                    Err(e) => return Err(Error::network(format!("Failed to read from inbound: {}", e))),
+                };
+                
+                if let Err(e) = wo.write_all(&buf[..n]).await {
+                    if is_vless_connection_closed(&e) {
+                        tracing::debug!("VLess: server closed connection");
+                        break;
+                    }
+                    return Err(Error::network(format!("Failed to write to VLess: {}", e)));
                 }
-                wo.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to VLess: {}", e))
-                })?;
 
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -514,15 +522,23 @@ impl OutboundProxy for VlessOutbound {
         let remote_to_client = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ro.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from VLess: {}", e))
-                })?;
-                if n == 0 {
-                    break;
+                let n = match ro.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) if is_vless_connection_closed(&e) => {
+                        tracing::debug!("VLess: server closed connection");
+                        break;
+                    }
+                    Err(e) => return Err(Error::network(format!("Failed to read from VLess: {}", e))),
+                };
+                
+                if let Err(e) = wi.write_all(&buf[..n]).await {
+                    if is_vless_connection_closed(&e) {
+                        tracing::debug!("VLess: client closed connection");
+                        break;
+                    }
+                    return Err(Error::network(format!("Failed to write to inbound: {}", e)));
                 }
-                wi.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
 
                 tracker.add_global_download(n as u64);
                 if let Some(ref conn) = conn_download {
@@ -533,23 +549,34 @@ impl OutboundProxy for VlessOutbound {
             Ok::<(), Error>(())
         };
 
-        let result = tokio::try_join!(client_to_remote, remote_to_client);
+        // Run both directions concurrently
+        let (upload_result, download_result) = tokio::join!(client_to_remote, remote_to_client);
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("connection")
-                    || err_str.contains("reset")
-                    || err_str.contains("broken")
-                {
-                    Ok(())
-                } else {
-                    Err(e)
-                }
+        // Handle results - connection close is normal
+        match (upload_result, download_result) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
+                tracing::debug!("VLess relay partial error: {}", e);
+                Ok(())
+            }
+            (Err(e1), Err(e2)) => {
+                tracing::debug!("VLess relay errors: {} / {}", e1, e2);
+                Ok(())
             }
         }
     }
+}
+
+/// Check if an error indicates a normal connection close for VLess
+fn is_vless_connection_closed(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 fn write_address_to_buf(buf: &mut Vec<u8>, target: &TargetAddr) -> Result<()> {

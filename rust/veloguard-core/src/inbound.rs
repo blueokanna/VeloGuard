@@ -5,23 +5,23 @@ use crate::routing::Router;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+mod dokodemo;
 mod http;
 mod mixed;
-mod socks5;
-mod vmess;
-mod vless;
 mod shadowsocks;
+mod socks5;
 mod trojan;
-mod dokodemo;
+mod vless;
+mod vmess;
 
+use dokodemo::DokodemoInbound;
 use http::HttpInbound;
 use mixed::MixedInbound;
-use socks5::Socks5Inbound;
-use vmess::VmessInbound;
-use vless::VlessInbound;
 use shadowsocks::ShadowsocksInbound;
+use socks5::Socks5Inbound;
 use trojan::TrojanInbound;
-use dokodemo::DokodemoInbound;
+use vless::VlessInbound;
+use vmess::VmessInbound;
 
 /// Inbound connection manager
 pub struct InboundManager {
@@ -49,41 +49,31 @@ impl InboundManager {
             let config_read = config.read().await;
             for inbound_config in &config_read.inbounds {
                 let listener: Box<dyn InboundListener> = match inbound_config.inbound_type {
-                    InboundType::Http => {
-                        Box::new(HttpInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
-                    InboundType::Socks5 => {
-                        Box::new(Socks5Inbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
-                    InboundType::Mixed => {
-                        Box::new(MixedInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
-                    InboundType::Vmess => {
-                        Box::new(VmessInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
-                    InboundType::Vless => {
-                        Box::new(VlessInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
+                    InboundType::Http => Box::new(HttpInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
+                    InboundType::Socks5 => Box::new(Socks5Inbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
+                    InboundType::Mixed => Box::new(MixedInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
+                    InboundType::Vmess => Box::new(VmessInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
+                    InboundType::Vless => Box::new(VlessInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
                     InboundType::Shadowsocks => {
                         match ShadowsocksInbound::new(
                             inbound_config.clone(),
@@ -97,22 +87,21 @@ impl InboundManager {
                             }
                         }
                     }
-                    InboundType::Trojan => {
-                        Box::new(TrojanInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
-                    InboundType::Dokodemo => {
-                        Box::new(DokodemoInbound::new(
-                            inbound_config.clone(),
-                            Arc::clone(&router),
-                            Arc::clone(&outbound_manager),
-                        ))
-                    }
+                    InboundType::Trojan => Box::new(TrojanInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
+                    InboundType::Dokodemo => Box::new(DokodemoInbound::new(
+                        inbound_config.clone(),
+                        Arc::clone(&router),
+                        Arc::clone(&outbound_manager),
+                    )),
                     _ => {
-                        tracing::warn!("Unsupported inbound type: {:?}", inbound_config.inbound_type);
+                        tracing::warn!(
+                            "Unsupported inbound type: {:?}",
+                            inbound_config.inbound_type
+                        );
                         continue;
                     }
                 };

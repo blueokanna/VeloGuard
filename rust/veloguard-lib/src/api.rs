@@ -168,6 +168,9 @@ pub async fn reload_config_from_yaml(yaml_config: String) -> std::result::Result
     let config: Config =
         serde_yaml::from_str(&yaml_config).map_err(|e| format!("Invalid YAML config: {}", e))?;
 
+    // Validate configuration before applying
+    config.validate().map_err(|e| format!("Configuration validation failed: {}", e))?;
+
     let instance = get_veloguard_instance()
         .await
         .map_err(|e| format!("Failed to get instance: {}", e))?;
@@ -192,6 +195,169 @@ pub async fn reload_config_from_file(config_path: String) -> std::result::Result
         .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
 
     reload_config_from_yaml(yaml_content).await
+}
+
+// ============== Clash Configuration Compatibility API ==============
+
+/// Start proxy from a Clash-format configuration file
+/// This automatically converts Clash config to VeloGuard format
+#[frb]
+pub async fn start_proxy_from_clash_yaml(clash_yaml: String) -> std::result::Result<(), String> {
+    tracing::info!("Starting proxy from Clash config...");
+    
+    let config = veloguard_core::config::parse_clash_config(&clash_yaml)
+        .map_err(|e| format!("Failed to parse Clash config: {}", e))?;
+    
+    // Validate the converted config
+    config.validate().map_err(|e| format!("Configuration validation failed: {}", e))?;
+    
+    {
+        let mut instance = VELOGUARD_INSTANCE.write().await;
+        if let Some(ref veloguard) = *instance {
+            tracing::info!("Stopping existing VeloGuard instance before re-initialization");
+            if let Err(e) = veloguard.stop().await {
+                tracing::warn!("Error stopping existing instance: {}", e);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+        *instance = None;
+    }
+
+    let veloguard = veloguard_core::VeloGuard::new(config)
+        .await
+        .map_err(|e| format!("Failed to create VeloGuard: {}", e))?;
+
+    veloguard
+        .start()
+        .await
+        .map_err(|e| format!("Failed to start proxy: {}", e))?;
+
+    let mut instance = VELOGUARD_INSTANCE.write().await;
+    *instance = Some(veloguard);
+
+    tracing::info!("Proxy started successfully from Clash config");
+    Ok(())
+}
+
+/// Start proxy from a Clash-format configuration file
+#[frb]
+pub async fn start_proxy_from_clash_file(config_path: String) -> std::result::Result<(), String> {
+    tracing::info!("Starting proxy from Clash file: {}", config_path);
+    
+    let yaml_content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
+    
+    start_proxy_from_clash_yaml(yaml_content).await
+}
+
+/// Reload configuration from a Clash-format YAML string
+#[frb]
+pub async fn reload_config_from_clash_yaml(clash_yaml: String) -> std::result::Result<(), String> {
+    tracing::info!("Reloading config from Clash YAML...");
+    
+    let config = veloguard_core::config::parse_clash_config(&clash_yaml)
+        .map_err(|e| format!("Failed to parse Clash config: {}", e))?;
+    
+    // Validate the converted config
+    config.validate().map_err(|e| format!("Configuration validation failed: {}", e))?;
+
+    let instance = get_veloguard_instance()
+        .await
+        .map_err(|e| format!("Failed to get instance: {}", e))?;
+    let mut veloguard_guard = instance.write().await;
+
+    if let Some(veloguard) = veloguard_guard.as_mut() {
+        veloguard
+            .reload(config)
+            .await
+            .map_err(|e| format!("Failed to reload config: {}", e))?;
+        tracing::info!("Config reloaded successfully from Clash format");
+        Ok(())
+    } else {
+        Err("Proxy not initialized".to_string())
+    }
+}
+
+/// Reload configuration from a Clash-format file
+#[frb]
+pub async fn reload_config_from_clash_file(config_path: String) -> std::result::Result<(), String> {
+    tracing::info!("Reloading config from Clash file: {}", config_path);
+    
+    let yaml_content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
+    
+    reload_config_from_clash_yaml(yaml_content).await
+}
+
+/// Download and start proxy from a subscription URL
+/// This fetches the Clash config from the URL and starts the proxy
+#[frb]
+pub async fn start_proxy_from_url(url: String) -> std::result::Result<(), String> {
+    tracing::info!("Downloading config from URL: {}", url);
+    
+    // Download config from URL
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let response = client.get(&url)
+        .header("User-Agent", veloguard_core::USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch config from URL: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    
+    let yaml_content = response.text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?;
+    
+    tracing::info!("Downloaded {} bytes of config", yaml_content.len());
+    
+    // Start proxy with the downloaded config
+    start_proxy_from_clash_yaml(yaml_content).await
+}
+
+/// Download config from URL and return the YAML content
+/// Useful for saving the config locally before starting
+#[frb]
+pub async fn download_config_from_url(url: String) -> std::result::Result<String, String> {
+    tracing::info!("Downloading config from URL: {}", url);
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    let response = client.get(&url)
+        .header("User-Agent", veloguard_core::USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch config from URL: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+    
+    let yaml_content = response.text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?;
+    
+    tracing::info!("Downloaded {} bytes of config", yaml_content.len());
+    Ok(yaml_content)
+}
+
+/// Convert a Clash config to VeloGuard format (for debugging/preview)
+#[frb]
+pub fn convert_clash_to_veloguard(clash_yaml: String) -> std::result::Result<String, String> {
+    let config = veloguard_core::config::parse_clash_config(&clash_yaml)
+        .map_err(|e| format!("Failed to parse Clash config: {}", e))?;
+    
+    serde_yaml::to_string(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))
 }
 
 // ============== Traffic Statistics API (Design Document Compliant) ==============
@@ -1562,8 +1728,8 @@ pub async fn test_shadowsocks_latency(
     let (mut ro, mut wo) = tokio::io::split(stream);
     let addr_header = ss_build_address_header(&host, url_port);
     let http_request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-        path, host
+        "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+        path, host, veloguard_core::USER_AGENT
     );
 
     let mut first_payload = addr_header;
@@ -2869,6 +3035,9 @@ pub async fn stop_android_vpn() -> Result<bool> {
             tracing::info!("Stopping VPN processor...");
             processor.stop();
 
+            // Give spawned tasks a moment to notice the shutdown and exit
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
             processor.reset();
             processor.reset_fake_ip_pool();
             tracing::info!("VPN processor stopped, reset, and Fake-IP pool cleared");
@@ -2883,6 +3052,10 @@ pub async fn stop_android_vpn() -> Result<bool> {
         tracing::info!("VPN fd cleared");
         veloguard_netstack::clear_protect_callback();
         tracing::info!("Socket protect callback cleared");
+        
+        // Also clear the solidtcp protect callback
+        veloguard_netstack::solidtcp::clear_protect_callback();
+        tracing::info!("SolidTCP protect callback cleared");
 
         let tracker = veloguard_core::connection_tracker::global_tracker();
         tracker.reset();

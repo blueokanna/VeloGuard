@@ -937,8 +937,21 @@ class RustLibWire implements BaseWire {
     String id,
   ) => wasmModule.wire__crate__api__close_connection_by_id(port_, id);
 
+  void wire__crate__api__convert_clash_to_veloguard(
+    NativePortType port_,
+    String clash_yaml,
+  ) => wasmModule.wire__crate__api__convert_clash_to_veloguard(
+    port_,
+    clash_yaml,
+  );
+
   void wire__crate__api__disable_tun_mode(NativePortType port_) =>
       wasmModule.wire__crate__api__disable_tun_mode(port_);
+
+  void wire__crate__api__download_config_from_url(
+    NativePortType port_,
+    String url,
+  ) => wasmModule.wire__crate__api__download_config_from_url(port_, url);
 
   void wire__crate__api__enable_tun_mode(NativePortType port_) =>
       wasmModule.wire__crate__api__enable_tun_mode(port_);
@@ -1045,6 +1058,22 @@ class RustLibWire implements BaseWire {
   void wire__crate__api__open_uwp_loopback_utility(NativePortType port_) =>
       wasmModule.wire__crate__api__open_uwp_loopback_utility(port_);
 
+  void wire__crate__api__reload_config_from_clash_file(
+    NativePortType port_,
+    String config_path,
+  ) => wasmModule.wire__crate__api__reload_config_from_clash_file(
+    port_,
+    config_path,
+  );
+
+  void wire__crate__api__reload_config_from_clash_yaml(
+    NativePortType port_,
+    String clash_yaml,
+  ) => wasmModule.wire__crate__api__reload_config_from_clash_yaml(
+    port_,
+    clash_yaml,
+  );
+
   void wire__crate__api__reload_config_from_file(
     NativePortType port_,
     String config_path,
@@ -1109,10 +1138,31 @@ class RustLibWire implements BaseWire {
   void wire__crate__api__start_android_vpn(NativePortType port_) =>
       wasmModule.wire__crate__api__start_android_vpn(port_);
 
+  void wire__crate__api__start_proxy_from_clash_file(
+    NativePortType port_,
+    String config_path,
+  ) => wasmModule.wire__crate__api__start_proxy_from_clash_file(
+    port_,
+    config_path,
+  );
+
+  void wire__crate__api__start_proxy_from_clash_yaml(
+    NativePortType port_,
+    String clash_yaml,
+  ) => wasmModule.wire__crate__api__start_proxy_from_clash_yaml(
+    port_,
+    clash_yaml,
+  );
+
   void wire__crate__api__start_proxy_from_file(
     NativePortType port_,
     String config_path,
   ) => wasmModule.wire__crate__api__start_proxy_from_file(port_, config_path);
+
+  void wire__crate__api__start_proxy_from_url(
+    NativePortType port_,
+    String url,
+  ) => wasmModule.wire__crate__api__start_proxy_from_url(port_, url);
 
   void wire__crate__api__start_proxy_from_yaml(
     NativePortType port_,
@@ -1265,7 +1315,17 @@ extension type RustLibWasmModule._(JSObject _) implements JSObject {
     String id,
   );
 
+  external void wire__crate__api__convert_clash_to_veloguard(
+    NativePortType port_,
+    String clash_yaml,
+  );
+
   external void wire__crate__api__disable_tun_mode(NativePortType port_);
+
+  external void wire__crate__api__download_config_from_url(
+    NativePortType port_,
+    String url,
+  );
 
   external void wire__crate__api__enable_tun_mode(NativePortType port_);
 
@@ -1344,6 +1404,16 @@ extension type RustLibWasmModule._(JSObject _) implements JSObject {
     NativePortType port_,
   );
 
+  external void wire__crate__api__reload_config_from_clash_file(
+    NativePortType port_,
+    String config_path,
+  );
+
+  external void wire__crate__api__reload_config_from_clash_yaml(
+    NativePortType port_,
+    String clash_yaml,
+  );
+
   external void wire__crate__api__reload_config_from_file(
     NativePortType port_,
     String config_path,
@@ -1405,9 +1475,24 @@ extension type RustLibWasmModule._(JSObject _) implements JSObject {
 
   external void wire__crate__api__start_android_vpn(NativePortType port_);
 
+  external void wire__crate__api__start_proxy_from_clash_file(
+    NativePortType port_,
+    String config_path,
+  );
+
+  external void wire__crate__api__start_proxy_from_clash_yaml(
+    NativePortType port_,
+    String clash_yaml,
+  );
+
   external void wire__crate__api__start_proxy_from_file(
     NativePortType port_,
     String config_path,
+  );
+
+  external void wire__crate__api__start_proxy_from_url(
+    NativePortType port_,
+    String url,
   );
 
   external void wire__crate__api__start_proxy_from_yaml(

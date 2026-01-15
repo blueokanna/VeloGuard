@@ -390,20 +390,24 @@ class ProfilesProvider extends ChangeNotifier {
         return false;
       }
 
-      // Convert Clash YAML to VeloGuard JSON format
-      final jsonConfig = ConfigConverter.convertClashYamlToJson(configContent);
-
-      // Initialize VeloGuard with the converted config
+      // Use the Clash YAML API directly - it handles conversion internally
+      // This is more reliable than converting to JSON first
       try {
-        await initializeVeloguard(configJson: jsonConfig);
+        await startProxyFromClashYaml(clashYaml: configContent);
+        debugPrint('Proxy started with Clash YAML API');
       } catch (e) {
-        // If initialization fails, try using YAML directly
-        debugPrint('JSON initialization failed, trying YAML: $e');
+        debugPrint('Clash YAML API failed: $e');
+        // Fallback: try converting to JSON and using initializeVeloguard
         try {
-          await startProxyFromYaml(yamlConfig: configContent);
-        } catch (yamlError) {
-          debugPrint('YAML initialization also failed: $yamlError');
-          throw Exception('Failed to initialize proxy: $e');
+          final jsonConfig = ConfigConverter.convertClashYamlToJson(
+            configContent,
+          );
+          await initializeVeloguard(configJson: jsonConfig);
+          await startVeloguard();
+          debugPrint('Proxy started with JSON config fallback');
+        } catch (jsonError) {
+          debugPrint('JSON fallback also failed: $jsonError');
+          throw Exception('Failed to start proxy: $e');
         }
       }
 

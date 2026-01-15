@@ -1,206 +1,409 @@
 use crate::config::OutboundConfig;
-use crate::connection_tracker::{global_tracker, TrackedConnection};
+use crate::connection_tracker::TrackedConnection;
 use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundProxy, TargetAddr};
 use crate::time_sync;
 use crate::tls::SkipServerVerification;
+
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes128Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use cfb_mode::cipher::{AsyncStreamCipher, KeyIvInit};
-use chacha20poly1305::ChaCha20Poly1305;
+use bytes::{Buf, BufMut, BytesMut};
 use dashmap::DashMap;
-use hmac::{Hmac, Mac};
-use md5::{Digest as Md5Digest, Md5};
+use hmac::Mac;
+use http;
+use md5::Md5;
 use quinn::{ClientConfig as QuinnClientConfig, Endpoint};
 use sha1::Sha1;
 use sha2::Sha256;
-use sha3::{
-    digest::{ExtendableOutput, XofReader},
-    Shake128,
-};
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-type HmacSha256 = Hmac<Sha256>;
-type HmacMd5 = Hmac<Md5>;
-type Aes128CfbEnc = cfb_mode::Encryptor<aes::Aes128>;
-type Aes128CfbDec = cfb_mode::Decryptor<aes::Aes128>;
+// ============================================================================
+// 类型别名和常量 - VMess 协议规范
+// ============================================================================
 
-const VMESS_VERSION: u8 = 1;
-const VMESS_AEAD_AUTH_LEN: usize = 16;
-const VMESS_AEAD_NONCE_LEN: usize = 12;
-const VMESS_TIME_WINDOW_SECS: i64 = 30;
-const VMESS_TIME_TOLERANCE: i64 = 2;
-const VMESS_MAX_CHUNK_SIZE: usize = 16384; // 2^14
+type HmacSha256 = hmac::Hmac<Sha256>;
+type HmacMd5 = hmac::Hmac<Md5>;
 
+/// VMess 协议版本 (固定为 0x01)
+const VERSION: u8 = 0x01;
+
+/// 数据块大小 (16KB)
+const CHUNK_SIZE: usize = 1 << 14;
+
+/// 最大数据块大小 (17KB)
+const MAX_CHUNK_SIZE: usize = 17 * 1024;
+
+/// VMess 选项: 分块流 (标准流模式)
+const OPTION_CHUNK_STREAM: u8 = 0x01;
+
+/// VMess 选项: 分块掩码 (元数据混淆, 可选)
 #[allow(dead_code)]
-const VMESS_AEAD_KEY_LEN: usize = 16;
+const OPTION_CHUNK_MASK: u8 = 0x02;
 
-pub struct ShakeMask {
-    reader: sha3::Shake128Reader,
+/// 安全类型 (加密方式) - P & Sec 字段的低4位
+/// 0x03: AES-128-GCM (推荐, x86_64/aarch64 架构)
+const SECURITY_AES_128_GCM: u8 = 0x03;
+
+/// 0x04: ChaCha20-Poly1305 (推荐, 其他架构)
+const SECURITY_CHACHA20_POLY1305: u8 = 0x04;
+
+/// 0x05: 无加密 (不推荐)
+const SECURITY_NONE: u8 = 0x05;
+
+/// 指令 (Cmd) - 0x01: TCP
+const COMMAND_TCP: u8 = 0x01;
+
+/// 指令 (Cmd) - 0x02: UDP
+const COMMAND_UDP: u8 = 0x02;
+
+// KDF 常量 - 用于密钥派生
+const KDF_SALT_CONST_AUTH_ID_ENCRYPTION_KEY: &[u8] = b"AES Auth ID Encryption";
+const KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_KEY: &[u8] = b"AEAD Resp Header Len Key";
+const KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_IV: &[u8] = b"AEAD Resp Header Len IV";
+const KDF_SALT_CONST_AEAD_RESP_HEADER_PAYLOAD_KEY: &[u8] = b"AEAD Resp Header Key";
+const KDF_SALT_CONST_AEAD_RESP_HEADER_PAYLOAD_IV: &[u8] = b"AEAD Resp Header IV";
+const KDF_SALT_CONST_VMESS_AEAD_KDF: &[u8] = b"VMess AEAD KDF";
+const KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_AEAD_KEY: &[u8] = b"VMess Header AEAD Key";
+const KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_AEAD_IV: &[u8] = b"VMess Header AEAD Nonce";
+const KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_KEY: &[u8] = b"VMess Header AEAD Key_Length";
+const KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_IV: &[u8] = b"VMess Header AEAD Nonce_Length";
+
+// HMAC 常量
+const IPAD: u8 = 0x36;
+const OPAD: u8 = 0x5C;
+const HMAC_BLOCK_LEN: usize = 64;
+const HMAC_TAG_LEN: usize = 32;
+
+// ============================================================================
+// KDF 实现
+// ============================================================================
+
+/// VMess KDF 第一层
+#[derive(Clone)]
+struct VmessKdf1 {
+    okey: [u8; HMAC_BLOCK_LEN],
+    hasher: HmacSha256,
+    hasher_outer: HmacSha256,
 }
 
-impl ShakeMask {
-    pub fn new(iv: &[u8]) -> Self {
-        use sha3::digest::Update;
-        let mut hasher = Shake128::default();
-        Update::update(&mut hasher, iv);
+impl VmessKdf1 {
+    fn new(mut hasher: HmacSha256, key: &[u8]) -> Self {
+        let mut ikey = [0u8; HMAC_BLOCK_LEN];
+        let mut okey = [0u8; HMAC_BLOCK_LEN];
+        let hasher_outer = hasher.clone();
+
+        if key.len() > HMAC_BLOCK_LEN {
+            let mut hh = hasher.clone();
+            hh.update(key);
+            let hkey = hh.finalize().into_bytes();
+            ikey[..HMAC_TAG_LEN].copy_from_slice(&hkey[..HMAC_TAG_LEN]);
+            okey[..HMAC_TAG_LEN].copy_from_slice(&hkey[..HMAC_TAG_LEN]);
+        } else {
+            ikey[..key.len()].copy_from_slice(key);
+            okey[..key.len()].copy_from_slice(key);
+        }
+
+        for idx in 0..HMAC_BLOCK_LEN {
+            ikey[idx] ^= IPAD;
+            okey[idx] ^= OPAD;
+        }
+        hasher.update(&ikey);
         Self {
-            reader: hasher.finalize_xof(),
+            okey,
+            hasher,
+            hasher_outer,
         }
     }
 
-    /// 获取下一个掩码字节
-    pub fn next_byte(&mut self) -> u8 {
-        let mut buf = [0u8; 1];
-        self.reader.read(&mut buf);
-        buf[0]
+    fn update(&mut self, m: &[u8]) {
+        self.hasher.update(m);
     }
 
-    /// 获取下一个 16 位掩码
-    pub fn next_u16(&mut self) -> u16 {
-        let high = self.next_byte() as u16;
-        let low = self.next_byte() as u16;
-        (high << 8) | low
+    fn finalize(mut self) -> [u8; HMAC_TAG_LEN] {
+        let h1 = self.hasher.finalize().into_bytes();
+        self.hasher_outer.update(&self.okey);
+        self.hasher_outer.update(&h1);
+        self.hasher_outer.finalize().into_bytes().into()
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VmessCommand {
-    Tcp = 0x01,
-    Udp = 0x02,
+/// 宏: 生成嵌套 KDF 结构
+macro_rules! impl_vmess_kdf {
+    ($name:ident, $inner:ty) => {
+        #[derive(Clone)]
+        struct $name {
+            okey: [u8; HMAC_BLOCK_LEN],
+            hasher: $inner,
+            hasher_outer: $inner,
+        }
+
+        impl $name {
+            fn new(mut hasher: $inner, key: &[u8]) -> Self {
+                let mut ikey = [0u8; HMAC_BLOCK_LEN];
+                let mut okey = [0u8; HMAC_BLOCK_LEN];
+                let hasher_outer = hasher.clone();
+
+                if key.len() > HMAC_BLOCK_LEN {
+                    let mut hh = hasher.clone();
+                    hh.update(key);
+                    let hkey = hh.finalize();
+                    ikey[..HMAC_TAG_LEN].copy_from_slice(&hkey[..HMAC_TAG_LEN]);
+                    okey[..HMAC_TAG_LEN].copy_from_slice(&hkey[..HMAC_TAG_LEN]);
+                } else {
+                    ikey[..key.len()].copy_from_slice(key);
+                    okey[..key.len()].copy_from_slice(key);
+                }
+
+                for idx in 0..HMAC_BLOCK_LEN {
+                    ikey[idx] ^= IPAD;
+                    okey[idx] ^= OPAD;
+                }
+                hasher.update(&ikey);
+                Self {
+                    okey,
+                    hasher,
+                    hasher_outer,
+                }
+            }
+
+            fn update(&mut self, m: &[u8]) {
+                self.hasher.update(m);
+            }
+
+            fn finalize(mut self) -> [u8; HMAC_TAG_LEN] {
+                let h1 = self.hasher.finalize();
+                self.hasher_outer.update(&self.okey);
+                self.hasher_outer.update(&h1);
+                self.hasher_outer.finalize()
+            }
+        }
+    };
 }
 
-impl VmessCommand {
-    pub fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            0x01 => Some(VmessCommand::Tcp),
-            0x02 => Some(VmessCommand::Udp),
-            _ => None,
+impl_vmess_kdf!(VmessKdf2, VmessKdf1);
+impl_vmess_kdf!(VmessKdf3, VmessKdf2);
+
+#[inline]
+fn get_vmess_kdf_1(key1: &[u8]) -> VmessKdf1 {
+    VmessKdf1::new(
+        <HmacSha256 as Mac>::new_from_slice(KDF_SALT_CONST_VMESS_AEAD_KDF).unwrap(),
+        key1,
+    )
+}
+
+/// VMess KDF 1-shot 函数
+pub fn vmess_kdf_1_one_shot(id: &[u8], key1: &[u8]) -> [u8; 32] {
+    let mut h = get_vmess_kdf_1(key1);
+    h.update(id);
+    h.finalize()
+}
+
+#[inline]
+fn get_vmess_kdf_2(key1: &[u8], key2: &[u8]) -> VmessKdf2 {
+    VmessKdf2::new(get_vmess_kdf_1(key1), key2)
+}
+
+#[inline]
+fn get_vmess_kdf_3(key1: &[u8], key2: &[u8], key3: &[u8]) -> VmessKdf3 {
+    VmessKdf3::new(get_vmess_kdf_2(key1, key2), key3)
+}
+
+/// VMess KDF 3-shot 函数
+pub fn vmess_kdf_3_one_shot(id: &[u8], key1: &[u8], key2: &[u8], key3: &[u8]) -> [u8; 32] {
+    let mut h = get_vmess_kdf_3(key1, key2, key3);
+    h.update(id);
+    h.finalize()
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+/// 生成 cmd_key
+fn generate_cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
+    use md5::Digest;
+    let mut hasher = Md5::new();
+    hasher.update(uuid);
+    hasher.update(b"c48619fe-8f02-49e0-b9e9-edf763e17e21");
+    let result = hasher.finalize();
+    let mut key = [0u8; 16];
+    key.copy_from_slice(&result);
+    key
+}
+
+/// FNV1a 哈希
+fn fnv1a_hash(data: &[u8]) -> u32 {
+    const FNV_OFFSET: u32 = 0x811c9dc5;
+    const FNV_PRIME: u32 = 0x01000193;
+    data.iter().fold(FNV_OFFSET, |hash, &byte| {
+        (hash ^ byte as u32).wrapping_mul(FNV_PRIME)
+    })
+}
+
+/// 生成随机字节
+fn rand_fill(buf: &mut [u8]) {
+    getrandom::fill(buf).unwrap_or_else(|_| {
+        for b in buf.iter_mut() {
+            *b = rand::random();
+        }
+    });
+}
+
+/// 生成随机范围
+fn rand_range(range: std::ops::Range<usize>) -> usize {
+    use rand::Rng;
+    rand::rng().random_range(range)
+}
+
+/// MD5 哈希
+fn md5_hash(data: &[u8]) -> [u8; 16] {
+    use md5::Digest;
+    let result = Md5::digest(data);
+    let mut hash = [0u8; 16];
+    hash.copy_from_slice(&result);
+    hash
+}
+
+/// SHA256 哈希
+fn sha256_hash(data: &[u8]) -> [u8; 32] {
+    use sha2::Digest;
+    let result = Sha256::digest(data);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&result);
+    hash
+}
+
+/// 时间戳哈希 (用于非 AEAD 模式的 IV 生成)
+///
+/// VMess 协议要求将时间戳重复4次后进行 MD5 哈希
+/// 时间戳使用大端序 (Big-Endian)
+fn hash_timestamp(timestamp: u64) -> [u8; 16] {
+    use md5::Digest;
+    let mut hasher = Md5::new();
+    let ts_bytes = timestamp.to_be_bytes(); // 大端序
+    hasher.update(ts_bytes);
+    hasher.update(ts_bytes);
+    hasher.update(ts_bytes);
+    hasher.update(ts_bytes);
+    hasher.finalize().into()
+}
+
+// ============================================================================
+// 用户 ID 管理
+// ============================================================================
+
+/// VMess 用户 ID
+#[derive(Clone)]
+pub struct VmessId {
+    pub uuid: Uuid,
+    pub cmd_key: [u8; 16],
+}
+
+impl VmessId {
+    pub fn new(uuid: &Uuid) -> Self {
+        Self {
+            uuid: *uuid,
+            cmd_key: generate_cmd_key(uuid.as_bytes()),
         }
     }
 }
 
+/// 生成 alter ID 列表
+pub fn new_alter_id_list(primary: &VmessId, alter_id_count: u16) -> Vec<VmessId> {
+    let mut list = Vec::with_capacity(alter_id_count as usize + 1);
+    let mut prev_id = primary.uuid;
+
+    for _ in 0..alter_id_count {
+        let new_id = next_id(&prev_id);
+        list.push(VmessId {
+            uuid: new_id,
+            cmd_key: primary.cmd_key,
+        });
+        prev_id = new_id;
+    }
+
+    list.push(primary.clone());
+    list
+}
+
+/// 生成下一个 ID
+fn next_id(uuid: &Uuid) -> Uuid {
+    use md5::Digest;
+    let mut hasher = Md5::new();
+    hasher.update(uuid.as_bytes());
+    hasher.update(b"16167dc8-16b6-4e6d-b8bb-65dd68113a81");
+    let buf: [u8; 16] = hasher.finalize().into();
+    Uuid::from_bytes(buf)
+}
+
+// ============================================================================
+// 加密类型定义
+// ============================================================================
+
+/// VMess 加密方式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmessCipher {
     Auto,
-    Aes128Cfb,        // 0x00 - Legacy
-    None,             // 0x01 - 不加密
-    Aes128Gcm,        // 0x02 - AES-128-GCM
-    Chacha20Poly1305, // 0x03 - ChaCha20-Poly1305
-    Zero,             // 特殊: 用于测试
+    Aes128Gcm,
+    Chacha20Poly1305,
+    None,
 }
 
 impl VmessCipher {
-    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "aes-128-cfb" | "aes128cfb" => VmessCipher::Aes128Cfb,
-            "aes-128-gcm" | "aes128gcm" => VmessCipher::Aes128Gcm,
-            "chacha20-poly1305" | "chacha20poly1305" => VmessCipher::Chacha20Poly1305,
-            "none" => VmessCipher::None,
-            "zero" => VmessCipher::Zero,
-            _ => VmessCipher::Auto,
+            "aes-128-gcm" | "aes128gcm" => Self::Aes128Gcm,
+            "chacha20-poly1305" | "chacha20poly1305" => Self::Chacha20Poly1305,
+            "none" | "zero" => Self::None,
+            _ => Self::Auto,
         }
     }
 
     pub fn as_byte(self) -> u8 {
         match self {
-            VmessCipher::Aes128Cfb => 0x00,        // AES-128-CFB
-            VmessCipher::None => 0x01,             // 不加密
-            VmessCipher::Aes128Gcm => 0x02,        // AES-128-GCM
-            VmessCipher::Chacha20Poly1305 => 0x03, // ChaCha20-Poly1305
-            VmessCipher::Zero => 0x01,             // Zero 映射到不加密
-            // Auto: 根据平台选择最佳加密方式
-            VmessCipher::Auto => {
-                #[cfg(target_os = "android")]
-                {
-                    return 0x03; // ChaCha20-Poly1305
-                }
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                {
-                    if std::arch::is_x86_feature_detected!("aes") {
-                        return 0x02; // AES-128-GCM
-                    }
-                    0x03// ChaCha20-Poly1305
-                }
-                #[cfg(not(any(
-                    target_os = "android",
-                    target_arch = "x86",
-                    target_arch = "x86_64"
-                )))]
-                {
-                    0x02 // AES-128-GCM
-                }
-            }
+            Self::Aes128Gcm => SECURITY_AES_128_GCM,
+            Self::Chacha20Poly1305 => SECURITY_CHACHA20_POLY1305,
+            Self::None => SECURITY_NONE,
+            Self::Auto => self.resolve().as_byte(),
         }
     }
 
+    /// 解析 Auto 为具体加密方式
     pub fn resolve(self) -> Self {
         match self {
-            VmessCipher::Auto => {
-                #[cfg(target_os = "android")]
-                {
-                    return VmessCipher::Chacha20Poly1305;
-                }
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                {
-                    if std::arch::is_x86_feature_detected!("aes") {
-                        return VmessCipher::Aes128Gcm;
-                    }
-                    VmessCipher::Chacha20Poly1305
-                }
-                #[cfg(not(any(
-                    target_os = "android",
-                    target_arch = "x86",
-                    target_arch = "x86_64"
-                )))]
-                {
-                    VmessCipher::Aes128Gcm
+            Self::Auto => {
+                // 根据 CPU 架构选择最优加密方式
+                match std::env::consts::ARCH {
+                    "x86_64" | "s390x" | "aarch64" => Self::Aes128Gcm,
+                    _ => Self::Chacha20Poly1305,
                 }
             }
             other => other,
         }
     }
 
-    pub fn auth_len(self) -> usize {
+    /// 获取加密开销长度 (用于计算数据块大小)
+    #[allow(dead_code)]
+    pub fn overhead_len(self) -> usize {
         match self.resolve() {
-            VmessCipher::Aes128Gcm | VmessCipher::Chacha20Poly1305 => 16,
-            VmessCipher::Aes128Cfb => 4, // FNV1a hash
-            VmessCipher::None | VmessCipher::Zero | VmessCipher::Auto => 0,
+            Self::Aes128Gcm | Self::Chacha20Poly1305 => 16,
+            Self::None => 0,
+            Self::Auto => unreachable!(),
         }
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-pub enum VmessAddressType {
-    Ipv4 = 0x01,
-    Domain = 0x02,
-    Ipv6 = 0x03,
-}
-
-bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct VmessOption: u8 {
-        const CHUNK_STREAM = 0x01;
-        const CONNECTION_REUSE = 0x02;
-        const CHUNK_MASKING = 0x04;
-        const GLOBAL_PADDING = 0x08;
-        const AUTHENTICATED_LENGTH = 0x10;
-    }
-}
-
+/// VMess 传输层类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmessTransport {
     Tcp,
@@ -212,543 +415,155 @@ pub enum VmessTransport {
 }
 
 impl VmessTransport {
-    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "ws" | "websocket" => VmessTransport::Ws,
-            "h2" | "http2" => VmessTransport::H2,
-            "grpc" => VmessTransport::Grpc,
-            "quic" => VmessTransport::Quic,
-            "kcp" | "mkcp" => VmessTransport::Mkcp,
-            _ => VmessTransport::Tcp,
+            "ws" | "websocket" => Self::Ws,
+            "h2" | "http2" | "http/2" => Self::H2,
+            "grpc" => Self::Grpc,
+            "quic" => Self::Quic,
+            "kcp" | "mkcp" => Self::Mkcp,
+            _ => Self::Tcp,
+        }
+    }
+}
+
+// ============================================================================
+// AEAD 加密器
+// ============================================================================
+
+/// VMess 安全层
+#[allow(clippy::large_enum_variant)]
+pub enum VmessSecurity {
+    Aes128Gcm(Aes128Gcm),
+    ChaCha20Poly1305(chacha20poly1305::ChaCha20Poly1305),
+}
+
+impl VmessSecurity {
+    #[inline(always)]
+    pub fn overhead_len(&self) -> usize {
+        16
+    }
+
+    #[inline(always)]
+    pub fn nonce_len(&self) -> usize {
+        12
+    }
+}
+
+/// AEAD 加密器
+pub struct AeadCipher {
+    pub security: VmessSecurity,
+    nonce: [u8; 32],
+    iv: bytes::Bytes,
+    count: u16,
+}
+
+impl AeadCipher {
+    pub fn new(iv: &[u8], security: VmessSecurity) -> Self {
+        Self {
+            security,
+            nonce: [0u8; 32],
+            iv: bytes::Bytes::copy_from_slice(iv),
+            count: 0,
+        }
+    }
+
+    pub fn decrypt_inplace(&mut self, buf: &mut Vec<u8>) -> std::io::Result<()> {
+        let mut nonce = self.nonce;
+        nonce[..2].copy_from_slice(&self.count.to_be_bytes());
+        nonce[2..12].copy_from_slice(&self.iv[2..12]);
+        self.count = self.count.wrapping_add(1);
+
+        let nonce_slice = &nonce[..self.security.nonce_len()];
+        match &self.security {
+            VmessSecurity::Aes128Gcm(cipher) => {
+                use aes_gcm::aead::AeadInPlace;
+                cipher
+                    .decrypt_in_place(Nonce::from_slice(nonce_slice), &[], buf)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
+            VmessSecurity::ChaCha20Poly1305(cipher) => {
+                use chacha20poly1305::aead::AeadInPlace;
+                cipher
+                    .decrypt_in_place(chacha20poly1305::Nonce::from_slice(nonce_slice), &[], buf)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn encrypt_inplace(&mut self, buf: &mut Vec<u8>) -> std::io::Result<()> {
+        let mut nonce = self.nonce;
+        nonce[..2].copy_from_slice(&self.count.to_be_bytes());
+        nonce[2..12].copy_from_slice(&self.iv[2..12]);
+        self.count = self.count.wrapping_add(1);
+
+        let nonce_slice = &nonce[..self.security.nonce_len()];
+        match &self.security {
+            VmessSecurity::Aes128Gcm(cipher) => {
+                use aes_gcm::aead::AeadInPlace;
+                cipher
+                    .encrypt_in_place(Nonce::from_slice(nonce_slice), &[], buf)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
+            VmessSecurity::ChaCha20Poly1305(cipher) => {
+                use chacha20poly1305::aead::AeadInPlace;
+                cipher
+                    .encrypt_in_place(chacha20poly1305::Nonce::from_slice(nonce_slice), &[], buf)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+// ============================================================================
+// 配置结构
+// ============================================================================
+
+#[derive(Debug, Clone, Default)]
+pub struct VmessWsOptions {
+    pub path: String,
+    pub host: Option<String>,
+    pub headers: HashMap<String, String>,
+    /// WebSocket 早期数据大小 (用于 0-RTT)
+    #[allow(dead_code)]
+    pub max_early_data: usize,
+    /// 早期数据头部名称
+    #[allow(dead_code)]
+    pub early_data_header_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VmessH2Options {
+    pub hosts: Vec<String>,
+    pub path: String,
+    pub headers: HashMap<String, String>,
+}
+
+impl Default for VmessH2Options {
+    fn default() -> Self {
+        Self {
+            hosts: Vec::new(),
+            path: "/".to_string(),
+            headers: HashMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct VmessWsOptions {
-    pub path: String,
-    pub host: Option<String>,
-    pub headers: std::collections::HashMap<String, String>,
+pub struct VmessGrpcOptions {
+    pub service_name: String,
 }
 
-impl Default for VmessWsOptions {
+impl Default for VmessGrpcOptions {
     fn default() -> Self {
         Self {
-            path: "/".to_string(),
-            host: None,
-            headers: std::collections::HashMap::new(),
+            service_name: "GunService".to_string(),
         }
     }
 }
 
-/// UDP session state for VMess
-struct VmessUdpSession {
-    stream: tokio::sync::Mutex<Box<dyn AsyncReadWrite>>,
-    request_key: [u8; 16],
-    request_iv: [u8; 16],
-    response_key: [u8; 16],
-    response_iv: [u8; 16],
-    chunk_count: AtomicU64,
-    last_used: std::sync::RwLock<Instant>,
-}
-
-impl VmessUdpSession {
-    fn new(
-        stream: Box<dyn AsyncReadWrite>,
-        request_key: [u8; 16],
-        request_iv: [u8; 16],
-        response_key: [u8; 16],
-        response_iv: [u8; 16],
-    ) -> Self {
-        Self {
-            stream: tokio::sync::Mutex::new(stream),
-            request_key,
-            request_iv,
-            response_key,
-            response_iv,
-            chunk_count: AtomicU64::new(0),
-            last_used: std::sync::RwLock::new(Instant::now()),
-        }
-    }
-
-    fn next_chunk_count(&self) -> u16 {
-        (self.chunk_count.fetch_add(1, Ordering::SeqCst) % 65536) as u16
-    }
-
-    fn touch(&self) {
-        if let Ok(mut guard) = self.last_used.write() {
-            *guard = Instant::now();
-        }
-    }
-
-    fn is_expired(&self, timeout: Duration) -> bool {
-        if let Ok(guard) = self.last_used.read() {
-            guard.elapsed() > timeout
-        } else {
-            true
-        }
-    }
-}
-
-/// QUIC bidirectional stream wrapper that implements AsyncRead and AsyncWrite
-pub struct QuicBiStream {
-    send: quinn::SendStream,
-    recv: quinn::RecvStream,
-}
-
-impl QuicBiStream {
-    pub fn new(send: quinn::SendStream, recv: quinn::RecvStream) -> Self {
-        Self { send, recv }
-    }
-}
-
-impl AsyncRead for QuicBiStream {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        use std::task::Poll;
-
-        let this = self.get_mut();
-        let recv = &mut this.recv;
-        let unfilled = buf.initialize_unfilled();
-        use futures::AsyncRead as FuturesAsyncRead;
-        let pinned = std::pin::Pin::new(recv);
-
-        match FuturesAsyncRead::poll_read(pinned, cx, unfilled) {
-            Poll::Ready(Ok(n)) => {
-                buf.advance(n);
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl AsyncWrite for QuicBiStream {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        use futures::AsyncWrite as FuturesAsyncWrite;
-        let this = self.get_mut();
-        let pinned = std::pin::Pin::new(&mut this.send);
-        FuturesAsyncWrite::poll_write(pinned, cx, buf)
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        use futures::AsyncWrite as FuturesAsyncWrite;
-        let this = self.get_mut();
-        let pinned = std::pin::Pin::new(&mut this.send);
-        FuturesAsyncWrite::poll_flush(pinned, cx)
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        use futures::AsyncWrite as FuturesAsyncWrite;
-        let this = self.get_mut();
-        let pinned = std::pin::Pin::new(&mut this.send);
-        FuturesAsyncWrite::poll_close(pinned, cx)
-    }
-}
-
-pub struct WebSocketStream<S> {
-    inner: S,
-    read_buffer: Vec<u8>,
-    read_pos: usize,
-}
-
-impl<S> WebSocketStream<S> {
-    pub fn new(inner: S) -> Self {
-        Self {
-            inner,
-            read_buffer: Vec::new(),
-            read_pos: 0,
-        }
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
-    pub async fn handshake(
-        stream: S,
-        host: &str,
-        path: &str,
-        extra_headers: &std::collections::HashMap<String, String>,
-    ) -> Result<Self> {
-        let mut ws = Self::new(stream);
-
-        let mut key_bytes = [0u8; 16];
-        getrandom::fill(&mut key_bytes)
-            .map_err(|e| Error::protocol(format!("Failed to generate WebSocket key: {}", e)))?;
-        let ws_key = BASE64.encode(key_bytes);
-        let mut request = format!(
-            "GET {} HTTP/1.1\r\n\
-             Host: {}\r\n\
-             Upgrade: websocket\r\n\
-             Connection: Upgrade\r\n\
-             Sec-WebSocket-Key: {}\r\n\
-             Sec-WebSocket-Version: 13\r\n",
-            path, host, ws_key
-        );
-
-        for (key, value) in extra_headers {
-            if key.to_lowercase() != "host" {
-                request.push_str(&format!("{}: {}\r\n", key, value));
-            }
-        }
-        request.push_str("\r\n");
-        ws.inner
-            .write_all(request.as_bytes())
-            .await
-            .map_err(|e| Error::network(format!("Failed to send WebSocket handshake: {}", e)))?;
-        ws.inner.flush().await.ok();
-
-        let mut response = Vec::with_capacity(1024);
-        let mut buf = [0u8; 1];
-        let mut found_end = false;
-
-        while response.len() < 4096 {
-            ws.inner
-                .read_exact(&mut buf)
-                .await
-                .map_err(|e| Error::network(format!("Failed to read WebSocket response: {}", e)))?;
-            response.push(buf[0]);
-
-            if response.len() >= 4 && &response[response.len() - 4..] == b"\r\n\r\n" {
-                found_end = true;
-                break;
-            }
-        }
-
-        if !found_end {
-            return Err(Error::protocol(
-                "WebSocket handshake response too long or incomplete",
-            ));
-        }
-
-        let response_str = String::from_utf8_lossy(&response);
-        if !response_str.starts_with("HTTP/1.1 101") {
-            return Err(Error::protocol(format!(
-                "WebSocket handshake failed: {}",
-                response_str.lines().next().unwrap_or("unknown")
-            )));
-        }
-
-        // Verify Sec-WebSocket-Accept
-        let expected_accept = compute_websocket_accept(&ws_key);
-        let accept_found = response_str.lines().any(|line| {
-            let lower = line.to_lowercase();
-            if lower.starts_with("sec-websocket-accept:") {
-                let value = line.split(':').nth(1).map(|s| s.trim()).unwrap_or("");
-                value == expected_accept
-            } else {
-                false
-            }
-        });
-
-        if !accept_found {
-            tracing::warn!(
-                "WebSocket Sec-WebSocket-Accept header mismatch or missing, continuing anyway"
-            );
-        }
-
-        tracing::debug!("WebSocket handshake completed successfully");
-        Ok(ws)
-    }
-
-    #[allow(dead_code)]
-    pub async fn write_frame(&mut self, data: &[u8]) -> Result<()> {
-        let mut frame = Vec::with_capacity(14 + data.len());
-
-        frame.push(0x82);
-        let len = data.len();
-        if len < 126 {
-            frame.push(0x80 | len as u8);
-        } else if len < 65536 {
-            frame.push(0x80 | 126);
-            frame.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-            frame.push(0x80 | 127);
-            frame.extend_from_slice(&(len as u64).to_be_bytes());
-        }
-
-        let mut mask = [0u8; 4];
-        getrandom::fill(&mut mask)
-            .map_err(|e| Error::protocol(format!("Failed to generate mask: {}", e)))?;
-        frame.extend_from_slice(&mask);
-
-        // Masked payload
-        for (i, byte) in data.iter().enumerate() {
-            frame.push(byte ^ mask[i % 4]);
-        }
-
-        self.inner
-            .write_all(&frame)
-            .await
-            .map_err(|e| Error::network(format!("Failed to write WebSocket frame: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Read a WebSocket frame, returns the payload data
-    #[allow(dead_code)]
-    pub async fn read_frame(&mut self) -> Result<Vec<u8>> {
-        // Read first 2 bytes
-        let mut header = [0u8; 2];
-        self.inner
-            .read_exact(&mut header)
-            .await
-            .map_err(|e| Error::network(format!("Failed to read WebSocket frame header: {}", e)))?;
-
-        let _fin = (header[0] & 0x80) != 0;
-        let opcode = header[0] & 0x0F;
-        let masked = (header[1] & 0x80) != 0;
-        let mut payload_len = (header[1] & 0x7F) as u64;
-
-        if opcode == 0x08 {
-            return Err(Error::network("WebSocket connection closed by server"));
-        }
-
-        // Handle ping frame - read payload and continue (non-recursive)
-        if opcode == 0x09 {
-            if payload_len > 0 {
-                let mut ping_data = vec![0u8; payload_len as usize];
-                self.inner.read_exact(&mut ping_data).await.ok();
-            }
-            // Return empty to signal caller should retry
-            return Ok(Vec::new());
-        }
-
-        // Extended payload length
-        if payload_len == 126 {
-            let mut ext = [0u8; 2];
-            self.inner
-                .read_exact(&mut ext)
-                .await
-                .map_err(|e| Error::network(format!("Failed to read extended length: {}", e)))?;
-            payload_len = u16::from_be_bytes(ext) as u64;
-        } else if payload_len == 127 {
-            let mut ext = [0u8; 8];
-            self.inner
-                .read_exact(&mut ext)
-                .await
-                .map_err(|e| Error::network(format!("Failed to read extended length: {}", e)))?;
-            payload_len = u64::from_be_bytes(ext);
-        }
-
-        let mask = if masked {
-            let mut m = [0u8; 4];
-            self.inner
-                .read_exact(&mut m)
-                .await
-                .map_err(|e| Error::network(format!("Failed to read mask: {}", e)))?;
-            Some(m)
-        } else {
-            None
-        };
-
-        // Read payload
-        let mut payload = vec![0u8; payload_len as usize];
-        self.inner
-            .read_exact(&mut payload)
-            .await
-            .map_err(|e| Error::network(format!("Failed to read WebSocket payload: {}", e)))?;
-
-        // Unmask if needed
-        if let Some(m) = mask {
-            for (i, byte) in payload.iter_mut().enumerate() {
-                *byte ^= m[i % 4];
-            }
-        }
-
-        Ok(payload)
-    }
-
-    /// Read frame with retry for control frames
-    #[allow(dead_code)]
-    pub async fn read_frame_data(&mut self) -> Result<Vec<u8>> {
-        loop {
-            let data = self.read_frame().await?;
-            if !data.is_empty() {
-                return Ok(data);
-            }
-        }
-    }
-}
-
-fn compute_websocket_accept(key: &str) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(key.as_bytes());
-    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-    let result = hasher.finalize();
-    BASE64.encode(result)
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for WebSocketStream<S> {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        use std::task::Poll;
-
-        if self.read_pos < self.read_buffer.len() {
-            let remaining = &self.read_buffer[self.read_pos..];
-            let to_copy = std::cmp::min(remaining.len(), buf.remaining());
-            buf.put_slice(&remaining[..to_copy]);
-            self.read_pos += to_copy;
-
-            if self.read_pos >= self.read_buffer.len() {
-                self.read_buffer.clear();
-                self.read_pos = 0;
-            }
-
-            return Poll::Ready(Ok(()));
-        }
-
-        let mut header = [0u8; 2];
-        let inner = &mut self.inner;
-
-        let mut header_buf = tokio::io::ReadBuf::new(&mut header);
-        match std::pin::Pin::new(&mut *inner).poll_read(cx, &mut header_buf) {
-            Poll::Ready(Ok(())) => {
-                if header_buf.filled().len() < 2 {
-                    return Poll::Ready(Ok(()));
-                }
-            }
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-            Poll::Pending => return Poll::Pending,
-        }
-
-        let opcode = header[0] & 0x0F;
-        let masked = (header[1] & 0x80) != 0;
-        let payload_len_byte = header[1] & 0x7F;
-
-        if opcode == 0x08 {
-            return Poll::Ready(Ok(()));
-        }
-
-        if payload_len_byte >= 126 {
-            return Poll::Ready(Err(std::io::Error::other(
-                "Large WebSocket frames not yet supported in poll_read",
-            )));
-        }
-
-        let payload_len = payload_len_byte as usize;
-        let mask_len = if masked { 4 } else { 0 };
-        let total_len = payload_len + mask_len;
-
-        if total_len == 0 {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
-
-        let mut frame_data = vec![0u8; total_len];
-        let mut frame_buf = tokio::io::ReadBuf::new(&mut frame_data);
-
-        match std::pin::Pin::new(&mut *inner).poll_read(cx, &mut frame_buf) {
-            Poll::Ready(Ok(())) => {
-                if frame_buf.filled().len() < total_len {
-                    // Incomplete read, need to buffer
-                    self.read_buffer = frame_buf.filled().to_vec();
-                    self.read_pos = 0;
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-            }
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-            Poll::Pending => return Poll::Pending,
-        }
-
-        let payload = if masked {
-            let mask: [u8; 4] = [frame_data[0], frame_data[1], frame_data[2], frame_data[3]];
-            let mut payload = frame_data[4..].to_vec();
-            for (i, byte) in payload.iter_mut().enumerate() {
-                *byte ^= mask[i % 4];
-            }
-            payload
-        } else {
-            frame_data
-        };
-
-        let to_copy = std::cmp::min(payload.len(), buf.remaining());
-        buf.put_slice(&payload[..to_copy]);
-
-        if to_copy < payload.len() {
-            self.read_buffer = payload[to_copy..].to_vec();
-            self.read_pos = 0;
-        }
-
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncWrite for WebSocketStream<S> {
-    fn poll_write(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        use std::task::Poll;
-
-        let mut frame = Vec::with_capacity(14 + buf.len());
-        frame.push(0x82);
-
-        let len = buf.len();
-        if len < 126 {
-            frame.push(0x80 | len as u8);
-        } else if len < 65536 {
-            frame.push(0x80 | 126);
-            frame.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-            frame.push(0x80 | 127);
-            frame.extend_from_slice(&(len as u64).to_be_bytes());
-        }
-
-        let mask: [u8; 4] = rand::random();
-        frame.extend_from_slice(&mask);
-
-        for (i, byte) in buf.iter().enumerate() {
-            frame.push(byte ^ mask[i % 4]);
-        }
-
-        let inner = &mut self.inner;
-        let pinned = std::pin::Pin::new(inner);
-
-        match pinned.poll_write(cx, &frame) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn poll_flush(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let inner = &mut self.inner;
-        std::pin::Pin::new(inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let inner = &mut self.inner;
-        std::pin::Pin::new(inner).poll_shutdown(cx)
-    }
-}
-
-/// mKCP options for VMess
 #[derive(Debug, Clone)]
 pub struct VmessMkcpOptions {
     pub mtu: usize,
@@ -772,91 +587,1715 @@ impl Default for VmessMkcpOptions {
             congestion: false,
             read_buffer_size: 4 * 1024 * 1024,
             write_buffer_size: 4 * 1024 * 1024,
-            header_type: "none".to_string(),
+            header_type: "none".into(),
             seed: None,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VmessMuxOptions {
     pub enabled: bool,
     pub concurrency: usize,
 }
 
-impl Default for VmessMuxOptions {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            concurrency: 8,
+// ============================================================================
+// 地址序列化 - VMess 协议地址格式 (大端序)
+// ============================================================================
+
+/// VMess 地址序列化宏
+///
+/// 格式 (所有多字节数值使用大端序):
+/// - 端口 (Port): 2字节, 大端序
+/// - 地址类型 (T): 1字节
+///   - 0x01: IPv4 (4字节)
+///   - 0x02: 域名 (1字节长度 + N字节域名)
+///   - 0x03: IPv6 (16字节)
+/// - 地址 (A): 变长
+macro_rules! write_vmess_address {
+    ($buf:expr, $target:expr) => {
+        match $target {
+            TargetAddr::Ip(SocketAddr::V4(addr)) => {
+                // 端口: 2字节大端序
+                $buf.put_u16(addr.port());
+                // 地址类型: IPv4 = 0x01
+                $buf.put_u8(0x01);
+                // IPv4 地址: 4字节
+                $buf.put_slice(&addr.ip().octets());
+            }
+            TargetAddr::Ip(SocketAddr::V6(addr)) => {
+                // 端口: 2字节大端序
+                $buf.put_u16(addr.port());
+                // 地址类型: IPv6 = 0x03
+                $buf.put_u8(0x03);
+                // IPv6 地址: 16字节 (每个 segment 2字节大端序)
+                for seg in addr.ip().segments() {
+                    $buf.put_u16(seg);
+                }
+            }
+            TargetAddr::Domain(domain, port) => {
+                // 端口: 2字节大端序
+                $buf.put_u16(*port);
+                // 地址类型: 域名 = 0x02
+                $buf.put_u8(0x02);
+                // 域名长度: 1字节
+                $buf.put_u8(domain.len() as u8);
+                // 域名: N字节
+                $buf.put_slice(domain.as_bytes());
+            }
+        }
+    };
+}
+
+// ============================================================================
+// VMess 头部密封 - AEAD 模式
+// ============================================================================
+
+/// 创建 auth_id (AEAD 模式认证 ID)
+///
+/// 格式 (16字节, 大端序):
+/// - 时间戳: 8字节, 大端序
+/// - 随机数: 4字节
+/// - CRC32: 4字节, 大端序
+///
+/// 然后使用 AES-128 加密整个 16 字节块
+fn create_auth_id(cmd_key: [u8; 16], timestamp: u64) -> [u8; 16] {
+    let mut buf = BytesMut::new();
+
+    // 时间戳: 8字节大端序
+    buf.put_u64(timestamp); // put_u64 默认大端序
+
+    // 随机数: 4字节
+    let mut random = [0u8; 4];
+    rand_fill(&mut random);
+    buf.put_slice(&random);
+
+    // CRC32 校验: 4字节大端序
+    let crc = crc32fast::hash(buf.as_ref());
+    buf.put_u32(crc); // put_u32 默认大端序
+
+    // 使用 KDF 派生的密钥进行 AES 加密
+    let pk = vmess_kdf_1_one_shot(&cmd_key, KDF_SALT_CONST_AUTH_ID_ENCRYPTION_KEY);
+    let pk: [u8; 16] = pk[..16].try_into().unwrap();
+
+    use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
+    let cipher = aes::Aes128::new_from_slice(&pk).unwrap();
+    let mut block = [0u8; 16];
+    buf.copy_to_slice(&mut block);
+    let mut block = aes::Block::from(block);
+    cipher.encrypt_block(&mut block);
+    block.into()
+}
+
+/// 密封 VMess AEAD 头部
+///
+/// AEAD 头部格式:
+/// - auth_id: 16字节 (加密的认证 ID)
+/// - header_len_encrypted: 18字节 (2字节长度 + 16字节 AEAD tag)
+/// - connection_nonce: 8字节
+/// - header_payload_encrypted: 变长 (头部数据 + 16字节 AEAD tag)
+pub fn seal_vmess_aead_header(
+    key: [u8; 16],
+    data: Vec<u8>,
+    timestamp: u64,
+) -> std::io::Result<Vec<u8>> {
+    let auth_id = create_auth_id(key, timestamp);
+    let mut connection_nonce = [0u8; 8];
+    rand_fill(&mut connection_nonce);
+
+    // 加密头部长度
+    let payload_header_length_aead_key = vmess_kdf_3_one_shot(
+        &key,
+        KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_KEY,
+        &auth_id,
+        &connection_nonce,
+    );
+    let payload_header_length_aead_nonce = vmess_kdf_3_one_shot(
+        &key,
+        KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_IV,
+        &auth_id,
+        &connection_nonce,
+    );
+
+    let len_cipher = Aes128Gcm::new_from_slice(&payload_header_length_aead_key[..16]).unwrap();
+    use aes_gcm::aead::Payload;
+    let header_len_encrypted = len_cipher
+        .encrypt(
+            Nonce::from_slice(&payload_header_length_aead_nonce[..12]),
+            Payload {
+                msg: &(data.len() as u16).to_be_bytes(),
+                aad: &auth_id,
+            },
+        )
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    // 加密头部内容
+    let payload_header_aead_key = vmess_kdf_3_one_shot(
+        &key,
+        KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_AEAD_KEY,
+        &auth_id,
+        &connection_nonce,
+    );
+    let payload_header_aead_nonce = vmess_kdf_3_one_shot(
+        &key,
+        KDF_SALT_CONST_VMESS_HEADER_PAYLOAD_AEAD_IV,
+        &auth_id,
+        &connection_nonce,
+    );
+
+    let payload_cipher = Aes128Gcm::new_from_slice(&payload_header_aead_key[..16]).unwrap();
+    let payload_encrypted = payload_cipher
+        .encrypt(
+            Nonce::from_slice(&payload_header_aead_nonce[..12]),
+            Payload {
+                msg: &data,
+                aad: &auth_id,
+            },
+        )
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    // 组装结果
+    let mut out = BytesMut::new();
+    out.put_slice(&auth_id);
+    out.put_slice(&header_len_encrypted);
+    out.put_slice(&connection_nonce);
+    out.put_slice(&payload_encrypted);
+
+    Ok(out.freeze().to_vec())
+}
+
+// ============================================================================
+// VMess 流 - 核心协议实现
+// ============================================================================
+
+/// 读取状态
+enum ReadState {
+    AeadWaitingHeaderSize,
+    AeadWaitingHeader(usize),
+    StreamWaitingLength,
+    StreamWaitingData(usize),
+    StreamFlushingData(usize),
+}
+
+/// 写入状态
+enum WriteState {
+    BuildingData,
+    FlushingData(usize, (usize, usize)),
+}
+
+/// VMess 流
+pub struct VmessStream<S> {
+    stream: S,
+    aead_read_cipher: Option<AeadCipher>,
+    aead_write_cipher: Option<AeadCipher>,
+    #[allow(dead_code)]
+    dst: TargetAddr,
+    #[allow(dead_code)]
+    id: VmessId,
+    #[allow(dead_code)]
+    req_body_iv: Vec<u8>,
+    #[allow(dead_code)]
+    req_body_key: Vec<u8>,
+    resp_header_key: Vec<u8>,
+    resp_header_iv: Vec<u8>,
+    resp_body_iv: Vec<u8>,
+    resp_body_key: Vec<u8>,
+    resp_v: u8,
+    #[allow(dead_code)]
+    security: u8,
+    is_aead: bool,
+    #[allow(dead_code)]
+    is_udp: bool,
+
+    read_state: ReadState,
+    #[allow(dead_code)]
+    read_pos: usize,
+    read_buf: BytesMut,
+
+    write_state: WriteState,
+    write_buf: BytesMut,
+}
+
+impl<S: std::fmt::Debug> std::fmt::Debug for VmessStream<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VmessStream")
+            .field("dst", &self.dst)
+            .field("is_aead", &self.is_aead)
+            .field("is_udp", &self.is_udp)
+            .finish()
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> VmessStream<S> {
+    /// 创建新的 VMess 流
+    ///
+    /// VMess 协议中有两套密钥体系：
+    /// 1. 响应头解密密钥 (resp_header_key/iv)：用于解密服务器响应头
+    ///    - AEAD 模式: SHA256(req_body_key/iv)[0..16]
+    ///    - 非 AEAD 模式: MD5(req_body_key/iv)
+    /// 2. 数据分块加密密钥：用于加密/解密数据流
+    ///    - 发送方向: 直接使用 req_body_key/iv
+    ///    - 接收方向:
+    ///      - AEAD 模式: SHA256(req_body_key/iv)[0..16]
+    ///      - 非 AEAD 模式: MD5(req_body_key/iv)
+    pub async fn new(
+        stream: S,
+        id: &VmessId,
+        dst: &TargetAddr,
+        security: &u8,
+        is_aead: bool,
+        is_udp: bool,
+    ) -> std::io::Result<Self> {
+        let mut rand_bytes = [0u8; 33];
+        rand_fill(&mut rand_bytes);
+        let req_body_iv = rand_bytes[0..16].to_vec();
+        let req_body_key = rand_bytes[16..32].to_vec();
+        let resp_v = rand_bytes[32];
+
+        // 响应密钥派生（用于响应头解密和数据分块解密）
+        // AEAD 模式: SHA256 派生
+        // 非 AEAD 模式: MD5 派生
+        let (resp_header_key, resp_header_iv, resp_body_key, resp_body_iv) = if is_aead {
+            (
+                vmess_kdf_1_one_shot(&req_body_key, KDF_SALT_CONST_AEAD_RESP_HEADER_PAYLOAD_KEY)
+                    [..16]
+                    .to_vec(),
+                vmess_kdf_1_one_shot(&req_body_iv, KDF_SALT_CONST_AEAD_RESP_HEADER_PAYLOAD_IV)
+                    [..16]
+                    .to_vec(),
+                sha256_hash(&req_body_key)[0..16].to_vec(),
+                sha256_hash(&req_body_iv)[0..16].to_vec(),
+            )
+        } else {
+            let body_key = md5_hash(&req_body_key).to_vec();
+            let body_iv = md5_hash(&req_body_iv).to_vec();
+            (body_key.clone(), body_iv.clone(), body_key, body_iv)
+        };
+
+        // 创建数据分块加密器
+        // 注意：发送方向始终使用原始 req_body_key/iv
+        //       接收方向使用派生后的 resp_body_key/iv
+        let (aead_read_cipher, aead_write_cipher) = match *security {
+            SECURITY_NONE => (None, None),
+            SECURITY_AES_128_GCM => {
+                // 发送：使用原始 req_body_key/iv
+                let write_cipher =
+                    VmessSecurity::Aes128Gcm(Aes128Gcm::new_from_slice(&req_body_key).unwrap());
+                let write_cipher = AeadCipher::new(&req_body_iv, write_cipher);
+                // 接收：使用派生后的 resp_body_key/iv
+                let read_cipher =
+                    VmessSecurity::Aes128Gcm(Aes128Gcm::new_from_slice(&resp_body_key).unwrap());
+                let read_cipher = AeadCipher::new(&resp_body_iv, read_cipher);
+                (Some(read_cipher), Some(write_cipher))
+            }
+            SECURITY_CHACHA20_POLY1305 => {
+                use chacha20poly1305::KeyInit as ChaChaKeyInit;
+
+                // ChaCha20-Poly1305 需要 32 字节密钥，通过 MD5 扩展
+                // 发送密钥：MD5(req_body_key) + MD5(MD5(req_body_key))
+                let mut write_key = [0u8; 32];
+                write_key[..16].copy_from_slice(&md5_hash(&req_body_key));
+                let tmp = md5_hash(&write_key[..16]);
+                write_key[16..].copy_from_slice(&tmp);
+
+                let write_cipher = VmessSecurity::ChaCha20Poly1305(
+                    chacha20poly1305::ChaCha20Poly1305::new_from_slice(&write_key).unwrap(),
+                );
+                let write_cipher = AeadCipher::new(&req_body_iv, write_cipher);
+
+                // 接收密钥：MD5(resp_body_key) + MD5(MD5(resp_body_key))
+                let mut read_key = [0u8; 32];
+                read_key[..16].copy_from_slice(&md5_hash(&resp_body_key));
+                let tmp = md5_hash(&read_key[..16]);
+                read_key[16..].copy_from_slice(&tmp);
+
+                let read_cipher = VmessSecurity::ChaCha20Poly1305(
+                    chacha20poly1305::ChaCha20Poly1305::new_from_slice(&read_key).unwrap(),
+                );
+                let read_cipher = AeadCipher::new(&resp_body_iv, read_cipher);
+
+                (Some(read_cipher), Some(write_cipher))
+            }
+            _ => {
+                return Err(std::io::Error::other("unsupported security"));
+            }
+        };
+
+        let mut stream = Self {
+            stream,
+            aead_read_cipher,
+            aead_write_cipher,
+            dst: dst.clone(),
+            id: id.clone(),
+            req_body_iv: req_body_iv.clone(),
+            req_body_key: req_body_key.clone(),
+            resp_header_key,
+            resp_header_iv,
+            resp_body_iv,
+            resp_body_key,
+            resp_v,
+            security: *security,
+            is_aead,
+            is_udp,
+            read_state: ReadState::AeadWaitingHeaderSize,
+            read_pos: 0,
+            read_buf: BytesMut::new(),
+            write_state: WriteState::BuildingData,
+            write_buf: BytesMut::new(),
+        };
+
+        stream
+            .send_handshake_request(
+                id,
+                dst,
+                is_udp,
+                &req_body_iv,
+                &req_body_key,
+                resp_v,
+                *security,
+            )
+            .await?;
+        Ok(stream)
+    }
+
+    /// 发送握手请求
+    ///
+    /// VMess 协议头部格式 (大端序):
+    /// - 版本号 (Ver): 1字节, 固定为 0x01
+    /// - 数据加密 IV: 16字节, 随机生成
+    /// - 数据加密 Key: 16字节, 随机生成
+    /// - 响应认证 (V): 1字节, 随机值用于校验服务器响应
+    /// - 选项 (Opt): 1字节, 位标志位
+    /// - P & Sec: 1字节, 高4位为填充长度P, 低4位为加密方式
+    /// - 保留字段: 1字节, 固定为 0x00
+    /// - 指令 (Cmd): 1字节, 0x01=TCP, 0x02=UDP
+    /// - 端口 (Port): 2字节, 大端序
+    /// - 地址类型 (T): 1字节, 0x01=IPv4, 0x02=域名, 0x03=IPv6
+    /// - 地址 (A): 变长
+    /// - 随机填充: P字节
+    /// - 校验值 (F): 4字节, FNV1a hash (大端序)
+    #[allow(clippy::too_many_arguments)]
+    async fn send_handshake_request(
+        &mut self,
+        id: &VmessId,
+        dst: &TargetAddr,
+        is_udp: bool,
+        req_body_iv: &[u8],
+        req_body_key: &[u8],
+        resp_v: u8,
+        security: u8,
+    ) -> std::io::Result<()> {
+        // 使用 NTP 校正后的时间戳，VMess 协议要求时间差在 ±90 秒内
+        let (now, diag) = time_sync::get_vmess_timestamp_with_diagnostics();
+        let now = now as u64;
+
+        if diag.needs_resync {
+            tracing::warn!(
+                "VMess timestamp may be stale, last NTP sync: {}s ago",
+                diag.local_timestamp_secs - diag.last_sync_time_secs
+            );
+        }
+        if diag.suspected_milliseconds_error {
+            tracing::error!(
+                "CRITICAL: VMess timestamp {} looks like milliseconds! Auth will fail.",
+                now
+            );
+        }
+        tracing::debug!(
+            "VMess handshake: timestamp={}, ntp_offset={}ms, jitter={}s",
+            now,
+            diag.ntp_offset_ms,
+            diag.jitter_secs
+        );
+
+        let mut mbuf = BytesMut::new();
+
+        if !self.is_aead {
+            let mut mac = <HmacMd5 as Mac>::new_from_slice(id.uuid.as_bytes())
+                .expect("key len expected to be 16");
+            mac.update(&now.to_be_bytes());
+            mbuf.put_slice(&mac.finalize().into_bytes());
+        }
+
+        let mut buf = BytesMut::new();
+        buf.put_u8(VERSION);
+        buf.put_slice(req_body_iv);
+        buf.put_slice(req_body_key);
+        buf.put_u8(resp_v);
+        buf.put_u8(OPTION_CHUNK_STREAM);
+
+        let p = rand_range(0..16) as u8;
+        buf.put_u8((p << 4) | security);
+        buf.put_u8(0);
+
+        if is_udp {
+            buf.put_u8(COMMAND_UDP);
+        } else {
+            buf.put_u8(COMMAND_TCP);
+        }
+
+        write_vmess_address!(buf, dst);
+
+        if p > 0 {
+            let mut padding = vec![0u8; p as usize];
+            rand_fill(&mut padding);
+            buf.put_slice(&padding);
+        }
+
+        let sum = fnv1a_hash(&buf);
+        buf.put_u32(sum);
+
+        if !self.is_aead {
+            tracing::debug!("[VMess] Using legacy (non-AEAD) header encryption");
+            let mut data = buf.to_vec();
+            aes_cfb_encrypt(&id.cmd_key, &hash_timestamp(now), &mut data)?;
+            mbuf.put_slice(&data);
+            let out = mbuf.freeze();
+            tracing::debug!("[VMess] Sending legacy header: {} bytes", out.len());
+            self.stream.write_all(&out).await?;
+        } else {
+            tracing::debug!("[VMess] Using AEAD header encryption");
+            let out = seal_vmess_aead_header(id.cmd_key, buf.freeze().to_vec(), now)?;
+            tracing::debug!("[VMess] Sending AEAD header: {} bytes", out.len());
+            self.stream.write_all(&out).await?;
+        }
+
+        self.stream.flush().await?;
+        tracing::debug!("[VMess] Handshake request sent successfully");
+        Ok(())
+    }
+}
+
+/// AES-CFB 加密 (用于非 AEAD 模式)
+fn aes_cfb_encrypt(key: &[u8], iv: &[u8], data: &mut [u8]) -> std::io::Result<()> {
+    use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
+
+    let cipher =
+        aes::Aes128::new_from_slice(key).map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let mut prev = [0u8; 16];
+    prev.copy_from_slice(iv);
+
+    for chunk in data.chunks_mut(16) {
+        let mut block = aes::Block::from(prev);
+        cipher.encrypt_block(&mut block);
+
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte ^= block[i];
+            prev[i] = *byte;
+        }
+    }
+
+    Ok(())
+}
+
+fn aes_cfb_decrypt(key: &[u8], iv: &[u8], data: &mut [u8]) -> std::io::Result<()> {
+    use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
+
+    let cipher =
+        aes::Aes128::new_from_slice(key).map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let mut prev = [0u8; 16];
+    prev.copy_from_slice(iv);
+
+    for chunk in data.chunks_mut(16) {
+        let mut block = aes::Block::from(prev);
+        cipher.encrypt_block(&mut block);
+
+        let mut next_prev = [0u8; 16];
+        next_prev[..chunk.len()].copy_from_slice(chunk);
+
+        for (i, byte) in chunk.iter_mut().enumerate() {
+            *byte ^= block[i];
+        }
+
+        prev = next_prev;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// VmessStream AsyncRead 实现
+// ============================================================================
+
+trait ReadExact {
+    fn poll_read_exact(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        n: usize,
+    ) -> std::task::Poll<std::io::Result<()>>;
+}
+
+impl<S: AsyncRead + Unpin> ReadExact for VmessStream<S> {
+    fn poll_read_exact(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        n: usize,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+
+        while self.read_buf.len() < n {
+            let mut tmp = vec![0u8; n - self.read_buf.len()];
+            let mut read_buf = tokio::io::ReadBuf::new(&mut tmp);
+            match std::pin::Pin::new(&mut self.stream).poll_read(cx, &mut read_buf) {
+                Poll::Ready(Ok(())) => {
+                    let filled = read_buf.filled().len();
+                    if filled == 0 {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "unexpected eof",
+                        )));
+                    }
+                    self.read_buf.extend_from_slice(read_buf.filled());
+                }
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<S: AsyncRead + Unpin + Send> AsyncRead for VmessStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::ready;
+        use std::task::Poll;
+
+        loop {
+            match &self.read_state {
+                ReadState::AeadWaitingHeaderSize => {
+                    let this = &mut *self;
+                    let req_body_key = this.req_body_key.clone();
+                    let req_body_iv = this.req_body_iv.clone();
+                    let resp_v = this.resp_v;
+
+                    if !this.is_aead {
+                        // 非 AEAD 模式
+                        ready!(this.poll_read_exact(cx, 4))?;
+                        let mut data = this.read_buf.split().freeze().to_vec();
+                        aes_cfb_decrypt(&this.resp_body_key, &this.resp_body_iv, &mut data)?;
+
+                        if data[0] != resp_v {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "invalid response - non aead invalid resp_v",
+                            )));
+                        }
+
+                        if data[2] != 0 {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "invalid response - dynamic port not supported",
+                            )));
+                        }
+
+                        this.read_state = ReadState::StreamWaitingLength;
+                    } else {
+                        // AEAD 模式
+                        ready!(this.poll_read_exact(cx, 18))?;
+
+                        let aead_response_header_length_encryption_key = &vmess_kdf_1_one_shot(
+                            &req_body_key,
+                            KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_KEY,
+                        )[..16];
+                        let aead_response_header_length_encryption_iv = &vmess_kdf_1_one_shot(
+                            &req_body_iv,
+                            KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_IV,
+                        )[..12];
+
+                        let cipher =
+                            Aes128Gcm::new_from_slice(aead_response_header_length_encryption_key)
+                                .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+                        let decrypted_response_header_len = cipher
+                            .decrypt(
+                                Nonce::from_slice(aead_response_header_length_encryption_iv),
+                                this.read_buf.split().as_ref(),
+                            )
+                            .map_err(|e| {
+                                std::io::Error::other(format!("decrypt header len failed: {}", e))
+                            })?;
+
+                        if decrypted_response_header_len.len() < 2 {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "invalid response header length",
+                            )));
+                        }
+
+                        let header_size = u16::from_be_bytes(
+                            decrypted_response_header_len[..2].try_into().unwrap(),
+                        ) as usize;
+
+                        this.read_state = ReadState::AeadWaitingHeader(header_size);
+                    }
+                }
+
+                ReadState::AeadWaitingHeader(header_size) => {
+                    let header_size = *header_size;
+                    let this = &mut *self;
+                    ready!(this.poll_read_exact(cx, header_size + 16))?;
+
+                    let resp_header_key = this.resp_header_key.clone();
+                    let resp_header_iv = this.resp_header_iv.clone();
+
+                    let cipher = Aes128Gcm::new_from_slice(&resp_header_key)
+                        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+                    let decrypted_buf = cipher
+                        .decrypt(
+                            Nonce::from_slice(&resp_header_iv[..12]),
+                            this.read_buf.split().as_ref(),
+                        )
+                        .map_err(|e| {
+                            std::io::Error::other(format!("decrypt header failed: {}", e))
+                        })?;
+
+                    if decrypted_buf.len() < 4 {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "invalid response - header too short",
+                        )));
+                    }
+
+                    if decrypted_buf[0] != this.resp_v {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "invalid response - version mismatch",
+                        )));
+                    }
+
+                    if decrypted_buf[2] != 0 {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "invalid response - dynamic port not supported",
+                        )));
+                    }
+
+                    this.read_state = ReadState::StreamWaitingLength;
+                }
+
+                ReadState::StreamWaitingLength => {
+                    let this = &mut *self;
+                    ready!(this.poll_read_exact(cx, 2))?;
+
+                    let len = u16::from_be_bytes(this.read_buf.split().as_ref().try_into().unwrap())
+                        as usize;
+
+                    if len > MAX_CHUNK_SIZE {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "invalid response - chunk size too large",
+                        )));
+                    }
+
+                    this.read_state = ReadState::StreamWaitingData(len);
+                }
+
+                ReadState::StreamWaitingData(size) => {
+                    let size = *size;
+                    let this = &mut *self;
+                    ready!(this.poll_read_exact(cx, size))?;
+
+                    match this.aead_read_cipher {
+                        Some(ref mut cipher) => {
+                            let mut data = this.read_buf.split().to_vec();
+                            cipher.decrypt_inplace(&mut data)?;
+                            let data_len = size - cipher.security.overhead_len();
+                            data.truncate(data_len);
+                            this.read_buf = BytesMut::from(&data[..]);
+                            this.read_state = ReadState::StreamFlushingData(data_len);
+                        }
+                        None => {
+                            this.read_state = ReadState::StreamFlushingData(size);
+                        }
+                    }
+                }
+
+                ReadState::StreamFlushingData(size) => {
+                    let size = *size;
+                    let to_read = std::cmp::min(buf.remaining(), size);
+                    let payload = self.read_buf.split_to(to_read);
+                    buf.put_slice(&payload);
+
+                    if to_read < size {
+                        self.read_state = ReadState::StreamFlushingData(size - to_read);
+                    } else {
+                        self.read_state = ReadState::StreamWaitingLength;
+                    }
+
+                    return Poll::Ready(Ok(()));
+                }
+            }
         }
     }
 }
+
+// ============================================================================
+// VmessStream AsyncWrite 实现
+// ============================================================================
+
+impl<S: AsyncWrite + Unpin + Send> AsyncWrite for VmessStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        use futures::ready;
+        use std::task::Poll;
+
+        loop {
+            match &self.write_state {
+                WriteState::BuildingData => {
+                    let this = &mut *self;
+                    let mut overhead_len = 0;
+                    if let Some(ref cipher) = this.aead_write_cipher {
+                        overhead_len = cipher.security.overhead_len();
+                    }
+
+                    let max_payload_size = CHUNK_SIZE - overhead_len;
+                    let consume_len = std::cmp::min(buf.len(), max_payload_size);
+                    let payload_len = consume_len + overhead_len;
+
+                    let size_bytes = 2;
+                    this.write_buf.reserve(size_bytes + payload_len);
+                    this.write_buf.put_u16(payload_len as u16);
+
+                    let mut piece2 = this.write_buf.split_off(size_bytes);
+                    piece2.put_slice(&buf[..consume_len]);
+
+                    if let Some(ref mut cipher) = this.aead_write_cipher {
+                        piece2.extend_from_slice(&vec![0u8; cipher.security.overhead_len()]);
+                        let mut piece2_vec = piece2.to_vec();
+                        cipher.encrypt_inplace(&mut piece2_vec)?;
+                        piece2 = BytesMut::from(&piece2_vec[..]);
+                    }
+
+                    this.write_buf.unsplit(piece2);
+                    this.write_state =
+                        WriteState::FlushingData(consume_len, (this.write_buf.len(), 0));
+                }
+
+                WriteState::FlushingData(consumed, (total, written)) => {
+                    let consumed = *consumed;
+                    let total = *total;
+                    let written = *written;
+                    let this = &mut *self;
+
+                    let nw = ready!(tokio_util::io::poll_write_buf(
+                        std::pin::Pin::new(&mut this.stream),
+                        cx,
+                        &mut this.write_buf
+                    ))?;
+
+                    if nw == 0 {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::WriteZero,
+                            "failed to write whole data",
+                        )));
+                    }
+
+                    if written + nw >= total {
+                        this.write_state = WriteState::BuildingData;
+                        return Poll::Ready(Ok(consumed));
+                    }
+
+                    this.write_state = WriteState::FlushingData(consumed, (total, written + nw));
+                }
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
+    }
+}
+
+// ============================================================================
+// WebSocket 流
+// ============================================================================
+
+#[allow(clippy::enum_variant_names)]
+enum WsReadState {
+    ReadingHeader {
+        buf: [u8; 2],
+        pos: usize,
+    },
+    ReadingExtLen {
+        header: [u8; 2],
+        buf: Vec<u8>,
+        pos: usize,
+        expected: usize,
+    },
+    ReadingMask {
+        payload_len: usize,
+        buf: [u8; 4],
+        pos: usize,
+    },
+    ReadingPayload {
+        payload_len: usize,
+        mask: Option<[u8; 4]>,
+        buf: Vec<u8>,
+        pos: usize,
+    },
+}
+
+enum WsWriteState {
+    Ready,
+    Writing { frame: Vec<u8>, pos: usize },
+}
+
+pub struct WebSocketStream<S> {
+    inner: S,
+    read_state: WsReadState,
+    read_buffer: Vec<u8>,
+    read_pos: usize,
+    write_state: WsWriteState,
+}
+
+impl<S> WebSocketStream<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            read_state: WsReadState::ReadingHeader {
+                buf: [0; 2],
+                pos: 0,
+            },
+            read_buffer: Vec::new(),
+            read_pos: 0,
+            write_state: WsWriteState::Ready,
+        }
+    }
+
+    fn build_frame(data: &[u8]) -> Vec<u8> {
+        let len = data.len();
+        let mut frame = Vec::with_capacity(14 + len);
+        frame.push(0x82);
+
+        if len < 126 {
+            frame.push(0x80 | len as u8);
+        } else if len < 65536 {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+
+        let mask: [u8; 4] = rand::random();
+        frame.extend_from_slice(&mask);
+
+        for (i, byte) in data.iter().enumerate() {
+            frame.push(byte ^ mask[i % 4]);
+        }
+        frame
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
+    pub async fn handshake(
+        stream: S,
+        host: &str,
+        path: &str,
+        extra_headers: &HashMap<String, String>,
+    ) -> Result<Self> {
+        let mut ws = Self::new(stream);
+
+        let mut key_bytes = [0u8; 16];
+        rand_fill(&mut key_bytes);
+        let ws_key = BASE64.encode(key_bytes);
+
+        let mut request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Key: {}\r\nSec-WebSocket-Version: 13\r\n",
+            path, host, ws_key
+        );
+
+        for (k, v) in extra_headers {
+            if ![
+                "host",
+                "upgrade",
+                "connection",
+                "sec-websocket-key",
+                "sec-websocket-version",
+            ]
+            .contains(&k.to_lowercase().as_str())
+            {
+                request.push_str(&format!("{}: {}\r\n", k, v));
+            }
+        }
+        request.push_str("\r\n");
+
+        tracing::debug!(
+            "[WebSocket] Sending handshake to {}{}:\nRequest Headers:\n{}",
+            host,
+            path,
+            request.replace("\r\n", "\\r\\n\n")
+        );
+
+        ws.inner
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|e| Error::network(format!("WebSocket handshake write failed: {}", e)))?;
+        ws.inner.flush().await.ok();
+
+        tracing::debug!("[WebSocket] Handshake sent, waiting for response...");
+
+        // 读取响应
+        let mut response = Vec::with_capacity(1024);
+        let mut buf = [0u8; 1];
+        while response.len() < 4096 {
+            ws.inner
+                .read_exact(&mut buf)
+                .await
+                .map_err(|e| Error::network(format!("WebSocket handshake read failed: {}", e)))?;
+            response.push(buf[0]);
+            if response.len() >= 4 && &response[response.len() - 4..] == b"\r\n\r\n" {
+                break;
+            }
+        }
+
+        let response_str = String::from_utf8_lossy(&response);
+        tracing::debug!("[WebSocket] Received response:\n{}", response_str);
+
+        if !response_str.starts_with("HTTP/1.1 101") {
+            return Err(Error::protocol(format!(
+                "WebSocket upgrade failed: {}",
+                response_str.lines().next().unwrap_or("unknown")
+            )));
+        }
+
+        // 验证 accept header
+        let expected_accept = {
+            use sha1::Digest;
+            let mut hasher = Sha1::new();
+            hasher.update(ws_key.as_bytes());
+            hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+            BASE64.encode(hasher.finalize())
+        };
+
+        let accept_valid = response_str.lines().any(|line| {
+            line.to_lowercase().starts_with("sec-websocket-accept:")
+                && line.split(':').nth(1).map(|s| s.trim()) == Some(&expected_accept)
+        });
+
+        if !accept_valid {
+            return Err(Error::protocol("WebSocket accept header mismatch"));
+        }
+
+        tracing::debug!("WebSocket handshake completed");
+        Ok(ws)
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for WebSocketStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+
+        // 先返回缓冲区中的数据
+        if self.read_pos < self.read_buffer.len() {
+            let remaining = &self.read_buffer[self.read_pos..];
+            let to_copy = remaining.len().min(buf.remaining());
+            buf.put_slice(&remaining[..to_copy]);
+            self.read_pos += to_copy;
+            if self.read_pos >= self.read_buffer.len() {
+                self.read_buffer.clear();
+                self.read_pos = 0;
+            }
+            return Poll::Ready(Ok(()));
+        }
+
+        let this = self.get_mut();
+
+        loop {
+            match &mut this.read_state {
+                WsReadState::ReadingHeader {
+                    buf: header_buf,
+                    pos,
+                } => {
+                    while *pos < 2 {
+                        let mut tmp = [0u8; 2];
+                        let mut read_buf = tokio::io::ReadBuf::new(&mut tmp[..(2 - *pos)]);
+                        match std::pin::Pin::new(&mut this.inner).poll_read(cx, &mut read_buf) {
+                            Poll::Ready(Ok(())) => {
+                                let n = read_buf.filled().len();
+                                if n == 0 {
+                                    return Poll::Ready(Ok(()));
+                                }
+                                header_buf[*pos..*pos + n].copy_from_slice(read_buf.filled());
+                                *pos += n;
+                            }
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                            Poll::Pending => return Poll::Pending,
+                        }
+                    }
+
+                    let header = *header_buf;
+                    let opcode = header[0] & 0x0F;
+                    let masked = (header[1] & 0x80) != 0;
+                    let payload_len_byte = header[1] & 0x7F;
+
+                    // 处理关闭帧
+                    if opcode == 0x08 {
+                        this.read_state = WsReadState::ReadingHeader {
+                            buf: [0; 2],
+                            pos: 0,
+                        };
+                        return Poll::Ready(Ok(()));
+                    }
+
+                    // 处理 ping 帧
+                    if opcode == 0x09 {
+                        if payload_len_byte > 0 {
+                            this.read_state = WsReadState::ReadingPayload {
+                                payload_len: payload_len_byte as usize,
+                                mask: None,
+                                buf: vec![0; payload_len_byte as usize],
+                                pos: 0,
+                            };
+                        } else {
+                            this.read_state = WsReadState::ReadingHeader {
+                                buf: [0; 2],
+                                pos: 0,
+                            };
+                        }
+                        continue;
+                    }
+
+                    if payload_len_byte < 126 {
+                        let payload_len = payload_len_byte as usize;
+                        if masked {
+                            this.read_state = WsReadState::ReadingMask {
+                                payload_len,
+                                buf: [0; 4],
+                                pos: 0,
+                            };
+                        } else {
+                            this.read_state = WsReadState::ReadingPayload {
+                                payload_len,
+                                mask: None,
+                                buf: vec![0; payload_len],
+                                pos: 0,
+                            };
+                        }
+                    } else if payload_len_byte == 126 {
+                        this.read_state = WsReadState::ReadingExtLen {
+                            header,
+                            buf: vec![0; 2],
+                            pos: 0,
+                            expected: 2,
+                        };
+                    } else {
+                        this.read_state = WsReadState::ReadingExtLen {
+                            header,
+                            buf: vec![0; 8],
+                            pos: 0,
+                            expected: 8,
+                        };
+                    }
+                }
+
+                WsReadState::ReadingExtLen {
+                    header,
+                    buf: ext_buf,
+                    pos,
+                    expected,
+                } => {
+                    while *pos < *expected {
+                        let mut tmp = vec![0u8; *expected - *pos];
+                        let mut read_buf = tokio::io::ReadBuf::new(&mut tmp);
+                        match std::pin::Pin::new(&mut this.inner).poll_read(cx, &mut read_buf) {
+                            Poll::Ready(Ok(())) => {
+                                let n = read_buf.filled().len();
+                                if n == 0 {
+                                    return Poll::Ready(Ok(()));
+                                }
+                                ext_buf[*pos..*pos + n].copy_from_slice(read_buf.filled());
+                                *pos += n;
+                            }
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                            Poll::Pending => return Poll::Pending,
+                        }
+                    }
+
+                    let payload_len = if *expected == 2 {
+                        u16::from_be_bytes([ext_buf[0], ext_buf[1]]) as usize
+                    } else {
+                        u64::from_be_bytes(ext_buf[..8].try_into().unwrap()) as usize
+                    };
+
+                    let masked = (header[1] & 0x80) != 0;
+                    if masked {
+                        this.read_state = WsReadState::ReadingMask {
+                            payload_len,
+                            buf: [0; 4],
+                            pos: 0,
+                        };
+                    } else {
+                        this.read_state = WsReadState::ReadingPayload {
+                            payload_len,
+                            mask: None,
+                            buf: vec![0; payload_len],
+                            pos: 0,
+                        };
+                    }
+                }
+
+                WsReadState::ReadingMask {
+                    payload_len,
+                    buf: mask_buf,
+                    pos,
+                } => {
+                    while *pos < 4 {
+                        let mut tmp = [0u8; 4];
+                        let mut read_buf = tokio::io::ReadBuf::new(&mut tmp[..(4 - *pos)]);
+                        match std::pin::Pin::new(&mut this.inner).poll_read(cx, &mut read_buf) {
+                            Poll::Ready(Ok(())) => {
+                                let n = read_buf.filled().len();
+                                if n == 0 {
+                                    return Poll::Ready(Ok(()));
+                                }
+                                mask_buf[*pos..*pos + n].copy_from_slice(read_buf.filled());
+                                *pos += n;
+                            }
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                            Poll::Pending => return Poll::Pending,
+                        }
+                    }
+
+                    let payload_len = *payload_len;
+                    let mask = *mask_buf;
+                    this.read_state = WsReadState::ReadingPayload {
+                        payload_len,
+                        mask: Some(mask),
+                        buf: vec![0; payload_len],
+                        pos: 0,
+                    };
+                }
+
+                WsReadState::ReadingPayload {
+                    payload_len,
+                    mask,
+                    buf: payload_buf,
+                    pos,
+                } => {
+                    while *pos < *payload_len {
+                        let mut tmp = vec![0u8; *payload_len - *pos];
+                        let mut read_buf = tokio::io::ReadBuf::new(&mut tmp);
+                        match std::pin::Pin::new(&mut this.inner).poll_read(cx, &mut read_buf) {
+                            Poll::Ready(Ok(())) => {
+                                let n = read_buf.filled().len();
+                                if n == 0 {
+                                    return Poll::Ready(Ok(()));
+                                }
+                                payload_buf[*pos..*pos + n].copy_from_slice(read_buf.filled());
+                                *pos += n;
+                            }
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                            Poll::Pending => return Poll::Pending,
+                        }
+                    }
+
+                    // 解除掩码
+                    if let Some(m) = mask {
+                        for (i, byte) in payload_buf.iter_mut().enumerate() {
+                            *byte ^= m[i % 4];
+                        }
+                    }
+
+                    // 存储到缓冲区
+                    this.read_buffer = std::mem::take(payload_buf);
+                    this.read_pos = 0;
+                    this.read_state = WsReadState::ReadingHeader {
+                        buf: [0; 2],
+                        pos: 0,
+                    };
+
+                    // 返回数据
+                    let to_copy = this.read_buffer.len().min(buf.remaining());
+                    buf.put_slice(&this.read_buffer[..to_copy]);
+                    this.read_pos = to_copy;
+                    if this.read_pos >= this.read_buffer.len() {
+                        this.read_buffer.clear();
+                        this.read_pos = 0;
+                    }
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncWrite for WebSocketStream<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        use std::task::Poll;
+        let this = self.get_mut();
+
+        loop {
+            match &mut this.write_state {
+                WsWriteState::Ready => {
+                    let frame = Self::build_frame(buf);
+                    this.write_state = WsWriteState::Writing { frame, pos: 0 };
+                }
+                WsWriteState::Writing { frame, pos } => {
+                    while *pos < frame.len() {
+                        match std::pin::Pin::new(&mut this.inner).poll_write(cx, &frame[*pos..]) {
+                            Poll::Ready(Ok(n)) => {
+                                if n == 0 {
+                                    return Poll::Ready(Err(std::io::Error::new(
+                                        std::io::ErrorKind::WriteZero,
+                                        "Failed to write frame",
+                                    )));
+                                }
+                                *pos += n;
+                            }
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                            Poll::Pending => return Poll::Pending,
+                        }
+                    }
+                    this.write_state = WsWriteState::Ready;
+                    return Poll::Ready(Ok(buf.len()));
+                }
+            }
+        }
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+// ============================================================================
+// QUIC 流
+// ============================================================================
+
+pub struct QuicBiStream {
+    send: quinn::SendStream,
+    recv: quinn::RecvStream,
+}
+
+impl QuicBiStream {
+    pub fn new(send: quinn::SendStream, recv: quinn::RecvStream) -> Self {
+        Self { send, recv }
+    }
+}
+
+impl AsyncRead for QuicBiStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::AsyncRead as FuturesAsyncRead;
+        use std::task::Poll;
+
+        let this = self.get_mut();
+        let unfilled = buf.initialize_unfilled();
+        let pinned = std::pin::Pin::new(&mut this.recv);
+
+        match FuturesAsyncRead::poll_read(pinned, cx, unfilled) {
+            Poll::Ready(Ok(n)) => {
+                buf.advance(n);
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl AsyncWrite for QuicBiStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        FuturesAsyncWrite::poll_write(std::pin::Pin::new(&mut self.get_mut().send), cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        FuturesAsyncWrite::poll_flush(std::pin::Pin::new(&mut self.get_mut().send), cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use futures::AsyncWrite as FuturesAsyncWrite;
+        FuturesAsyncWrite::poll_close(std::pin::Pin::new(&mut self.get_mut().send), cx)
+    }
+}
+
+// ============================================================================
+// VMess UDP Datagram
+// ============================================================================
+
+use futures::{Sink, Stream};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+/// UDP 数据包
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct UdpPacket {
+    pub data: Vec<u8>,
+    pub src_addr: TargetAddr,
+    pub dst_addr: TargetAddr,
+}
+
+/// VMess UDP 出站数据报
+#[allow(dead_code)]
+pub struct OutboundDatagramVmess {
+    inner: Box<dyn AsyncReadWrite>,
+    remote_addr: TargetAddr,
+    written: Option<usize>,
+    flushed: bool,
+    pkt: Option<UdpPacket>,
+    buf: Vec<u8>,
+}
+
+#[allow(dead_code)]
+impl OutboundDatagramVmess {
+    pub fn new(inner: Box<dyn AsyncReadWrite>, remote_addr: TargetAddr) -> Self {
+        Self {
+            inner,
+            remote_addr,
+            written: None,
+            flushed: true,
+            pkt: None,
+            buf: vec![0u8; 65535],
+        }
+    }
+}
+
+impl Sink<UdpPacket> for OutboundDatagramVmess {
+    type Error = std::io::Error;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        if !self.flushed {
+            match self.poll_flush(cx)? {
+                Poll::Ready(()) => {}
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: UdpPacket) -> std::result::Result<(), Self::Error> {
+        let pin = self.get_mut();
+        pin.pkt = Some(item);
+        pin.flushed = false;
+        Ok(())
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        use futures::ready;
+
+        if self.flushed {
+            return Poll::Ready(Ok(()));
+        }
+
+        let Self {
+            ref mut inner,
+            ref mut pkt,
+            ref remote_addr,
+            ref mut flushed,
+            ref mut written,
+            ..
+        } = *self;
+
+        let mut inner = Pin::new(inner.as_mut());
+        let pkt_container = pkt;
+
+        if let Some(pkt) = pkt_container {
+            if pkt.dst_addr.to_string() != remote_addr.to_string() {
+                tracing::error!(
+                    "udp packet dst_addr not match, pkt.dst_addr: {:?}, remote_addr: {:?}",
+                    pkt.dst_addr,
+                    remote_addr
+                );
+                return Poll::Ready(Err(std::io::Error::other("udp packet dst_addr not match")));
+            }
+
+            if written.is_none() {
+                let n = ready!(inner.as_mut().poll_write(cx, pkt.data.as_ref()))?;
+                tracing::debug!(
+                    "send udp packet to remote vmess server, len: {}, remote_addr: {:?}, dst_addr: {:?}",
+                    n, remote_addr, pkt.dst_addr
+                );
+                *written = Some(n);
+            }
+
+            if !*flushed {
+                let r = inner.as_mut().poll_flush(cx)?;
+                if r.is_pending() {
+                    return Poll::Pending;
+                }
+                *flushed = true;
+            }
+
+            let total_len = pkt.data.len();
+            *pkt_container = None;
+
+            let res = if written.unwrap() == total_len {
+                Ok(())
+            } else {
+                Err(std::io::Error::other(format!(
+                    "failed to write entire datagram, written: {}",
+                    written.unwrap()
+                )))
+            };
+            *written = None;
+            Poll::Ready(res)
+        } else {
+            tracing::debug!("no udp packet to send");
+            Poll::Ready(Err(std::io::Error::other("no packet to send")))
+        }
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        use futures::ready;
+        ready!(self.poll_flush(cx))?;
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl Stream for OutboundDatagramVmess {
+    type Item = UdpPacket;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        use futures::ready;
+
+        let Self {
+            ref mut buf,
+            ref mut inner,
+            ref remote_addr,
+            ..
+        } = *self;
+
+        let inner = Pin::new(inner.as_mut());
+        let mut read_buf = tokio::io::ReadBuf::new(buf);
+
+        let rv = ready!(inner.poll_read(cx, &mut read_buf));
+
+        match rv {
+            Ok(()) => Poll::Ready(Some(UdpPacket {
+                data: read_buf.filled().to_vec(),
+                src_addr: remote_addr.clone(),
+                dst_addr: TargetAddr::Domain("0.0.0.0".to_string(), 0),
+            })),
+            Err(_) => Poll::Ready(None),
+        }
+    }
+}
+
+// ============================================================================
+// VMess Builder
+// ============================================================================
+
+#[derive(Clone)]
+pub struct VmessOption {
+    pub uuid: String,
+    pub alter_id: u16,
+    pub security: String,
+    pub udp: bool,
+    pub dst: TargetAddr,
+}
+
+/// VMess 构建器
+#[allow(dead_code)]
+pub struct VmessBuilder {
+    pub user: Vec<VmessId>,
+    pub security: u8,
+    pub is_aead: bool,
+    pub is_udp: bool,
+    pub dst: TargetAddr,
+}
+
+#[allow(dead_code)]
+impl VmessBuilder {
+    pub fn new(opt: &VmessOption) -> std::io::Result<Self> {
+        let uuid = Uuid::parse_str(&opt.uuid).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid uuid format, should be xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+            )
+        })?;
+
+        let security = match opt.security.to_lowercase().as_str() {
+            "chacha20-poly1305" => SECURITY_CHACHA20_POLY1305,
+            "aes-128-gcm" => SECURITY_AES_128_GCM,
+            "none" => SECURITY_NONE,
+            "auto" => match std::env::consts::ARCH {
+                "x86_64" | "s390x" | "aarch64" => SECURITY_AES_128_GCM,
+                _ => SECURITY_CHACHA20_POLY1305,
+            },
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "invalid security",
+                ));
+            }
+        };
+
+        let primary_id = VmessId::new(&uuid);
+
+        Ok(Self {
+            user: new_alter_id_list(&primary_id, opt.alter_id),
+            security,
+            is_aead: opt.alter_id < 64,
+            is_udp: opt.udp,
+            dst: opt.dst.clone(),
+        })
+    }
+
+    pub async fn proxy_stream(
+        &self,
+        stream: Box<dyn AsyncReadWrite>,
+    ) -> std::io::Result<Box<dyn AsyncReadWrite>> {
+        let idx = rand_range(0..self.user.len());
+        let vmess_stream = VmessStream::new(
+            stream,
+            &self.user[idx],
+            &self.dst,
+            &self.security,
+            self.is_aead,
+            self.is_udp,
+        )
+        .await?;
+
+        Ok(Box::new(vmess_stream))
+    }
+}
+
+// ============================================================================
+// VmessOutbound 主结构
+// ============================================================================
 
 pub struct VmessOutbound {
     config: OutboundConfig,
     server: String,
     port: u16,
     uuid: Uuid,
+    #[allow(dead_code)]
+    alter_id: u16,
+    use_aead: bool,
     cipher: VmessCipher,
     udp_enabled: bool,
+    #[allow(dead_code)]
     cmd_key: [u8; 16],
-    alter_id: u16,
     transport: VmessTransport,
     tls_enabled: bool,
     skip_cert_verify: bool,
     sni: Option<String>,
     ws_opts: Option<VmessWsOptions>,
+    #[allow(dead_code)]
+    h2_opts: Option<VmessH2Options>,
+    #[allow(dead_code)]
+    grpc_opts: Option<VmessGrpcOptions>,
     mkcp_opts: Option<VmessMkcpOptions>,
     mux_opts: VmessMuxOptions,
     quic_endpoint: Mutex<Option<Endpoint>>,
     quic_connection: Mutex<Option<quinn::Connection>>,
     quic_alpn: Vec<String>,
-    udp_sessions: DashMap<String, Arc<VmessUdpSession>>,
+    udp_sessions: DashMap<String, Arc<UdpSession>>,
 }
 
-pub struct VmessHeader {
-    pub version: u8,
-    pub request_body_iv: [u8; 16],
-    pub request_body_key: [u8; 16],
-    pub response_header: u8,
-    pub option: VmessOption,
-    pub padding_length: u8,
-    pub security: VmessCipher,
-    pub command: VmessCommand,
-    pub port: u16,
-    pub address_type: VmessAddressType,
-    pub address: Vec<u8>,
+/// UDP 会话
+#[allow(dead_code)]
+struct UdpSession {
+    stream: Mutex<Box<dyn AsyncReadWrite>>,
+    last_used: std::sync::RwLock<Instant>,
 }
 
-pub struct VmessResponseHeader {
-    pub response_header: u8,
-    pub option: u8,
-    pub command: u8,
-    pub command_length: u8,
+#[allow(dead_code)]
+impl UdpSession {
+    fn new(stream: Box<dyn AsyncReadWrite>) -> Self {
+        Self {
+            stream: Mutex::new(stream),
+            last_used: std::sync::RwLock::new(Instant::now()),
+        }
+    }
+
+    fn touch(&self) {
+        if let Ok(mut guard) = self.last_used.write() {
+            *guard = Instant::now();
+        }
+    }
+
+    fn is_expired(&self, timeout: Duration) -> bool {
+        self.last_used
+            .read()
+            .map(|g| g.elapsed() > timeout)
+            .unwrap_or(true)
+    }
 }
 
 impl VmessOutbound {
     pub fn new(config: OutboundConfig) -> Result<Self> {
+        time_sync::init_time_sync();
+
         let server = config
             .server
             .clone()
-            .ok_or_else(|| Error::config("Missing server address for VMess"))?;
-
-        let port = config
-            .port
-            .ok_or_else(|| Error::config("Missing port for VMess"))?;
+            .ok_or_else(|| Error::config("Missing server"))?;
+        let port = config.port.ok_or_else(|| Error::config("Missing port"))?;
 
         let uuid_str = config
             .options
             .get("uuid")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::config("Missing UUID for VMess"))?;
+            .ok_or_else(|| Error::config("Missing UUID"))?;
 
         let uuid =
             Uuid::parse_str(uuid_str).map_err(|e| Error::config(format!("Invalid UUID: {}", e)))?;
-
-        let uuid_bytes = *uuid.as_bytes();
 
         let alter_id = config
             .options
@@ -865,18 +2304,21 @@ impl VmessOutbound {
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as u16;
 
-        if alter_id > 0 {
-            tracing::info!(
-                "VMess using legacy mode with alterId={}. Consider using alterId=0 for AEAD mode.",
+        let use_aead = alter_id < 64;
+
+        if !use_aead {
+            tracing::warn!(
+                "VMess '{}': alterId={} >= 64, using legacy non-AEAD mode. \
+                Consider using alterId=0 for better security.",
+                config.tag,
                 alter_id
             );
-        } else {
-            tracing::debug!("VMess using AEAD mode (alterId=0)");
         }
 
         let cipher_str = config
             .options
             .get("cipher")
+            .or_else(|| config.options.get("security"))
             .and_then(|v| v.as_str())
             .unwrap_or("auto");
         let cipher = VmessCipher::from_str(cipher_str);
@@ -899,13 +2341,11 @@ impl VmessOutbound {
             .get("tls")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-
         let skip_cert_verify = config
             .options
             .get("skip-cert-verify")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-
         let sni = config
             .options
             .get("sni")
@@ -920,113 +2360,146 @@ impl VmessOutbound {
                 .and_then(|v| v.as_str())
                 .unwrap_or("/")
                 .to_string();
-
             let host = ws_opts_value
                 .and_then(|v| v.get("headers"))
                 .and_then(|v| v.get("Host"))
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let max_early_data = ws_opts_value
+                .and_then(|v| v.get("max-early-data"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as usize;
+            let early_data_header_name = ws_opts_value
+                .and_then(|v| v.get("early-data-header-name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Sec-WebSocket-Protocol")
+                .to_string();
 
-            let mut headers = std::collections::HashMap::new();
-            if let Some(headers_value) = ws_opts_value.and_then(|v| v.get("headers")) {
-                if let Some(map) = headers_value.as_mapping() {
-                    for (k, v) in map {
-                        if let (Some(key), Some(value)) = (k.as_str(), v.as_str()) {
-                            headers.insert(key.to_string(), value.to_string());
-                        }
+            let mut headers = HashMap::new();
+            if let Some(hdrs) = ws_opts_value
+                .and_then(|v| v.get("headers"))
+                .and_then(|v| v.as_mapping())
+            {
+                for (k, v) in hdrs {
+                    if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
+                        headers.insert(key.to_string(), val.to_string());
                     }
                 }
             }
-
             Some(VmessWsOptions {
                 path,
                 host,
+                headers,
+                max_early_data,
+                early_data_header_name,
+            })
+        } else {
+            None
+        };
+
+        let h2_opts = if transport == VmessTransport::H2 {
+            let h2_opts_value = config.options.get("h2-opts");
+            let hosts = h2_opts_value
+                .and_then(|v| v.get("host"))
+                .and_then(|v| v.as_sequence())
+                .map(|seq| {
+                    seq.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_else(|| vec![server.clone()]);
+            let path = h2_opts_value
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("/")
+                .to_string();
+            let mut headers = HashMap::new();
+            if let Some(hdrs) = h2_opts_value
+                .and_then(|v| v.get("headers"))
+                .and_then(|v| v.as_mapping())
+            {
+                for (k, v) in hdrs {
+                    if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
+                        headers.insert(key.to_string(), val.to_string());
+                    }
+                }
+            }
+            Some(VmessH2Options {
+                hosts,
+                path,
                 headers,
             })
         } else {
             None
         };
 
-        let quic_alpn = config
-            .options
-            .get("quic-opts")
-            .and_then(|v| v.get("alpn"))
-            .and_then(|v| v.as_sequence())
-            .map(|seq| {
-                seq.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_else(|| vec!["h3".to_string()]);
+        // 解析 gRPC 选项
+        let grpc_opts = if transport == VmessTransport::Grpc {
+            let grpc_opts_value = config.options.get("grpc-opts");
+            let service_name = grpc_opts_value
+                .and_then(|v| v.get("grpc-service-name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("GunService")
+                .to_string();
+            Some(VmessGrpcOptions { service_name })
+        } else {
+            None
+        };
 
-        // Parse mKCP options
+        // 解析 mKCP 选项
         let mkcp_opts = if transport == VmessTransport::Mkcp {
-            let mkcp_opts_value = config
+            let opts = config
                 .options
                 .get("kcp-opts")
                 .or_else(|| config.options.get("mkcp-opts"));
-
-            let mtu = mkcp_opts_value
-                .and_then(|v| v.get("mtu"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(1350) as usize;
-
-            let tti = mkcp_opts_value
-                .and_then(|v| v.get("tti"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(50) as u32;
-
-            let uplink_capacity = mkcp_opts_value
-                .and_then(|v| v.get("uplinkCapacity"))
-                .or_else(|| mkcp_opts_value.and_then(|v| v.get("uplink-capacity")))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(5) as u32;
-
-            let downlink_capacity = mkcp_opts_value
-                .and_then(|v| v.get("downlinkCapacity"))
-                .or_else(|| mkcp_opts_value.and_then(|v| v.get("downlink-capacity")))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(20) as u32;
-
-            let congestion = mkcp_opts_value
-                .and_then(|v| v.get("congestion"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            let read_buffer_size = mkcp_opts_value
-                .and_then(|v| v.get("readBufferSize"))
-                .or_else(|| mkcp_opts_value.and_then(|v| v.get("read-buffer-size")))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(4 * 1024 * 1024) as usize;
-
-            let write_buffer_size = mkcp_opts_value
-                .and_then(|v| v.get("writeBufferSize"))
-                .or_else(|| mkcp_opts_value.and_then(|v| v.get("write-buffer-size")))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(4 * 1024 * 1024) as usize;
-
-            let header_type = mkcp_opts_value
-                .and_then(|v| v.get("header"))
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("none")
-                .to_string();
-
-            let seed = mkcp_opts_value
-                .and_then(|v| v.get("seed"))
-                .and_then(|v| v.as_str())
-                .map(String::from);
-
             Some(VmessMkcpOptions {
-                mtu,
-                tti,
-                uplink_capacity,
-                downlink_capacity,
-                congestion,
-                read_buffer_size,
-                write_buffer_size,
-                header_type,
-                seed,
+                mtu: opts
+                    .and_then(|v| v.get("mtu"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1350) as usize,
+                tti: opts
+                    .and_then(|v| v.get("tti"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(50) as u32,
+                uplink_capacity: opts
+                    .and_then(|v| v.get("uplinkCapacity").or_else(|| v.get("uplink-capacity")))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(5) as u32,
+                downlink_capacity: opts
+                    .and_then(|v| {
+                        v.get("downlinkCapacity")
+                            .or_else(|| v.get("downlink-capacity"))
+                    })
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(20) as u32,
+                congestion: opts
+                    .and_then(|v| v.get("congestion"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                read_buffer_size: opts
+                    .and_then(|v| {
+                        v.get("readBufferSize")
+                            .or_else(|| v.get("read-buffer-size"))
+                    })
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(4 * 1024 * 1024) as usize,
+                write_buffer_size: opts
+                    .and_then(|v| {
+                        v.get("writeBufferSize")
+                            .or_else(|| v.get("write-buffer-size"))
+                    })
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(4 * 1024 * 1024) as usize,
+                header_type: opts
+                    .and_then(|v| v.get("header"))
+                    .and_then(|v| v.get("type"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("none")
+                    .to_string(),
+                seed: opts
+                    .and_then(|v| v.get("seed"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             })
         } else {
             None
@@ -1044,10 +2517,22 @@ impl VmessOutbound {
                 .unwrap_or(8) as usize,
         };
 
-        let cmd_key = generate_cmd_key(&uuid_bytes);
+        let quic_alpn = config
+            .options
+            .get("quic-opts")
+            .and_then(|v| v.get("alpn"))
+            .and_then(|v| v.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| vec!["h3".to_string()]);
+
+        let cmd_key = generate_cmd_key(uuid.as_bytes());
 
         tracing::info!(
-            "VMess outbound '{}' created: server={}:{}, uuid={}, alterId={}, transport={:?}, tls={}, udp={}, mux={}",
+            "VMess outbound '{}': {}:{}, uuid={}, alter_id={}, transport={:?}, tls={}, udp={}, aead={}",
             config.tag,
             server,
             port,
@@ -1056,7 +2541,7 @@ impl VmessOutbound {
             transport,
             tls_enabled,
             udp_enabled,
-            mux_opts.enabled
+            use_aead
         );
 
         Ok(Self {
@@ -1064,15 +2549,18 @@ impl VmessOutbound {
             server,
             port,
             uuid,
+            alter_id,
+            use_aead,
             cipher,
             udp_enabled,
             cmd_key,
-            alter_id,
             transport,
             tls_enabled,
             skip_cert_verify,
             sni,
             ws_opts,
+            h2_opts,
+            grpc_opts,
             mkcp_opts,
             mux_opts,
             quic_endpoint: Mutex::new(None),
@@ -1082,487 +2570,44 @@ impl VmessOutbound {
         })
     }
 
-    /// 获取 UUID（用于日志和调试）
     pub fn uuid(&self) -> &Uuid {
         &self.uuid
     }
-
     pub fn is_mux_enabled(&self) -> bool {
         self.mux_opts.enabled
     }
-
     pub fn mux_concurrency(&self) -> usize {
         self.mux_opts.concurrency
     }
-
-    pub fn generate_auth_id(&self, timestamp: i64) -> [u8; 16] {
-        let mut data = [0u8; 16];
-        data[..8].copy_from_slice(&timestamp.to_be_bytes());
-
-        let mut random_bytes = [0u8; 4];
-        getrandom::fill(&mut random_bytes).expect("Failed to generate random bytes");
-        data[8..12].copy_from_slice(&random_bytes);
-
-        let crc = crc32fast::hash(&data[..12]);
-        data[12..16].copy_from_slice(&crc.to_be_bytes());
-        let auth_id_key = kdf16_auth_id(&self.cmd_key);
-
-        use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
-        use aes::Aes128;
-
-        let cipher =
-            Aes128::new_from_slice(&auth_id_key).expect("Failed to create AES cipher for AuthID");
-
-        let mut block = aes::Block::from(data);
-        cipher.encrypt_block(&mut block);
-
-        let mut auth_id = [0u8; 16];
-        auth_id.copy_from_slice(&block);
-
-        tracing::debug!(
-            "VMess AuthID generated: timestamp={}, crc={:#x}, auth_id={:02x?}",
-            timestamp,
-            crc,
-            &auth_id[..4]
-        );
-
-        auth_id
-    }
-
-    /// 验证时间戳是否在有效窗口内
-    pub fn is_timestamp_valid(timestamp: i64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        let diff = (now - timestamp).abs();
-        diff <= VMESS_TIME_WINDOW_SECS * VMESS_TIME_TOLERANCE
-    }
-
-    pub fn generate_request_key(&self) -> [u8; 16] {
-        let mut key = [0u8; 16];
-        getrandom::fill(&mut key).expect("Failed to generate random key");
-        key
-    }
-
-    pub fn generate_request_iv(&self) -> [u8; 16] {
-        let mut iv = [0u8; 16];
-        getrandom::fill(&mut iv).expect("Failed to generate random IV");
-        iv
-    }
-
-    fn generate_response_key(&self, request_key: &[u8; 16]) -> [u8; 16] {
-        if self.alter_id > 0 {
-            // Legacy mode: response_key = MD5(request_key)
-            let mut hasher = Md5::new();
-            hasher.update(request_key);
-            let result = hasher.finalize();
-            let mut key = [0u8; 16];
-            key.copy_from_slice(&result);
-            key
-        } else {
-            // AEAD mode: response_key = SHA256(request_key)[:16]
-            let mut hasher = Sha256::new();
-            hasher.update(request_key);
-            let result = hasher.finalize();
-            let mut key = [0u8; 16];
-            key.copy_from_slice(&result[..16]);
-            key
-        }
-    }
-
-    fn generate_response_iv(&self, request_iv: &[u8; 16]) -> [u8; 16] {
-        if self.alter_id > 0 {
-            let mut hasher = Md5::new();
-            hasher.update(request_iv);
-            let result = hasher.finalize();
-            let mut iv = [0u8; 16];
-            iv.copy_from_slice(&result);
-            iv
-        } else {
-            let mut hasher = Sha256::new();
-            hasher.update(request_iv);
-            let result = hasher.finalize();
-            let mut iv = [0u8; 16];
-            iv.copy_from_slice(&result[..16]);
-            iv
-        }
-    }
-
-    fn is_legacy_mode(&self) -> bool {
-        self.alter_id > 0
-    }
-
-    pub fn seal_header(&self, header: &VmessHeader, timestamp: i64) -> Result<Vec<u8>> {
-        let mut header_buf = Vec::with_capacity(128);
-        let is_legacy = self.alter_id > 0;
-
-        header_buf.push(header.version);
-        header_buf.extend_from_slice(&header.request_body_iv);
-        header_buf.extend_from_slice(&header.request_body_key);
-        header_buf.push(header.response_header);
-        header_buf.push(header.option.bits());
-
-        let security_byte = if is_legacy {
-            0x00
-        } else {
-            header.security.as_byte()
-        };
-        let padding_and_security = (header.padding_length << 4) | security_byte;
-        header_buf.push(padding_and_security);
-        header_buf.push(0x00); // 保留字节，必须为 0
-        header_buf.push(header.command as u8);
-
-        header_buf.extend_from_slice(&header.port.to_be_bytes());
-
-        header_buf.push(header.address_type as u8);
-        header_buf.extend_from_slice(&header.address);
-
-        if header.padding_length > 0 {
-            let mut padding = vec![0u8; header.padding_length as usize];
-            getrandom::fill(&mut padding).ok();
-            header_buf.extend_from_slice(&padding);
-        }
-
-        let fnv_hash = fnv1a_hash(&header_buf);
-        header_buf.extend_from_slice(&fnv_hash.to_be_bytes());
-
-        tracing::debug!(
-            "VMess header: version={}, option={:#x}, security={:#x}, cmd={}, port={}, addr_type={}, addr_len={}, padding={}, fnv={:#x}, total_len={}",
-            header.version,
-            header.option.bits(),
-            security_byte,
-            header.command as u8,
-            header.port,
-            header.address_type as u8,
-            header.address.len(),
-            header.padding_length,
-            fnv_hash,
-            header_buf.len()
-        );
-
-        if is_legacy {
-            self.seal_header_legacy(&header_buf, timestamp)
-        } else {
-            self.seal_header_aead(&header_buf, timestamp)
-        }
-    }
-
-    fn seal_header_legacy(&self, header_buf: &[u8], timestamp: i64) -> Result<Vec<u8>> {
-        let timestamp_bytes = timestamp.to_be_bytes();
-
-        // VMess Legacy 认证信息计算:
-        // Hash = HMAC(H, K, M)
-        // H = MD5 (哈希函数)
-        // K = User ID (16 字节 UUID)
-        // M = UTC 时间戳 (8 字节大端序)
-        // 
-        // 注意: HMAC-MD5 的 key 是 UUID，message 是时间戳
-        let mut mac = <HmacMd5 as Mac>::new_from_slice(self.uuid.as_bytes())
-            .map_err(|e| Error::protocol(format!("Failed to create HMAC-MD5: {}", e)))?;
-        mac.update(&timestamp_bytes);
-        let auth_info = mac.finalize().into_bytes();
-
-        tracing::info!(
-            "VMess legacy auth: uuid={}, timestamp={}, auth_info={:02x?}",
-            self.uuid,
-            timestamp,
-            &auth_info[..]
-        );
-
-        // 指令部分加密:
-        // Key = MD5(UUID + "c48619fe-8f02-49e0-b9e9-edf763e17e21") = cmd_key (已在构造时计算)
-        // IV = MD5(timestamp || timestamp || timestamp || timestamp)
-        let mut iv_data = Vec::with_capacity(32);
-        for _ in 0..4 {
-            iv_data.extend_from_slice(&timestamp_bytes);
-        }
-        let iv: [u8; 16] = {
-            let mut hasher = Md5::new();
-            hasher.update(&iv_data);
-            let result = hasher.finalize();
-            let mut arr = [0u8; 16];
-            arr.copy_from_slice(&result);
-            arr
-        };
-
-        tracing::debug!(
-            "VMess legacy encryption: cmd_key={:02x?}, iv={:02x?}, header_len={}",
-            &self.cmd_key[..4],
-            &iv[..4],
-            header_buf.len()
-        );
-
-        // 使用 AES-128-CFB 加密指令部分
-        let mut encrypted_header = header_buf.to_vec();
-        let cipher = Aes128CfbEnc::new_from_slices(&self.cmd_key, &iv)
-            .map_err(|e| Error::protocol(format!("Failed to create AES-CFB cipher: {}", e)))?;
-        cipher.encrypt(&mut encrypted_header);
-
-        // 最终格式: [认证信息 16B][加密的指令部分]
-        let mut result = Vec::with_capacity(16 + encrypted_header.len());
-        result.extend_from_slice(&auth_info);
-        result.extend_from_slice(&encrypted_header);
-
-        tracing::info!(
-            "VMess legacy sealed: total={} bytes (auth=16, header={})",
-            result.len(),
-            encrypted_header.len()
-        );
-
-        Ok(result)
-    }
-
-    fn seal_header_aead(&self, header_buf: &[u8], timestamp: i64) -> Result<Vec<u8>> {
-        let auth_id = self.generate_auth_id(timestamp);
-        let connection_nonce = generate_connection_nonce();
-        let header_key = kdf16_vmess_aead(
-            &self.cmd_key,
-            b"VMess Header AEAD Key",
-            &auth_id,
-            &connection_nonce,
-        );
-
-        let header_nonce = kdf12_vmess_aead(
-            &self.cmd_key,
-            b"VMess Header AEAD Nonce",
-            &auth_id,
-            &connection_nonce,
-        );
-
-        let cipher = Aes128Gcm::new_from_slice(&header_key)
-            .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-        let nonce = Nonce::from_slice(&header_nonce);
-
-        // 使用 auth_id 作为 Associated Data (AAD)
-        use aes_gcm::aead::Payload;
-        let encrypted_header = cipher
-            .encrypt(
-                nonce,
-                Payload {
-                    msg: header_buf,
-                    aad: &auth_id,
-                },
-            )
-            .map_err(|e| Error::protocol(format!("Failed to encrypt header: {}", e)))?;
-
-        let header_length_key = kdf16_vmess_aead(
-            &self.cmd_key,
-            b"VMess Header AEAD Key_Length",
-            &auth_id,
-            &connection_nonce,
-        );
-        let header_length_nonce = kdf12_vmess_aead(
-            &self.cmd_key,
-            b"VMess Header AEAD Nonce_Length",
-            &auth_id,
-            &connection_nonce,
-        );
-
-        let length_cipher = Aes128Gcm::new_from_slice(&header_length_key)
-            .map_err(|e| Error::protocol(format!("Failed to create length cipher: {}", e)))?;
-        let length_nonce = Nonce::from_slice(&header_length_nonce);
-
-        let length_bytes = (header_buf.len() as u16).to_be_bytes();
-        let encrypted_length = length_cipher
-            .encrypt(
-                length_nonce,
-                Payload {
-                    msg: &length_bytes,
-                    aad: &auth_id,
-                },
-            )
-            .map_err(|e| Error::protocol(format!("Failed to encrypt length: {}", e)))?;
-
-        let mut result =
-            Vec::with_capacity(16 + encrypted_length.len() + 8 + encrypted_header.len());
-        result.extend_from_slice(&auth_id);
-        result.extend_from_slice(&encrypted_length);
-        result.extend_from_slice(&connection_nonce);
-        result.extend_from_slice(&encrypted_header);
-
-        tracing::debug!(
-            "VMess AEAD sealed header: total={} bytes, auth_id={} bytes, enc_len={} bytes, nonce={} bytes, enc_header={} bytes",
-            result.len(),
-            auth_id.len(),
-            encrypted_length.len(),
-            connection_nonce.len(),
-            encrypted_header.len()
-        );
-
-        Ok(result)
-    }
-
-    pub fn open_response_header(
-        &self,
-        data: &[u8],
-        response_key: &[u8; 16],
-        response_iv: &[u8; 16],
-    ) -> Result<VmessResponseHeader> {
-        if self.alter_id > 0 {
-            self.open_response_header_legacy(data, response_key, response_iv)
-        } else {
-            self.open_response_header_aead(data, response_key, response_iv)
-        }
-    }
-
-    fn open_response_header_legacy(
-        &self,
-        data: &[u8],
-        response_key: &[u8; 16],
-        response_iv: &[u8; 16],
-    ) -> Result<VmessResponseHeader> {
-        if data.len() < 4 {
-            return Err(Error::protocol("Legacy response header too short"));
-        }
-
-        let mut decrypted = data.to_vec();
-        let cipher = Aes128CfbDec::new_from_slices(response_key, response_iv)
-            .map_err(|e| Error::protocol(format!("Failed to create AES-CFB cipher: {}", e)))?;
-        cipher.decrypt(&mut decrypted);
-
-        Ok(VmessResponseHeader {
-            response_header: decrypted[0],
-            option: decrypted[1],
-            command: decrypted[2],
-            command_length: decrypted[3],
-        })
-    }
-
-    fn open_response_header_aead(
-        &self,
-        data: &[u8],
-        response_key: &[u8; 16],
-        response_iv: &[u8; 16],
-    ) -> Result<VmessResponseHeader> {
-        if data.len() < 4 + VMESS_AEAD_AUTH_LEN {
-            return Err(Error::protocol("Response header too short"));
-        }
-
-        let cipher = Aes128Gcm::new_from_slice(response_key)
-            .map_err(|e| Error::protocol(format!("Failed to create response cipher: {}", e)))?;
-
-        let nonce = Nonce::from_slice(&response_iv[..VMESS_AEAD_NONCE_LEN]);
-
-        let decrypted = cipher
-            .decrypt(nonce, data)
-            .map_err(|e| Error::protocol(format!("Failed to decrypt response header: {}", e)))?;
-
-        if decrypted.len() < 4 {
-            return Err(Error::protocol("Decrypted response header too short"));
-        }
-
-        Ok(VmessResponseHeader {
-            response_header: decrypted[0],
-            option: decrypted[1],
-            command: decrypted[2],
-            command_length: decrypted[3],
-        })
+    pub fn is_udp_enabled(&self) -> bool {
+        self.udp_enabled
     }
 
     async fn connect_tcp(&self) -> Result<TcpStream> {
         let addr = format!("{}:{}", self.server, self.port);
-        #[cfg(target_os = "android")]
-        {
-            use socket2::{Domain, Protocol, Socket, Type};
-            use std::os::unix::io::AsRawFd;
+        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
+            .await
+            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
+            .next()
+            .ok_or_else(|| Error::network("No addresses found"))?;
 
-            // Resolve address first
-            let socket_addr: std::net::SocketAddr = tokio::net::lookup_host(&addr)
-                .await
-                .map_err(|e| {
-                    Error::network(format!("Failed to resolve VMess server {}: {}", addr, e))
-                })?
-                .next()
-                .ok_or_else(|| {
-                    Error::network(format!("No addresses found for VMess server {}", addr))
-                })?;
-
-            let domain = if socket_addr.is_ipv4() {
-                Domain::IPV4
-            } else {
-                Domain::IPV6
-            };
-
-            let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
-                .map_err(|e| Error::network(format!("Failed to create socket: {}", e)))?;
-
-            let fd = socket.as_raw_fd();
-            if !crate::socket_protect::protect_socket(fd) {
-                tracing::warn!(
-                    "Failed to protect VMess socket fd={}, connection may cause routing loop",
-                    fd
-                );
-            } else {
-                tracing::debug!("VMess socket fd={} protected successfully", fd);
-            }
-
-            socket
-                .set_nonblocking(true)
-                .map_err(|e| Error::network(format!("Failed to set non-blocking: {}", e)))?;
-
-            match socket.connect(&socket_addr.into()) {
-                Ok(()) => {}
-                Err(e) if e.raw_os_error() == Some(libc::EINPROGRESS) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    return Err(Error::network(format!(
-                        "Failed to connect to VMess server {}: {}",
-                        addr, e
-                    )))
-                }
-            }
-
-            let std_stream: std::net::TcpStream = socket.into();
-            let stream = TcpStream::from_std(std_stream)
-                .map_err(|e| Error::network(format!("Failed to convert socket: {}", e)))?;
-
-            stream.writable().await.map_err(|e| {
-                Error::network(format!("Connection to VMess server {} failed: {}", addr, e))
-            })?;
-
-            if let Some(e) = stream
-                .take_error()
-                .map_err(|e| Error::network(format!("Failed to check socket error: {}", e)))?
-            {
-                return Err(Error::network(format!(
-                    "Connection to VMess server {} failed: {}",
-                    addr, e
-                )));
-            }
-
-            stream.set_nodelay(true).ok();
-            tracing::info!("VMess TCP connection established to {} (protected)", addr);
-            return Ok(stream);
-        }
-
-        // Non-Android platforms: use simple connect
-        #[cfg(not(target_os = "android"))]
-        {
-            let stream = TcpStream::connect(&addr).await.map_err(|e| {
-                Error::network(format!("Failed to connect to VMess server {}: {}", addr, e))
-            })?;
-            stream.set_nodelay(true).ok();
-            Ok(stream)
-        }
+        tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(socket_addr))
+            .await
+            .map_err(|_| Error::network("TCP connect timeout"))?
+            .map_err(|e| Error::network(format!("TCP connect failed: {}", e)))
     }
 
-    /// Connect with TLS if enabled
     async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
-        let tcp_stream = self.connect_tcp().await?;
-
+        let tcp = self.connect_tcp().await?;
         let sni = self.sni.as_deref().unwrap_or(&self.server);
 
-        // Build TLS config
         let mut root_store = rustls::RootCertStore::empty();
-        let certs = rustls_native_certs::load_native_certs();
-        for cert in certs.certs {
+        for cert in rustls_native_certs::load_native_certs().certs {
             root_store.add(cert).ok();
         }
 
         let tls_config = if self.skip_cert_verify {
-            let verifier = std::sync::Arc::new(crate::tls::SkipServerVerification);
+            let verifier = Arc::new(SkipServerVerification);
             rustls::ClientConfig::builder()
                 .dangerous()
                 .with_custom_certificate_verifier(verifier)
@@ -1573,74 +2618,172 @@ impl VmessOutbound {
                 .with_no_client_auth()
         };
 
-        let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls_config));
+        let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
         let server_name = rustls::pki_types::ServerName::try_from(sni.to_string())
             .map_err(|_| Error::config(format!("Invalid SNI: {}", sni)))?;
 
-        let tls_stream = connector
-            .connect(server_name, tcp_stream)
+        tokio::time::timeout(Duration::from_secs(10), connector.connect(server_name, tcp))
             .await
-            .map_err(|e| Error::network(format!("TLS handshake failed: {}", e)))?;
-
-        Ok(tls_stream)
+            .map_err(|_| Error::network("TLS handshake timeout"))?
+            .map_err(|e| Error::network(format!("TLS handshake failed: {}", e)))
     }
 
-    /// Connect and return a boxed stream (TCP, TLS, or WebSocket)
     async fn connect_stream(&self) -> Result<Box<dyn AsyncReadWrite>> {
         match self.transport {
-            VmessTransport::Ws => {
-                let default_ws_opts = VmessWsOptions::default();
-                let ws_opts = self.ws_opts.as_ref().unwrap_or(&default_ws_opts);
-                let host = ws_opts.host.as_deref().unwrap_or(&self.server);
-                let path = &ws_opts.path;
-
+            VmessTransport::Tcp => {
+                tracing::debug!(
+                    "[VMess] Connecting via TCP to {}:{}",
+                    self.server,
+                    self.port
+                );
                 if self.tls_enabled {
-                    let tls_stream = self.connect_tls().await?;
-                    let ws_stream =
-                        WebSocketStream::handshake(tls_stream, host, path, &ws_opts.headers)
-                            .await?;
-                    Ok(Box::new(ws_stream) as Box<dyn AsyncReadWrite>)
+                    Ok(Box::new(self.connect_tls().await?) as Box<dyn AsyncReadWrite>)
                 } else {
-                    let tcp_stream = self.connect_tcp().await?;
-                    let ws_stream =
-                        WebSocketStream::handshake(tcp_stream, host, path, &ws_opts.headers)
-                            .await?;
-                    Ok(Box::new(ws_stream) as Box<dyn AsyncReadWrite>)
+                    Ok(Box::new(self.connect_tcp().await?) as Box<dyn AsyncReadWrite>)
                 }
+            }
+            VmessTransport::Ws => {
+                tracing::info!(
+                    "[VMess] Connecting via WebSocket to {}:{}, tls={}",
+                    self.server,
+                    self.port,
+                    self.tls_enabled
+                );
+
+                let stream: Box<dyn AsyncReadWrite> = if self.tls_enabled {
+                    tracing::debug!("[VMess] Establishing TLS connection...");
+                    Box::new(self.connect_tls().await?)
+                } else {
+                    tracing::debug!("[VMess] Establishing TCP connection...");
+                    Box::new(self.connect_tcp().await?)
+                };
+                tracing::debug!("[VMess] Transport connection established");
+
+                let ws_opts = self.ws_opts.as_ref().unwrap();
+                let host = ws_opts.host.as_deref().unwrap_or(&self.server);
+
+                tracing::info!(
+                    "[VMess] Starting WebSocket handshake: host={}, path={}, headers={:?}",
+                    host,
+                    ws_opts.path,
+                    ws_opts.headers.keys().collect::<Vec<_>>()
+                );
+
+                let ws = WebSocketStream::handshake(stream, host, &ws_opts.path, &ws_opts.headers)
+                    .await?;
+
+                tracing::info!("[VMess] ✓ WebSocket handshake completed successfully");
+                Ok(Box::new(ws) as Box<dyn AsyncReadWrite>)
             }
             VmessTransport::Quic => {
-                let quic_stream = self.connect_quic().await?;
-                Ok(Box::new(quic_stream) as Box<dyn AsyncReadWrite>)
+                let stream = self.connect_quic().await?;
+                Ok(Box::new(stream) as Box<dyn AsyncReadWrite>)
             }
             VmessTransport::Mkcp => {
-                let mkcp_stream = self.connect_mkcp().await?;
-                Ok(Box::new(mkcp_stream) as Box<dyn AsyncReadWrite>)
+                let stream = self.connect_mkcp().await?;
+                Ok(Box::new(stream) as Box<dyn AsyncReadWrite>)
             }
-            _ => {
-                // TCP or other transports
-                if self.tls_enabled {
-                    let tls_stream = self.connect_tls().await?;
-                    Ok(Box::new(tls_stream) as Box<dyn AsyncReadWrite>)
-                } else {
-                    let tcp_stream = self.connect_tcp().await?;
-                    Ok(Box::new(tcp_stream) as Box<dyn AsyncReadWrite>)
-                }
+            VmessTransport::H2 => {
+                let tls_stream = self.connect_tls().await?;
+                let h2_opts = self.h2_opts.as_ref().unwrap();
+
+                let h2_config = crate::transport::h2::H2Config {
+                    hosts: if h2_opts.hosts.is_empty() {
+                        vec![self.server.clone()]
+                    } else {
+                        h2_opts.hosts.clone()
+                    },
+                    headers: h2_opts.headers.clone(),
+                    method: http::Method::GET,
+                    path: h2_opts.path.clone(),
+                };
+
+                let h2_client = crate::transport::h2::H2Client::new(h2_config)?;
+                let h2_stream = h2_client.proxy_stream(tls_stream).await?;
+                Ok(Box::new(h2_stream) as Box<dyn AsyncReadWrite>)
+            }
+            VmessTransport::Grpc => {
+                let tls_stream = self.connect_tls().await?;
+                let grpc_opts = self.grpc_opts.as_ref().unwrap();
+
+                let grpc_config = crate::transport::grpc::GrpcConfig {
+                    host: self.sni.clone().unwrap_or_else(|| self.server.clone()),
+                    service_name: grpc_opts.service_name.clone(),
+                };
+
+                let grpc_client = crate::transport::grpc::GrpcClient::new(grpc_config)?;
+                let grpc_stream = grpc_client.proxy_stream(tls_stream).await?;
+                Ok(Box::new(grpc_stream) as Box<dyn AsyncReadWrite>)
             }
         }
     }
 
-    /// Connect via mKCP transport
+    async fn connect_quic(&self) -> Result<QuicBiStream> {
+        let addr = format!("{}:{}", self.server, self.port);
+        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
+            .await
+            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
+            .next()
+            .ok_or_else(|| Error::network("No addresses found"))?;
+
+        let mut root_store = rustls::RootCertStore::empty();
+        for cert in rustls_native_certs::load_native_certs().certs {
+            root_store.add(cert).ok();
+        }
+
+        let mut tls_config = if self.skip_cert_verify {
+            let verifier = Arc::new(SkipServerVerification);
+            rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(verifier)
+                .with_no_client_auth()
+        } else {
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        };
+        tls_config.alpn_protocols = self
+            .quic_alpn
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect();
+
+        let client_config = QuinnClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)
+                .map_err(|e| Error::config(format!("QUIC config error: {}", e)))?,
+        ));
+
+        let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
+            .map_err(|e| Error::network(format!("QUIC endpoint error: {}", e)))?;
+        endpoint.set_default_client_config(client_config);
+
+        let sni = self.sni.as_deref().unwrap_or(&self.server);
+        let conn = endpoint
+            .connect(socket_addr, sni)
+            .map_err(|e| Error::network(format!("QUIC connect error: {}", e)))?
+            .await
+            .map_err(|e| Error::network(format!("QUIC connection failed: {}", e)))?;
+
+        let (send, recv) = conn
+            .open_bi()
+            .await
+            .map_err(|e| Error::network(format!("QUIC stream error: {}", e)))?;
+
+        *self.quic_endpoint.lock().await = Some(endpoint);
+        *self.quic_connection.lock().await = Some(conn);
+
+        Ok(QuicBiStream::new(send, recv))
+    }
+
     async fn connect_mkcp(&self) -> Result<crate::transport::mkcp::MkcpStream> {
         use crate::transport::mkcp::{MkcpConfig, MkcpHeaderType, MkcpStream};
 
         let addr = format!("{}:{}", self.server, self.port);
         let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
             .await
-            .map_err(|e| Error::network(format!("Failed to resolve VMess server {}: {}", addr, e)))?
+            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
             .next()
-            .ok_or_else(|| {
-                Error::network(format!("No addresses found for VMess server {}", addr))
-            })?;
+            .ok_or_else(|| Error::network("No addresses found"))?;
 
         let mkcp_config = if let Some(ref opts) = self.mkcp_opts {
             MkcpConfig {
@@ -1658,542 +2801,63 @@ impl VmessOutbound {
             MkcpConfig::default()
         };
 
-        let stream = MkcpStream::connect(socket_addr, mkcp_config).await?;
-        tracing::debug!("VMess mKCP connection established to {}", socket_addr);
-
-        Ok(stream)
-    }
-
-    /// Connect via QUIC transport
-    async fn connect_quic(&self) -> Result<QuicBiStream> {
-        let addr = format!("{}:{}", self.server, self.port);
-        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
-            .await
-            .map_err(|e| Error::network(format!("Failed to resolve VMess server {}: {}", addr, e)))?
-            .next()
-            .ok_or_else(|| {
-                Error::network(format!("No addresses found for VMess server {}", addr))
-            })?;
-
-        // Check if we have an existing connection
-        {
-            let conn_guard = self.quic_connection.lock().await;
-            if let Some(ref conn) = *conn_guard {
-                if conn.close_reason().is_none() {
-                    // Connection is still alive, open a new stream
-                    let (send, recv) = conn.open_bi().await.map_err(|e| {
-                        Error::network(format!("Failed to open QUIC stream: {}", e))
-                    })?;
-                    return Ok(QuicBiStream::new(send, recv));
-                }
-            }
-        }
-
-        let mut endpoint_guard = self.quic_endpoint.lock().await;
-        let endpoint = match endpoint_guard.take() {
-            Some(ep) => ep,
-            None => {
-                let bind_addr: SocketAddr = if socket_addr.is_ipv6() {
-                    "[::]:0".parse().unwrap()
-                } else {
-                    "0.0.0.0:0".parse().unwrap()
-                };
-                Endpoint::client(bind_addr)
-                    .map_err(|e| Error::network(format!("Failed to create QUIC endpoint: {}", e)))?
-            }
-        };
-
-        let mut root_store = rustls::RootCertStore::empty();
-        let certs = rustls_native_certs::load_native_certs();
-        for cert in certs.certs {
-            root_store.add(cert).ok();
-        }
-
-        let mut tls_config = if self.skip_cert_verify {
-            rustls::ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
-                .with_no_client_auth()
-        } else {
-            rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth()
-        };
-
-        tls_config.alpn_protocols = self
-            .quic_alpn
-            .iter()
-            .map(|s| s.as_bytes().to_vec())
-            .collect();
-
-        let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)
-            .map_err(|e| Error::config(format!("Failed to create QUIC config: {}", e)))?;
-
-        let mut client_config = QuinnClientConfig::new(Arc::new(quic_config));
-        let mut transport_config = quinn::TransportConfig::default();
-        transport_config.max_concurrent_bidi_streams(100u32.into());
-        transport_config.max_concurrent_uni_streams(100u32.into());
-        transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
-        transport_config.keep_alive_interval(Some(Duration::from_secs(10)));
-        client_config.transport_config(Arc::new(transport_config));
-
-        let server_name = self.sni.as_deref().unwrap_or(&self.server);
-
-        let connecting = endpoint
-            .connect_with(client_config, socket_addr, server_name)
-            .map_err(|e| {
-                Error::network(format!("Failed to connect to VMess QUIC server: {}", e))
-            })?;
-
-        let connection = connecting
-            .await
-            .map_err(|e| Error::network(format!("QUIC connection failed: {}", e)))?;
-
-        tracing::debug!("VMess QUIC connection established to {}", socket_addr);
-        let (send, recv) = connection
-            .open_bi()
-            .await
-            .map_err(|e| Error::network(format!("Failed to open QUIC stream: {}", e)))?;
-
-        *endpoint_guard = Some(endpoint);
-        let mut conn_guard = self.quic_connection.lock().await;
-        *conn_guard = Some(connection);
-
-        Ok(QuicBiStream::new(send, recv))
-    }
-
-    async fn handshake<S: AsyncRead + AsyncWrite + Unpin + ?Sized>(
-        &self,
-        stream: &mut S,
-        target: &TargetAddr,
-        cmd: VmessCommand,
-    ) -> Result<([u8; 16], [u8; 16], u8, VmessOption)> {
-        let request_key = self.generate_request_key();
-        let request_iv = self.generate_request_iv();
-        let response_header_byte: u8 = rand::random();
-        let is_legacy = self.alter_id > 0;
-
-        let (address_type, address_bytes) = match target {
-            TargetAddr::Domain(domain, _) => {
-                let mut bytes = Vec::with_capacity(domain.len() + 1);
-                bytes.push(domain.len() as u8);
-                bytes.extend_from_slice(domain.as_bytes());
-                (VmessAddressType::Domain, bytes)
-            }
-            TargetAddr::Ip(addr) => match addr {
-                std::net::SocketAddr::V4(v4) => (VmessAddressType::Ipv4, v4.ip().octets().to_vec()),
-                std::net::SocketAddr::V6(v6) => (VmessAddressType::Ipv6, v6.ip().octets().to_vec()),
-            },
-        };
-
-        let padding_length = if is_legacy {
-            0
-        } else {
-            rand::random::<u8>() % 16
-        };
-        let option = if is_legacy {
-            VmessOption::CHUNK_STREAM
-        } else {
-            VmessOption::CHUNK_STREAM | VmessOption::CHUNK_MASKING
-        };
-
-        let header = VmessHeader {
-            version: VMESS_VERSION,
-            request_body_iv: request_iv,
-            request_body_key: request_key,
-            response_header: response_header_byte,
-            option,
-            padding_length,
-            security: self.cipher,
-            command: cmd,
-            port: target.port(),
-            address_type,
-            address: address_bytes,
-        };
-
-        let local_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        let timestamp = time_sync::get_vmess_timestamp();
-        let time_offset_ms = time_sync::get_time_offset_ms();
-        let now_utc = chrono::Utc::now();
-        tracing::info!(
-            "VMess handshake: local_ts={}, vmess_ts={}, ntp_offset={}ms, UTC: {}",
-            local_timestamp,
-            timestamp,
-            time_offset_ms,
-            now_utc.format("%Y-%m-%d %H:%M:%S")
-        );
-
-        tracing::debug!(
-            "VMess handshake: uuid={}, cipher={:?}, target={}:{}, cmd={:?}, option={:#x}",
-            self.uuid,
-            self.cipher,
-            target,
-            target.port(),
-            cmd,
-            option.bits()
-        );
-
-        let corrected_ts = time_sync::get_corrected_timestamp();
-        tracing::info!(
-            "VMess: corrected_ts={}, vmess_ts={} (diff={}s, valid range: ±30s)",
-            corrected_ts,
-            timestamp,
-            timestamp - corrected_ts
-        );
-
-        let sealed_header = self.seal_header(&header, timestamp)?;
-
-        tracing::info!(
-            "VMess sealed header: {} bytes, response_header_byte={}, mode={}, cipher={:?}, option={:#x}",
-            sealed_header.len(),
-            response_header_byte,
-            if self.alter_id > 0 { "legacy" } else { "AEAD" },
-            self.cipher,
-            option.bits()
-        );
-
-        tracing::debug!(
-            "VMess header bytes (first 32): {:02x?}",
-            &sealed_header[..std::cmp::min(32, sealed_header.len())]
-        );
-
-        stream
-            .write_all(&sealed_header)
-            .await
-            .map_err(|e| Error::network(format!("Failed to send VMess header: {}", e)))?;
-        stream.flush().await.ok();
-
-        tracing::info!(
-            "VMess handshake sent for target: {} (waiting for client data)",
-            target
-        );
-
-        Ok((request_key, request_iv, response_header_byte, option))
-    }
-
-    pub fn is_udp_enabled(&self) -> bool {
-        self.udp_enabled
-    }
-
-    async fn get_or_create_udp_session(&self, target: &TargetAddr) -> Result<Arc<VmessUdpSession>> {
-        let session_key = target.to_string();
-
-        if let Some(session) = self.udp_sessions.get(&session_key) {
-            let session = session.clone();
-            if !session.is_expired(Duration::from_secs(60)) {
-                session.touch();
-                return Ok(session);
-            }
-            // Session expired, remove it
-            self.udp_sessions.remove(&session_key);
-        }
-
-        let mut stream = self.connect_stream().await?;
-        let (request_key, request_iv, _response_header, _option) = self
-            .handshake(&mut *stream, target, VmessCommand::Udp)
-            .await?;
-
-        let response_key = self.generate_response_key(&request_key);
-        let response_iv = self.generate_response_iv(&request_iv);
-
-        let session = Arc::new(VmessUdpSession::new(
-            stream,
-            request_key,
-            request_iv,
-            response_key,
-            response_iv,
-        ));
-
-        self.udp_sessions.insert(session_key, session.clone());
-
-        tracing::debug!("Created new VMess UDP session for {}", target);
-        Ok(session)
+        MkcpStream::connect(socket_addr, mkcp_config).await
     }
 
     pub fn cleanup_udp_sessions(&self) {
-        let mut expired_keys = Vec::new();
+        let expired: Vec<_> = self
+            .udp_sessions
+            .iter()
+            .filter(|e| e.value().is_expired(Duration::from_secs(120)))
+            .map(|e| e.key().clone())
+            .collect();
 
-        for entry in self.udp_sessions.iter() {
-            if entry.value().is_expired(Duration::from_secs(120)) {
-                expired_keys.push(entry.key().clone());
-            }
-        }
-
-        for key in expired_keys {
+        for key in expired {
             self.udp_sessions.remove(&key);
-            tracing::debug!("Removed expired VMess UDP session: {}", key);
+            tracing::debug!("Removed expired UDP session: {}", key);
         }
     }
 
-    pub async fn relay_udp(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
-        if !self.udp_enabled {
-            return Err(Error::config(
-                "UDP relay is not enabled for this VMess proxy",
-            ));
-        }
+    async fn relay_udp(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
+        let stream = self.connect_stream().await?;
+        let id = VmessId::new(&self.uuid);
+        let security = self.cipher.as_byte();
 
-        let session = self.get_or_create_udp_session(target).await?;
+        let mut vmess_stream =
+            VmessStream::new(stream, &id, target, &security, self.use_aead, true)
+                .await
+                .map_err(|e| Error::protocol(format!("VMess UDP handshake failed: {}", e)))?;
 
-        let chunk_count = session.next_chunk_count();
-        let request_key = session.request_key;
-        let request_iv = session.request_iv;
-        let response_key = session.response_key;
-        let response_iv = session.response_iv;
-        let target_str = target.to_string();
-
-        let mut stream_guard = session.stream.lock().await;
-        let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
-        if let Err(e) = stream_guard.write_all(&encrypted_data).await {
-            drop(stream_guard);
-            self.udp_sessions.remove(&target_str);
-            return Err(Error::network(format!("Failed to send UDP data: {}", e)));
-        }
-        stream_guard.flush().await.ok();
-        session.touch();
-
-        let timeout = Duration::from_secs(10);
-        let response = tokio::time::timeout(
-            timeout,
-            self.read_response_chunk(&mut **stream_guard, &response_key, &response_iv),
-        )
-        .await
-        .map_err(|_| Error::network("UDP receive timeout"))?
-        .map_err(|e| {
-            // Read error, remove session
-            Error::network(format!("Failed to receive UDP response: {}", e))
-        })?;
-
-        Ok(response)
-    }
-
-    pub async fn send_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<()> {
-        if !self.udp_enabled {
-            return Err(Error::config(
-                "UDP relay is not enabled for this VMess proxy",
-            ));
-        }
-
-        let session = self.get_or_create_udp_session(target).await?;
-
-        let chunk_count = session.next_chunk_count();
-        let request_key = session.request_key;
-        let request_iv = session.request_iv;
-
-        let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
-
-        let mut stream_guard = session.stream.lock().await;
-        stream_guard
-            .write_all(&encrypted_data)
+        vmess_stream
+            .write_all(data)
             .await
             .map_err(|e| Error::network(format!("Failed to send UDP data: {}", e)))?;
-        stream_guard.flush().await.ok();
-        session.touch();
+        vmess_stream.flush().await.ok();
 
-        Ok(())
-    }
-
-    fn encrypt_chunk(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        match self.cipher {
-            VmessCipher::Aes128Gcm | VmessCipher::Auto => {
-                self.encrypt_aes_gcm(data, key, iv, count)
-            }
-            VmessCipher::Chacha20Poly1305 => self.encrypt_chacha20(data, key, iv, count),
-            VmessCipher::Aes128Cfb => {
-                encrypt_chunk_legacy(self.cipher, data, key, iv, count, &mut None)
-            }
-            VmessCipher::None | VmessCipher::Zero => {
-                let mut result = Vec::with_capacity(2 + data.len());
-                result.extend_from_slice(&(data.len() as u16).to_be_bytes());
-                result.extend_from_slice(data);
-                Ok(result)
-            }
-        }
-    }
-
-    fn encrypt_aes_gcm(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        let cipher = Aes128Gcm::new_from_slice(key)
-            .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-
-        let mut nonce_bytes = [0u8; 12];
-        nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-        nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        let encrypted = cipher
-            .encrypt(nonce, data)
-            .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
-
-        let length = (encrypted.len() as u16).to_be_bytes();
-        let mut result = Vec::with_capacity(2 + encrypted.len());
-        result.extend_from_slice(&length);
-        result.extend_from_slice(&encrypted);
-        Ok(result)
-    }
-
-    fn encrypt_chacha20(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        let mut full_key = [0u8; 32];
-        full_key[..16].copy_from_slice(key);
-        full_key[16..].copy_from_slice(key);
-
-        let cipher = ChaCha20Poly1305::new_from_slice(&full_key)
-            .map_err(|e| Error::protocol(format!("Failed to create ChaCha20 cipher: {}", e)))?;
-
-        let mut nonce_bytes = [0u8; 12];
-        nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-        nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
-
-        let encrypted = cipher
-            .encrypt(nonce, data)
-            .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
-
-        let length = (encrypted.len() as u16).to_be_bytes();
-        let mut result = Vec::with_capacity(2 + encrypted.len());
-        result.extend_from_slice(&length);
-        result.extend_from_slice(&encrypted);
-        Ok(result)
-    }
-
-    fn decrypt_chunk(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        match self.cipher {
-            VmessCipher::Aes128Gcm | VmessCipher::Auto => {
-                self.decrypt_aes_gcm(data, key, iv, count)
-            }
-            VmessCipher::Chacha20Poly1305 => self.decrypt_chacha20(data, key, iv, count),
-            VmessCipher::Aes128Cfb => decrypt_chunk_legacy(self.cipher, data, key, iv, count),
-            VmessCipher::None | VmessCipher::Zero => Ok(data.to_vec()),
-        }
-    }
-
-    fn decrypt_aes_gcm(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        let cipher = Aes128Gcm::new_from_slice(key)
-            .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-
-        let mut nonce_bytes = [0u8; 12];
-        nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-        nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        let decrypted = cipher
-            .decrypt(nonce, data)
-            .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
-
-        Ok(decrypted)
-    }
-
-    fn decrypt_chacha20(
-        &self,
-        data: &[u8],
-        key: &[u8; 16],
-        iv: &[u8; 16],
-        count: u16,
-    ) -> Result<Vec<u8>> {
-        let mut full_key = [0u8; 32];
-        full_key[..16].copy_from_slice(key);
-        full_key[16..].copy_from_slice(key);
-
-        let cipher = ChaCha20Poly1305::new_from_slice(&full_key)
-            .map_err(|e| Error::protocol(format!("Failed to create ChaCha20 cipher: {}", e)))?;
-
-        let mut nonce_bytes = [0u8; 12];
-        nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-        nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
-
-        let decrypted = cipher
-            .decrypt(nonce, data)
-            .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
-
-        Ok(decrypted)
-    }
-
-    async fn read_response_chunk<S: AsyncRead + Unpin + ?Sized>(
-        &self,
-        stream: &mut S,
-        key: &[u8; 16],
-        iv: &[u8; 16],
-    ) -> Result<Vec<u8>> {
-        let mut length_buf = [0u8; 2];
-        stream
-            .read_exact(&mut length_buf)
+        let mut response = vec![0u8; 65535];
+        let n = tokio::time::timeout(Duration::from_secs(10), vmess_stream.read(&mut response))
             .await
-            .map_err(|e| Error::network(format!("Failed to read chunk length: {}", e)))?;
+            .map_err(|_| Error::network("UDP response timeout"))?
+            .map_err(|e| Error::network(format!("Failed to read UDP response: {}", e)))?;
 
-        let length = u16::from_be_bytes(length_buf) as usize;
-        if length == 0 {
-            return Ok(Vec::new());
-        }
-
-        let mut data = vec![0u8; length];
-        stream
-            .read_exact(&mut data)
-            .await
-            .map_err(|e| Error::network(format!("Failed to read chunk data: {}", e)))?;
-
-        self.decrypt_chunk(&data, key, iv, 0)
+        response.truncate(n);
+        Ok(response)
     }
+}
 
-    /// Read response chunk for legacy VMess mode
-    async fn read_response_chunk_legacy<S: AsyncRead + Unpin + ?Sized>(
-        &self,
-        stream: &mut S,
-        key: &[u8; 16],
-        iv: &[u8; 16],
-    ) -> Result<Vec<u8>> {
-        let mut length_buf = [0u8; 2];
-        stream
-            .read_exact(&mut length_buf)
-            .await
-            .map_err(|e| Error::network(format!("Failed to read chunk length: {}", e)))?;
+// ============================================================================
+// OutboundProxy Trait 实现
+// ============================================================================
 
-        let length = u16::from_be_bytes(length_buf) as usize;
-        if length == 0 {
-            return Ok(Vec::new());
-        }
-
-        let mut data = vec![0u8; length];
-        stream
-            .read_exact(&mut data)
-            .await
-            .map_err(|e| Error::network(format!("Failed to read chunk data: {}", e)))?;
-
-        // Legacy mode uses AES-128-CFB with IV derived from count
-        decrypt_chunk_legacy(self.cipher, &data, key, iv, 0)
-    }
+fn is_connection_closed_error(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 #[async_trait::async_trait]
@@ -2201,7 +2865,7 @@ impl OutboundProxy for VmessOutbound {
     async fn connect(&self) -> Result<()> {
         let _stream = self.connect_tcp().await?;
         tracing::info!(
-            "VMess outbound '{}' can reach {}:{}",
+            "VMess '{}' can reach {}:{}",
             self.config.tag,
             self.server,
             self.port
@@ -2227,157 +2891,54 @@ impl OutboundProxy for VmessOutbound {
 
     async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         if !self.udp_enabled {
-            return Err(Error::config(
-                "UDP relay is not enabled for this VMess proxy",
-            ));
+            return Err(Error::config("UDP not enabled"));
         }
         self.relay_udp(target, data).await
     }
 
-    async fn test_http_latency(
-        &self,
-        test_url: &str,
-        timeout: std::time::Duration,
-    ) -> Result<std::time::Duration> {
-        use std::time::Instant;
+    async fn test_http_latency(&self, test_url: &str, timeout: Duration) -> Result<Duration> {
+        let start = Instant::now();
 
-        let url = url::Url::parse(test_url)
-            .map_err(|e| Error::config(format!("Invalid test URL: {}", e)))?;
-
+        let url =
+            url::Url::parse(test_url).map_err(|e| Error::config(format!("Invalid URL: {}", e)))?;
         let host = url
             .host_str()
-            .ok_or_else(|| Error::config("Test URL has no host"))?
-            .to_string();
-        let url_port = url
+            .ok_or_else(|| Error::config("Missing host"))?;
+        let port = url
             .port()
             .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() {
-            "/"
-        } else {
-            url.path()
-        };
+        let path = url.path();
 
-        let start = Instant::now();
-        let is_legacy = self.is_legacy_mode();
+        let target = TargetAddr::Domain(host.to_string(), port);
+        let outbound = self.connect_stream().await?;
+        let id = VmessId::new(&self.uuid);
+        let security = self.cipher.as_byte();
 
-        // Use connect_stream to support TLS
-        let mut stream = tokio::time::timeout(timeout, self.connect_stream())
-            .await
-            .map_err(|_| Error::network("Connection timeout"))?
-            .map_err(|e| Error::network(format!("Connection failed: {}", e)))?;
+        let mut vmess_stream = tokio::time::timeout(
+            timeout,
+            VmessStream::new(outbound, &id, &target, &security, self.use_aead, false),
+        )
+        .await
+        .map_err(|_| Error::network("VMess handshake timeout"))?
+        .map_err(|e| Error::protocol(format!("VMess handshake failed: {}", e)))?;
 
-        let target = TargetAddr::Domain(host.clone(), url_port);
-        let (request_key, request_iv, _, option) = self
-            .handshake(&mut *stream, &target, VmessCommand::Tcp)
-            .await?;
-
-        // 创建请求掩码生成器 (如果启用了 Opt(M))
-        let use_masking = option.contains(VmessOption::CHUNK_MASKING);
-        let mut request_mask = if use_masking {
-            Some(ShakeMask::new(&request_iv))
-        } else {
-            None
-        };
-
-        let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
             path, host
         );
 
-        let encrypted_request = if is_legacy {
-            encrypt_chunk_legacy(
-                self.cipher,
-                http_request.as_bytes(),
-                &request_key,
-                &request_iv,
-                0,
-                &mut None,
-            )?
-        } else {
-            encrypt_chunk_aead(
-                self.cipher,
-                http_request.as_bytes(),
-                &request_key,
-                &request_iv,
-                0,
-                &mut request_mask,
-            )?
-        };
-        stream
-            .write_all(&encrypted_request)
+        vmess_stream
+            .write_all(request.as_bytes())
             .await
-            .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;
+            .map_err(|e| Error::network(format!("Failed to send request: {}", e)))?;
+        vmess_stream.flush().await.ok();
+        let mut response = vec![0u8; 1024];
+        tokio::time::timeout(timeout, vmess_stream.read(&mut response))
+            .await
+            .map_err(|_| Error::network("Response timeout"))?
+            .map_err(|e| Error::network(format!("Failed to read response: {}", e)))?;
 
-        let response_key = self.generate_response_key(&request_key);
-        let response_iv = self.generate_response_iv(&request_iv);
-
-        let result = tokio::time::timeout(timeout, async {
-            if is_legacy {
-                // Legacy mode: 4 bytes encrypted with AES-128-CFB
-                let mut header_data = vec![0u8; 4];
-                stream.read_exact(&mut header_data).await.map_err(|e| {
-                    Error::network(format!("Failed to read response header: {}", e))
-                })?;
-
-                // Decrypt using AES-128-CFB
-                let cipher =
-                    Aes128CfbDec::new_from_slices(&response_key, &response_iv).map_err(|e| {
-                        Error::protocol(format!("Failed to create AES-CFB cipher: {}", e))
-                    })?;
-                cipher.decrypt(&mut header_data);
-            } else {
-                // AEAD mode: 20 bytes (4 + 16 auth tag)
-                let mut header_data = vec![0u8; 4 + VMESS_AEAD_AUTH_LEN];
-                stream.read_exact(&mut header_data).await.map_err(|e| {
-                    Error::network(format!("Failed to read response header: {}", e))
-                })?;
-
-                // Decrypt response header using AES-128-GCM
-                let aes_cipher = Aes128Gcm::new_from_slice(&response_key).map_err(|e| {
-                    Error::protocol(format!("Failed to create response cipher: {}", e))
-                })?;
-                let nonce = Nonce::from_slice(&response_iv[..VMESS_AEAD_NONCE_LEN]);
-
-                let _decrypted_header =
-                    aes_cipher
-                        .decrypt(nonce, header_data.as_slice())
-                        .map_err(|e| {
-                            Error::protocol(format!("Failed to decrypt response header: {}", e))
-                        })?;
-            }
-
-            // Now read the actual response data
-            let response = if is_legacy {
-                self.read_response_chunk_legacy(&mut *stream, &response_key, &response_iv)
-                    .await?
-            } else {
-                self.read_response_chunk(&mut *stream, &response_key, &response_iv)
-                    .await?
-            };
-            let response_str = String::from_utf8_lossy(&response);
-            if response_str.starts_with("HTTP/") {
-                Ok(())
-            } else {
-                Err(Error::network("Invalid HTTP response"))
-            }
-        })
-        .await;
-
-        match result {
-            Ok(Ok(())) => {
-                let elapsed = start.elapsed();
-                tracing::info!("VMess latency test success: {}ms", elapsed.as_millis());
-                Ok(elapsed)
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("VMess latency test failed: {}", e);
-                Err(e)
-            }
-            Err(_) => {
-                tracing::warn!("VMess latency test timeout");
-                Err(Error::network("Response timeout"))
-            }
-        }
+        Ok(start.elapsed())
     }
 
     async fn relay_tcp(&self, inbound: Box<dyn AsyncReadWrite>, target: TargetAddr) -> Result<()> {
@@ -2390,770 +2951,149 @@ impl OutboundProxy for VmessOutbound {
         target: TargetAddr,
         connection: Option<Arc<TrackedConnection>>,
     ) -> Result<()> {
-        // Use connect_stream to support TLS
-        let mut stream = self.connect_stream().await?;
-        let (request_key, request_iv, expected_response_header, option) = self
-            .handshake(&mut *stream, &target, VmessCommand::Tcp)
-            .await?;
-
-        let response_key = self.generate_response_key(&request_key);
-        let response_iv = self.generate_response_iv(&request_iv);
-        let is_legacy = self.is_legacy_mode();
-        let use_masking = option.contains(VmessOption::CHUNK_MASKING) && !is_legacy;
-
-        tracing::debug!(
-            "VMess: relaying TCP to {} via {}:{} (tls={}, cipher={:?}, legacy={}, alterId={}, masking={})",
+        tracing::info!(
+            "[VMess] Starting relay to {} via {}:{}, transport={:?}, tls={}, is_aead={}",
             target,
             self.server,
             self.port,
+            self.transport,
             self.tls_enabled,
-            self.cipher,
-            is_legacy,
-            self.alter_id,
-            use_masking
+            self.use_aead
         );
 
-        let tracker = global_tracker();
-        let (mut ri, mut wi) = tokio::io::split(inbound);
-        let (mut ro, mut wo) = tokio::io::split(stream);
+        let sync_result = time_sync::ensure_time_synced().await;
+        if !sync_result.success && time_sync::needs_resync() {
+            tracing::warn!(
+                "NTP sync failed, VMess connection may fail due to time drift: {:?}",
+                sync_result.error
+            );
+        }
 
-        let cipher = self.cipher;
-        let conn_upload = connection.clone();
-        let conn_download = connection.clone();
+        tracing::debug!("[VMess] Connecting to transport layer...");
+        let outbound = self.connect_stream().await.map_err(|e| {
+            tracing::error!("[VMess] Transport connection failed: {}", e);
+            e
+        })?;
+        tracing::debug!("[VMess] Transport connected, starting VMess handshake...");
 
-        // VMess protocol: client sends request header first, then data
-        // Server responds with response header after receiving first data chunk
-        // We use a channel to coordinate this
-        let (first_data_tx, first_data_rx) = tokio::sync::oneshot::channel::<bool>();
-        let first_data_tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(first_data_tx)));
+        let id = VmessId::new(&self.uuid);
+        let security = self.cipher.as_byte();
 
-        // 创建请求掩码生成器 (如果启用了 Opt(M))
-        let mut request_mask = if use_masking {
-            Some(ShakeMask::new(&request_iv))
-        } else {
-            None
-        };
+        tracing::debug!(
+            "[VMess] Creating VMess stream: target={}, security={:02x}, is_aead={}, is_udp=false",
+            target,
+            security,
+            self.use_aead
+        );
 
-        let client_to_remote = async {
-            let mut buf = vec![0u8; VMESS_MAX_CHUNK_SIZE];
-            let mut count: u16 = 0;
-            let mut first_sent = false;
-            let mut has_data_to_send = false;
+        let vmess_stream = tokio::time::timeout(
+            Duration::from_secs(10),
+            VmessStream::new(outbound, &id, &target, &security, self.use_aead, false),
+        )
+        .await
+        .map_err(|_| {
+            tracing::error!("[VMess] Handshake timeout after 10s for target {}", target);
+            Error::network("VMess handshake timeout")
+        })?
+        .map_err(|e| {
+            tracing::error!("[VMess] Handshake failed for target {}: {}", target, e);
+            Error::protocol(format!("VMess handshake failed: {}", e))
+        })?;
 
+        tracing::info!(
+            "[VMess] ✓ Handshake completed successfully, starting data relay to {}",
+            target
+        );
+
+        let (mut inbound_read, mut inbound_write) = tokio::io::split(inbound);
+        let (mut vmess_read, mut vmess_write) = tokio::io::split(vmess_stream);
+
+        let upload_conn = connection.clone();
+        let download_conn = connection;
+
+        // Upload: inbound -> vmess
+        let upload = async {
+            let mut buf = vec![0u8; 16 * 1024];
+            let mut total = 0u64;
+            tracing::debug!("[VMess] Upload task started");
             loop {
-                // Read data from inbound
-                // For the first read, we wait for actual data without timeout
-                // because VMess server won't respond until we send data
-                let read_result = ri.read(&mut buf).await;
-
-                let n = read_result
-                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
-
-                if n == 0 {
-                    // 如果从未发送过数据，发送一个空的初始数据包以触发服务器响应
-                    if !has_data_to_send {
-                        tracing::debug!("VMess: client closed without sending data, sending empty packet to trigger server response");
-                        let empty_packet = if is_legacy {
-                            encrypt_chunk_legacy(
-                                cipher,
-                                &[],
-                                &request_key,
-                                &request_iv,
-                                0,
-                                &mut None,
-                            )?
-                        } else {
-                            encrypt_chunk_aead(
-                                cipher,
-                                &[],
-                                &request_key,
-                                &request_iv,
-                                0,
-                                &mut request_mask,
-                            )?
-                        };
-                        wo.write_all(&empty_packet).await.ok();
-                        wo.flush().await.ok();
-                        
-                        // Signal that we sent something
-                        if let Some(tx) = first_data_tx.lock().await.take() {
-                            let _ = tx.send(true);
-                        }
-                    }
-                    
-                    // Send end marker
-                    // 当传输结束时，客户端必须发送一个空的数据包
-                    // L = 0（不加密）或认证数据长度（有加密）
-                    let end_marker = if is_legacy {
-                        // Legacy mode: [Length 2B] where Length = 0
-                        vec![0u8; 2]
-                    } else {
-                        // AEAD mode: 发送加密的空数据包
-                        encrypt_chunk_aead(
-                            cipher,
-                            &[],
-                            &request_key,
-                            &request_iv,
-                            count,
-                            &mut request_mask,
-                        )?
-                    };
-                    wo.write_all(&end_marker).await.ok();
-                    wo.flush().await.ok();
-                    break;
-                }
-
-                has_data_to_send = true;
-                let encrypted = if is_legacy {
-                    encrypt_chunk_legacy(
-                        cipher,
-                        &buf[..n],
-                        &request_key,
-                        &request_iv,
-                        count,
-                        &mut None,
-                    )?
-                } else {
-                    encrypt_chunk_aead(
-                        cipher,
-                        &buf[..n],
-                        &request_key,
-                        &request_iv,
-                        count,
-                        &mut request_mask,
-                    )?
-                };
-                wo.write_all(&encrypted)
-                    .await
-                    .map_err(|e| Error::network(format!("Failed to write to VMess: {}", e)))?;
-                wo.flush().await.ok();
-
-                // Signal that first data has been sent
-                if !first_sent {
-                    first_sent = true;
-                    if let Some(tx) = first_data_tx.lock().await.take() {
-                        let _ = tx.send(true); // true = data was sent
-                    }
-                    tracing::debug!("VMess: first data chunk sent ({} bytes)", n);
-                }
-
-                tracker.add_global_upload(n as u64);
-                if let Some(ref conn) = conn_upload {
-                    conn.add_upload(n as u64);
-                }
-                count = count.wrapping_add(1);
-            }
-            wo.shutdown().await.ok();
-            Ok::<(), Error>(())
-        };
-
-        let remote_to_client = async {
-            let mut count: u16 = 0;
-
-            // Wait for signal from client_to_remote
-            // VMess protocol: server only responds after receiving first data chunk
-            match tokio::time::timeout(std::time::Duration::from_secs(60), first_data_rx).await
-            {
-                Ok(Ok(true)) => {
-                    tracing::debug!(
-                        "VMess: first data sent, now waiting for response header"
-                    );
-                }
-                Ok(Ok(false)) => {
-                    // This shouldn't happen with the new logic, but handle it anyway
-                    tracing::debug!("VMess: received false signal, waiting for data...");
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                }
-                Ok(Err(_)) => {
-                    // Channel closed without sending - client closed connection
-                    tracing::debug!("VMess: client closed before sending data");
-                    return Ok(());
-                }
-                Err(_) => {
-                    tracing::warn!("VMess: timeout waiting for client data signal");
-                    return Err(Error::network("Timeout waiting for client data"));
-                }
-            };
-
-            // Read and validate the response header
-            // Legacy mode: 4 bytes encrypted with AES-128-CFB
-            // AEAD mode: 4 bytes + 16 bytes auth tag = 20 bytes encrypted with AES-128-GCM
-            {
-                if is_legacy {
-                    // Legacy VMess response header: 4 bytes encrypted with AES-128-CFB
-                    // First read the 4-byte header
-                    let mut header_data = vec![0u8; 4];
-                    ro.read_exact(&mut header_data).await.map_err(|e| {
-                        tracing::warn!("VMess legacy: failed to read response header: {}", e);
-                        Error::network(format!("Failed to read response header: {}", e))
-                    })?;
-
-                    // Decrypt using AES-128-CFB
-                    let cipher = Aes128CfbDec::new_from_slices(&response_key, &response_iv)
-                        .map_err(|e| {
-                            Error::protocol(format!("Failed to create AES-CFB cipher: {}", e))
-                        })?;
-                    cipher.decrypt(&mut header_data);
-
-                    let response_v = header_data[0];
-                    let option = header_data[1];
-                    let command = header_data[2];
-                    let command_length = header_data[3] as usize;
-
-                    tracing::debug!(
-                        "VMess legacy response header: v={}, opt={:#x}, cmd={}, cmd_len={}, expected_v={}",
-                        response_v,
-                        option,
-                        command,
-                        command_length,
-                        expected_response_header
-                    );
-
-                    // Validate response header byte
-                    if response_v != expected_response_header {
-                        tracing::warn!(
-                            "VMess legacy response header mismatch: expected {}, got {}",
-                            expected_response_header,
-                            response_v
-                        );
-                        return Err(Error::protocol("VMess response header validation failed"));
-                    }
-
-                    tracing::debug!("VMess legacy response header validated successfully");
-
-                    // If there's command content, read and discard it
-                    // Note: In legacy VMess, command data continues the CFB stream,
-                    // but since we're just discarding it, we can skip decryption
-                    if command_length > 0 {
-                        let mut cmd_data = vec![0u8; command_length];
-                        ro.read_exact(&mut cmd_data).await.ok();
-                    }
-                } else {
-                    // AEAD VMess response header: 4 bytes + 16 bytes auth tag = 20 bytes
-                    let mut header_data = vec![0u8; 4 + VMESS_AEAD_AUTH_LEN]; // 20 bytes
-                    ro.read_exact(&mut header_data).await.map_err(|e| {
-                        tracing::warn!("VMess: failed to read response header: {}", e);
-                        Error::network(format!("Failed to read response header: {}", e))
-                    })?;
-
-                    let aes_cipher = Aes128Gcm::new_from_slice(&response_key).map_err(|e| {
-                        Error::protocol(format!("Failed to create response cipher: {}", e))
-                    })?;
-
-                    let nonce = Nonce::from_slice(&response_iv[..VMESS_AEAD_NONCE_LEN]);
-
-                    let decrypted =
-                        aes_cipher
-                            .decrypt(nonce, header_data.as_slice())
-                            .map_err(|e| {
-                                tracing::warn!("VMess: failed to decrypt response header: {}", e);
-                                Error::protocol(format!("Failed to decrypt response header: {}", e))
-                            })?;
-
-                    if decrypted.len() < 4 {
-                        tracing::warn!(
-                            "VMess: response header too short: {} bytes",
-                            decrypted.len()
-                        );
-                        return Err(Error::protocol("VMess response header too short"));
-                    }
-
-                    let response_v = decrypted[0];
-                    let option = decrypted[1];
-                    let command = decrypted[2];
-                    let command_length = decrypted[3] as usize;
-
-                    tracing::debug!(
-                        "VMess response header: v={}, opt={:#x}, cmd={}, cmd_len={}, expected_v={}",
-                        response_v,
-                        option,
-                        command,
-                        command_length,
-                        expected_response_header
-                    );
-
-                    // Validate response header byte
-                    if response_v != expected_response_header {
-                        tracing::warn!(
-                            "VMess response header mismatch: expected {}, got {}",
-                            expected_response_header,
-                            response_v
-                        );
-                        return Err(Error::protocol("VMess response header validation failed"));
-                    }
-
-                    tracing::debug!("VMess response header validated successfully");
-
-                    // If there's command content, read and discard it
-                    if command_length > 0 {
-                        let mut cmd_data = vec![0u8; command_length];
-                        ro.read_exact(&mut cmd_data).await.ok();
-                    }
-                }
-            }
-
-            // Now read data chunks
-            // 创建响应掩码生成器 (如果启用了 Opt(M))
-            let mut response_mask = if use_masking {
-                Some(ShakeMask::new(&response_iv))
-            } else {
-                None
-            };
-
-            loop {
-                let mut length_buf = [0u8; 2];
-                match ro.read_exact(&mut length_buf).await {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                        tracing::debug!("VMess: remote connection closed (EOF)");
+                match inbound_read.read(&mut buf).await {
+                    Ok(0) => {
+                        tracing::debug!("[VMess] Upload: inbound EOF");
                         break;
                     }
+                    Ok(n) => {
+                        if let Err(e) = vmess_write.write_all(&buf[..n]).await {
+                            if !is_connection_closed_error(&e) {
+                                tracing::debug!("[VMess] Upload write error: {}", e);
+                            }
+                            break;
+                        }
+                        total += n as u64;
+                        if let Some(ref conn) = upload_conn {
+                            conn.add_upload(n as u64);
+                        }
+                        if total == n as u64 {
+                            tracing::debug!("[VMess] Upload: first {} bytes sent", n);
+                        }
+                    }
                     Err(e) => {
-                        tracing::debug!("VMess: failed to read length: {}", e);
-                        return Err(Error::network(format!("Failed to read length: {}", e)));
+                        if !is_connection_closed_error(&e) {
+                            tracing::debug!("[VMess] Upload read error: {}", e);
+                        }
+                        break;
                     }
                 }
-
-                // 解码长度，如果启用了 Opt(M)，需要 XOR 掩码
-                let raw_length = u16::from_be_bytes(length_buf);
-                let length = if let Some(ref mut mask) = response_mask {
-                    (raw_length ^ mask.next_u16()) as usize
-                } else {
-                    raw_length as usize
-                };
-
-                if length == 0 {
-                    tracing::debug!("VMess: received end marker");
-                    break;
-                }
-
-                // 限制最大长度
-                if length > VMESS_MAX_CHUNK_SIZE + 32 {
-                    tracing::warn!("VMess: chunk length too large: {}", length);
-                    return Err(Error::protocol(format!(
-                        "Chunk length too large: {}",
-                        length
-                    )));
-                }
-
-                let mut data = vec![0u8; length];
-                ro.read_exact(&mut data)
-                    .await
-                    .map_err(|e| Error::network(format!("Failed to read chunk: {}", e)))?;
-
-                // Decrypt data chunk based on mode
-                let decrypted = if is_legacy {
-                    decrypt_chunk_legacy(cipher, &data, &response_key, &response_iv, count)?
-                } else {
-                    decrypt_chunk_aead(cipher, &data, &response_key, &response_iv, count)?
-                };
-                wi.write_all(&decrypted)
-                    .await
-                    .map_err(|e| Error::network(format!("Failed to write to inbound: {}", e)))?;
-
-                tracker.add_global_download(decrypted.len() as u64);
-                if let Some(ref conn) = conn_download {
-                    conn.add_download(decrypted.len() as u64);
-                }
-                count = count.wrapping_add(1);
             }
-            wi.shutdown().await.ok();
-            Ok::<(), Error>(())
+            let _ = vmess_write.shutdown().await;
+            tracing::debug!("[VMess] Upload finished: {} bytes total", total);
         };
 
-        let result = tokio::try_join!(client_to_remote, remote_to_client);
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("connection")
-                    || err_str.contains("reset")
-                    || err_str.contains("broken")
-                {
-                    Ok(())
-                } else {
-                    Err(e)
+        let download = async {
+            let mut buf = vec![0u8; 16 * 1024];
+            let mut total = 0u64;
+            tracing::debug!("[VMess] Download task started");
+            loop {
+                match vmess_read.read(&mut buf).await {
+                    Ok(0) => {
+                        tracing::debug!("[VMess] Download: vmess EOF");
+                        break;
+                    }
+                    Ok(n) => {
+                        if let Err(e) = inbound_write.write_all(&buf[..n]).await {
+                            if !is_connection_closed_error(&e) {
+                                tracing::debug!("[VMess] Download write error: {}", e);
+                            }
+                            break;
+                        }
+                        total += n as u64;
+                        if let Some(ref conn) = download_conn {
+                            conn.add_download(n as u64);
+                        }
+                        if total == n as u64 {
+                            tracing::debug!("[VMess] Download: first {} bytes received", n);
+                        }
+                    }
+                    Err(e) => {
+                        if !is_connection_closed_error(&e) {
+                            tracing::debug!("[VMess] Download read error: {}", e);
+                        }
+                        break;
+                    }
                 }
             }
-        }
+            let _ = inbound_write.shutdown().await;
+            tracing::debug!("[VMess] Download finished: {} bytes total", total);
+        };
+
+        tokio::join!(upload, download);
+        Ok(())
     }
 }
 
-fn generate_cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
-    let mut hasher = Md5::new();
-    hasher.update(uuid);
-    hasher.update(b"c48619fe-8f02-49e0-b9e9-edf763e17e21");
-    let result = hasher.finalize();
-    let mut key = [0u8; 16];
-    key.copy_from_slice(&result);
-    key
-}
-
-fn generate_connection_nonce() -> [u8; 8] {
-    let mut nonce = [0u8; 8];
-    getrandom::fill(&mut nonce).expect("Failed to generate nonce");
-    nonce
-}
-
-/// VMess AEAD KDF 函数 - 生成 AuthID 加密密钥
-/// Key = KDF(CmdKey, "AES Auth ID Encryption")
-fn kdf16_auth_id(cmd_key: &[u8; 16]) -> [u8; 16] {
-    // 第一层: HMAC(cmd_key, "VMess AEAD KDF")
-    let mut mac1 =
-        <HmacSha256 as Mac>::new_from_slice(cmd_key).expect("HMAC can take key of any size");
-    mac1.update(b"VMess AEAD KDF");
-    let k1 = mac1.finalize().into_bytes();
-
-    // 第二层: HMAC(k1, "AES Auth ID Encryption")
-    let mut mac2 = <HmacSha256 as Mac>::new_from_slice(&k1).expect("HMAC can take key of any size");
-    mac2.update(b"AES Auth ID Encryption");
-    let result = mac2.finalize().into_bytes();
-
-    let mut output = [0u8; 16];
-    output.copy_from_slice(&result[..16]);
-    output
-}
-
-/// VMess AEAD KDF 函数 - 生成 16 字节密钥
-/// 使用递归 HMAC-SHA256 进行密钥派生
-/// KDF(key, path...) = HMAC(KDF(key, path[:-1]), path[-1])
-fn kdf16_vmess_aead(key: &[u8], label: &[u8], auth_id: &[u8; 16], nonce: &[u8; 8]) -> [u8; 16] {
-    // 第一层: HMAC(key, "VMess AEAD KDF")
-    let mut mac1 = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC can take key of any size");
-    mac1.update(b"VMess AEAD KDF");
-    let k1 = mac1.finalize().into_bytes();
-
-    // 第二层: HMAC(k1, label)
-    let mut mac2 = <HmacSha256 as Mac>::new_from_slice(&k1).expect("HMAC can take key of any size");
-    mac2.update(label);
-    let k2 = mac2.finalize().into_bytes();
-
-    // 第三层: HMAC(k2, auth_id)
-    let mut mac3 = <HmacSha256 as Mac>::new_from_slice(&k2).expect("HMAC can take key of any size");
-    mac3.update(auth_id);
-    let k3 = mac3.finalize().into_bytes();
-
-    // 第四层: HMAC(k3, nonce)
-    let mut mac4 = <HmacSha256 as Mac>::new_from_slice(&k3).expect("HMAC can take key of any size");
-    mac4.update(nonce);
-    let result = mac4.finalize().into_bytes();
-
-    let mut output = [0u8; 16];
-    output.copy_from_slice(&result[..16]);
-    output
-}
-
-fn kdf12_vmess_aead(key: &[u8], label: &[u8], auth_id: &[u8; 16], nonce: &[u8; 8]) -> [u8; 12] {
-    // 第一层: HMAC(key, "VMess AEAD KDF")
-    let mut mac1 = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC can take key of any size");
-    mac1.update(b"VMess AEAD KDF");
-    let k1 = mac1.finalize().into_bytes();
-
-    // 第二层: HMAC(k1, label)
-    let mut mac2 = <HmacSha256 as Mac>::new_from_slice(&k1).expect("HMAC can take key of any size");
-    mac2.update(label);
-    let k2 = mac2.finalize().into_bytes();
-
-    // 第三层: HMAC(k2, auth_id)
-    let mut mac3 = <HmacSha256 as Mac>::new_from_slice(&k2).expect("HMAC can take key of any size");
-    mac3.update(auth_id);
-    let k3 = mac3.finalize().into_bytes();
-
-    // 第四层: HMAC(k3, nonce)
-    let mut mac4 = <HmacSha256 as Mac>::new_from_slice(&k3).expect("HMAC can take key of any size");
-    mac4.update(nonce);
-    let result = mac4.finalize().into_bytes();
-
-    let mut output = [0u8; 12];
-    output.copy_from_slice(&result[..12]);
-    output
-}
-
-#[allow(dead_code)]
-fn kdf16(key: &[u8], path: &[&[u8]]) -> [u8; 16] {
-    let mut result = [0u8; 16];
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    for p in path {
-        hasher.update(p);
-    }
-    let hash = hasher.finalize();
-    result.copy_from_slice(&hash[..16]);
-    result
-}
-
-#[allow(dead_code)]
-fn kdf12(key: &[u8], path: &[&[u8]]) -> [u8; 12] {
-    let mut result = [0u8; 12];
-    let mut hasher = Sha256::new();
-    hasher.update(key);
-    for p in path {
-        hasher.update(p);
-    }
-    let hash = hasher.finalize();
-    result.copy_from_slice(&hash[..12]);
-    result
-}
-
-fn fnv1a_hash(data: &[u8]) -> u32 {
-    const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
-    const FNV_PRIME: u32 = 0x01000193;
-
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in data {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
-}
-
-fn encrypt_chunk_aead(
-    cipher: VmessCipher,
-    data: &[u8],
-    key: &[u8; 16],
-    iv: &[u8; 16],
-    count: u16,
-    mask: &mut Option<ShakeMask>,
-) -> Result<Vec<u8>> {
-    let resolved_cipher = cipher.resolve();
-
-    match resolved_cipher {
-        VmessCipher::Aes128Gcm => {
-            let aes_cipher = Aes128Gcm::new_from_slice(key)
-                .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-            let mut nonce_bytes = [0u8; 12];
-            nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-            nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-
-            let encrypted = aes_cipher
-                .encrypt(nonce, data)
-                .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
-
-            // 计算长度并应用掩码
-            let raw_length = encrypted.len() as u16;
-            let masked_length = if let Some(ref mut m) = mask {
-                raw_length ^ m.next_u16()
-            } else {
-                raw_length
-            };
-
-            let mut result = Vec::with_capacity(2 + encrypted.len());
-            result.extend_from_slice(&masked_length.to_be_bytes());
-            result.extend_from_slice(&encrypted);
-            Ok(result)
-        }
-        VmessCipher::Chacha20Poly1305 => {
-            let md5_key = {
-                let mut hasher = Md5::new();
-                hasher.update(key);
-                hasher.finalize()
-            };
-            let md5_md5_key = {
-                let mut hasher = Md5::new();
-                hasher.update(md5_key);
-                hasher.finalize()
-            };
-            let mut full_key = [0u8; 32];
-            full_key[..16].copy_from_slice(&md5_key);
-            full_key[16..].copy_from_slice(&md5_md5_key);
-
-            let chacha_cipher = ChaCha20Poly1305::new_from_slice(&full_key)
-                .map_err(|e| Error::protocol(format!("Failed to create ChaCha20 cipher: {}", e)))?;
-
-            // IV = count (2 字节) + IV (10 字节)
-            let mut nonce_bytes = [0u8; 12];
-            nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-            nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
-
-            let encrypted = chacha_cipher
-                .encrypt(nonce, data)
-                .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
-
-            // 计算长度并应用掩码
-            let raw_length = encrypted.len() as u16;
-            let masked_length = if let Some(ref mut m) = mask {
-                raw_length ^ m.next_u16()
-            } else {
-                raw_length
-            };
-
-            let mut result = Vec::with_capacity(2 + encrypted.len());
-            result.extend_from_slice(&masked_length.to_be_bytes());
-            result.extend_from_slice(&encrypted);
-            Ok(result)
-        }
-        VmessCipher::None | VmessCipher::Zero | VmessCipher::Auto | VmessCipher::Aes128Cfb => {
-            // 不加密模式
-            let raw_length = data.len() as u16;
-            let masked_length = if let Some(ref mut m) = mask {
-                raw_length ^ m.next_u16()
-            } else {
-                raw_length
-            };
-
-            let mut result = Vec::with_capacity(2 + data.len());
-            result.extend_from_slice(&masked_length.to_be_bytes());
-            result.extend_from_slice(data);
-            Ok(result)
-        }
-    }
-}
-
-/// AEAD 模式数据块解密
-fn decrypt_chunk_aead(
-    cipher: VmessCipher,
-    data: &[u8],
-    key: &[u8; 16],
-    iv: &[u8; 16],
-    count: u16,
-) -> Result<Vec<u8>> {
-    let resolved_cipher = cipher.resolve();
-
-    match resolved_cipher {
-        VmessCipher::Aes128Gcm => {
-            let aes_cipher = Aes128Gcm::new_from_slice(key)
-                .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-
-            let mut nonce_bytes = [0u8; 12];
-            nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-            nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-
-            let decrypted = aes_cipher
-                .decrypt(nonce, data)
-                .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
-
-            Ok(decrypted)
-        }
-        VmessCipher::Chacha20Poly1305 => {
-            // ChaCha20-Poly1305 密钥派生
-            let md5_key = {
-                let mut hasher = Md5::new();
-                hasher.update(key);
-                hasher.finalize()
-            };
-            let md5_md5_key = {
-                let mut hasher = Md5::new();
-                hasher.update(md5_key);
-                hasher.finalize()
-            };
-            let mut full_key = [0u8; 32];
-            full_key[..16].copy_from_slice(&md5_key);
-            full_key[16..].copy_from_slice(&md5_md5_key);
-
-            let chacha_cipher = ChaCha20Poly1305::new_from_slice(&full_key)
-                .map_err(|e| Error::protocol(format!("Failed to create ChaCha20 cipher: {}", e)))?;
-
-            let mut nonce_bytes = [0u8; 12];
-            nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
-            nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
-
-            let decrypted = chacha_cipher
-                .decrypt(nonce, data)
-                .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
-
-            Ok(decrypted)
-        }
-        VmessCipher::None | VmessCipher::Zero | VmessCipher::Auto | VmessCipher::Aes128Cfb => {
-            Ok(data.to_vec())
-        }
-    }
-}
-
-/// Legacy VMess chunk encryption (alterId > 0)
-///
-/// 重要：VMess Legacy 模式使用 AES-128-CFB 流式加密。
-///
-/// 根据 VMess 协议规范，Legacy 模式下：
-/// - 整个数据部分使用 AES-128-CFB 加密
-/// - 格式: [Length 2B][Encrypted(FNV1a 4B + Data)]
-/// - 长度字段不加密，只有数据部分加密
-///
-/// 注意：每个 chunk 独立加密，使用相同的 key 和 iv
-/// 这是因为 CFB 模式的特性，每个块的加密是独立的
-fn encrypt_chunk_legacy(
-    _cipher: VmessCipher,
-    data: &[u8],
-    key: &[u8; 16],
-    iv: &[u8; 16],
-    _count: u16,
-    _mask: &mut Option<ShakeMask>,
-) -> Result<Vec<u8>> {
-    // 计算原始数据的 FNV1a 校验和
-    let checksum = fnv1a_hash(data);
-
-    // 构建待加密的数据: [FNV1a 4B][原始数据]
-    let mut plaintext = Vec::with_capacity(4 + data.len());
-    plaintext.extend_from_slice(&checksum.to_be_bytes());
-    plaintext.extend_from_slice(data);
-
-    // VMess Legacy: 使用原始 IV 进行加密
-    // 每个 chunk 独立加密，使用相同的 key 和 iv
-    let cfb_cipher = Aes128CfbEnc::new_from_slices(key, iv)
-        .map_err(|e| Error::protocol(format!("Failed to create AES-CFB cipher: {}", e)))?;
-    cfb_cipher.encrypt(&mut plaintext);
-
-    // 最终格式: [Length 2B][Encrypted(FNV1a + Data)]
-    // Legacy 模式不使用掩码，长度字段不加密
-    let mut result = Vec::with_capacity(2 + plaintext.len());
-    result.extend_from_slice(&(plaintext.len() as u16).to_be_bytes());
-    result.extend_from_slice(&plaintext);
-
-    tracing::trace!(
-        "VMess legacy encrypt chunk: data_len={}, encrypted_len={}, total_len={}",
-        data.len(),
-        plaintext.len(),
-        result.len()
-    );
-
-    Ok(result)
-}
-
-/// Legacy VMess chunk decryption (alterId > 0)
-///
-/// 数据包格式: [FNV1a 4B][数据]
-/// 整个数据包使用 AES-128-CFB 解密
-fn decrypt_chunk_legacy(
-    _cipher: VmessCipher,
-    data: &[u8],
-    key: &[u8; 16],
-    iv: &[u8; 16],
-    _count: u16,
-) -> Result<Vec<u8>> {
-    if data.len() < 4 {
-        return Err(Error::protocol("Legacy chunk too short for FNV1a checksum"));
-    }
-
-    // VMess Legacy: 使用原始 IV 进行解密
-    let mut decrypted = data.to_vec();
-    let cfb_cipher = Aes128CfbDec::new_from_slices(key, iv)
-        .map_err(|e| Error::protocol(format!("Failed to create AES-CFB cipher: {}", e)))?;
-    cfb_cipher.decrypt(&mut decrypted);
-
-    // 提取 FNV1a 校验和和实际数据
-    let received_checksum =
-        u32::from_be_bytes([decrypted[0], decrypted[1], decrypted[2], decrypted[3]]);
-    let actual_data = &decrypted[4..];
-
-    // 验证校验和
-    let calculated_checksum = fnv1a_hash(actual_data);
-    if received_checksum != calculated_checksum {
-        tracing::warn!(
-            "VMess legacy FNV1a checksum mismatch: received={:#x}, calculated={:#x}",
-            received_checksum,
-            calculated_checksum
-        );
-        // 某些实现可能不严格检查，继续处理
-    }
-
-    Ok(actual_data.to_vec())
-}
-
-// derive_legacy_chunk_iv 函数已移除，因为 Legacy 模式使用原始 IV
+// ============================================================================
+// 单元测试
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -3162,40 +3102,36 @@ mod tests {
     #[test]
     fn test_vmess_cipher_from_str() {
         assert_eq!(VmessCipher::from_str("aes-128-gcm"), VmessCipher::Aes128Gcm);
-        assert_eq!(VmessCipher::from_str("aes128gcm"), VmessCipher::Aes128Gcm);
         assert_eq!(
             VmessCipher::from_str("chacha20-poly1305"),
             VmessCipher::Chacha20Poly1305
         );
         assert_eq!(VmessCipher::from_str("none"), VmessCipher::None);
-        assert_eq!(VmessCipher::from_str("zero"), VmessCipher::Zero);
         assert_eq!(VmessCipher::from_str("auto"), VmessCipher::Auto);
         assert_eq!(VmessCipher::from_str("unknown"), VmessCipher::Auto);
     }
 
     #[test]
     fn test_vmess_cipher_as_byte() {
-        // 根据 VMess 协议规范:
-        // 0x00: AES-128-CFB
-        // 0x01: 不加密
-        // 0x02: AES-128-GCM
-        // 0x03: ChaCha20-Poly1305
-        assert_eq!(VmessCipher::Aes128Cfb.as_byte(), 0x00);
-        assert_eq!(VmessCipher::None.as_byte(), 0x01);
-        assert_eq!(VmessCipher::Aes128Gcm.as_byte(), 0x02);
-        assert_eq!(VmessCipher::Chacha20Poly1305.as_byte(), 0x03);
-        assert_eq!(VmessCipher::Zero.as_byte(), 0x01); // Zero 映射到不加密
-        // Auto depends on platform, so we just check it's valid (0x02 or 0x03)
-        let auto_byte = VmessCipher::Auto.as_byte();
-        assert!(auto_byte == 0x02 || auto_byte == 0x03);
+        assert_eq!(VmessCipher::Aes128Gcm.as_byte(), SECURITY_AES_128_GCM);
+        assert_eq!(
+            VmessCipher::Chacha20Poly1305.as_byte(),
+            SECURITY_CHACHA20_POLY1305
+        );
+        assert_eq!(VmessCipher::None.as_byte(), SECURITY_NONE);
     }
 
     #[test]
-    fn test_vmess_command_from_u8() {
-        assert_eq!(VmessCommand::from_u8(0x01), Some(VmessCommand::Tcp));
-        assert_eq!(VmessCommand::from_u8(0x02), Some(VmessCommand::Udp));
-        assert_eq!(VmessCommand::from_u8(0x00), None);
-        assert_eq!(VmessCommand::from_u8(0xFF), None);
+    fn test_fnv1a_hash() {
+        let data = b"hello world";
+        let hash = fnv1a_hash(data);
+        assert_ne!(hash, 0);
+
+        let hash2 = fnv1a_hash(data);
+        assert_eq!(hash, hash2);
+
+        let hash3 = fnv1a_hash(b"different");
+        assert_ne!(hash, hash3);
     }
 
     #[test]
@@ -3212,510 +3148,180 @@ mod tests {
     }
 
     #[test]
-    fn test_fnv1a_hash() {
-        let data = b"hello world";
-        let hash = fnv1a_hash(data);
-        assert_ne!(hash, 0);
-
-        let hash2 = fnv1a_hash(data);
-        assert_eq!(hash, hash2);
-
-        let hash3 = fnv1a_hash(b"different data");
-        assert_ne!(hash, hash3);
-    }
-
-    #[test]
-    fn test_kdf16() {
-        let key = b"test_key";
-        let path = [b"path1".as_slice(), b"path2".as_slice()];
-        let result = kdf16(key, &path);
-        assert_eq!(result.len(), 16);
-
-        let result2 = kdf16(key, &path);
-        assert_eq!(result, result2);
-    }
-
-    #[test]
-    fn test_kdf12() {
-        let key = b"test_key";
-        let path = [b"path1".as_slice(), b"path2".as_slice()];
-        let result = kdf12(key, &path);
-        assert_eq!(result.len(), 12);
-
-        let result2 = kdf12(key, &path);
-        assert_eq!(result, result2);
-    }
-
-    #[test]
-    fn test_vmess_outbound_new() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
+    fn test_vmess_kdf_1_one_shot() {
+        let result = vmess_kdf_1_one_shot(b"test", KDF_SALT_CONST_AUTH_ID_ENCRYPTION_KEY);
+        assert_eq!(
+            result.to_vec(),
+            vec![
+                149, 109, 253, 20, 158, 39, 112, 199, 28, 74, 3, 106, 99, 8, 234, 59, 64, 172, 126,
+                5, 155, 28, 59, 21, 220, 196, 241, 54, 138, 5, 71, 107
+            ]
         );
-        options.insert(
-            "alterId".to_string(),
-            serde_yaml::Value::Number(serde_yaml::Number::from(0)),
-        );
-        options.insert(
-            "cipher".to_string(),
-            serde_yaml::Value::String("aes-128-gcm".to_string()),
-        );
-        options.insert("udp".to_string(), serde_yaml::Value::Bool(true));
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("vmess.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
-
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        assert_eq!(outbound.tag(), "vmess-test");
-        assert_eq!(outbound.server, "vmess.example.com");
-        assert_eq!(outbound.port, 443);
-        assert_eq!(outbound.cipher, VmessCipher::Aes128Gcm);
-        assert!(outbound.is_udp_enabled());
     }
 
     #[test]
-    fn test_vmess_outbound_missing_uuid() {
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("vmess.example.com".to_string()),
-            port: Some(443),
-            options: std::collections::HashMap::new(),
-        };
-
-        let result = VmessOutbound::new(config);
-        assert!(result.is_err());
+    fn test_vmess_kdf_3_one_shot() {
+        let result = vmess_kdf_3_one_shot(
+            b"test",
+            KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_KEY,
+            KDF_SALT_CONST_AEAD_RESP_HEADER_LEN_IV,
+            KDF_SALT_CONST_AEAD_RESP_HEADER_PAYLOAD_KEY,
+        );
+        assert_eq!(
+            result.to_vec(),
+            vec![
+                243, 80, 193, 249, 151, 10, 93, 168, 117, 239, 214, 89, 161, 130, 122, 81, 238,
+                177, 51, 113, 21, 74, 73, 212, 199, 41, 75, 155, 49, 55, 217, 226
+            ]
+        );
     }
 
     #[test]
-    fn test_vmess_outbound_invalid_uuid() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("invalid-uuid".to_string()),
+    fn test_vmess_id() {
+        let uuid = Uuid::parse_str("b831381d-6324-4d53-ad4f-8cda48b30811").unwrap();
+        let id = VmessId::new(&uuid);
+        assert_eq!(id.uuid, uuid);
+        assert_eq!(id.cmd_key.len(), 16);
+        assert_eq!(
+            id.cmd_key,
+            [181, 13, 145, 106, 192, 206, 192, 103, 152, 26, 248, 229, 243, 138, 117, 143]
         );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("vmess.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
-
-        let result = VmessOutbound::new(config);
-        assert!(result.is_err());
     }
 
     #[test]
-    fn test_vmess_outbound_server_addr() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
-
-        let outbound = VmessOutbound::new(config).unwrap();
-        let (server, port) = outbound.server_addr().unwrap();
-        assert_eq!(server, "server.example.com");
-        assert_eq!(port, 443);
+    fn test_next_id() {
+        let uuid = Uuid::parse_str("b831381d-6324-4d53-ad4f-8cda48b30811").unwrap();
+        let next = next_id(&uuid);
+        assert_eq!(next.to_string(), "5a071834-12d5-980a-72ac-845d5568d17d");
     }
 
     #[test]
-    fn test_generate_auth_id() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
+    fn test_vmess_address_serialization_ipv4() {
+        let mut buf = BytesMut::new();
+        let addr = TargetAddr::Ip("192.168.1.1:443".parse().unwrap());
+        write_vmess_address!(buf, &addr);
 
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
+        assert_eq!(buf.len(), 7);
+        assert_eq!(&buf[0..2], &[0x01, 0xBB]);
+        assert_eq!(buf[2], 0x01); // IPv4 类型
+        assert_eq!(&buf[3..7], &[192, 168, 1, 1]);
+    }
 
-        let outbound = VmessOutbound::new(config).unwrap();
-        let timestamp = 1234567890i64;
-        let auth_id = outbound.generate_auth_id(timestamp);
+    #[test]
+    fn test_vmess_address_serialization_ipv6() {
+        let mut buf = BytesMut::new();
+        let addr = TargetAddr::Ip("[::1]:8080".parse().unwrap());
+        write_vmess_address!(buf, &addr);
+
+        assert_eq!(buf.len(), 19);
+        assert_eq!(&buf[0..2], &[0x1F, 0x90]);
+        assert_eq!(buf[2], 0x03);
+    }
+
+    #[test]
+    fn test_vmess_address_serialization_domain() {
+        let mut buf = BytesMut::new();
+        let addr = TargetAddr::Domain("example.com".to_string(), 443);
+        write_vmess_address!(buf, &addr);
+
+        assert_eq!(buf.len(), 15); // 2 + 1 + 1 + 11
+        assert_eq!(&buf[0..2], &[0x01, 0xBB]); // 端口 443
+        assert_eq!(buf[2], 0x02); // Domain 类型
+        assert_eq!(buf[3], 11); // 域名长度
+        assert_eq!(&buf[4..15], b"example.com");
+    }
+
+    #[test]
+    fn test_vmess_address_compatibility() {
+        let mut buf = BytesMut::new();
+        let addr = TargetAddr::Domain("google.com".to_string(), 80);
+        write_vmess_address!(buf, &addr);
+
+        assert_eq!(buf[0], 0x00); // 端口高字节
+        assert_eq!(buf[1], 0x50); // 端口低字节 (80)
+        assert_eq!(buf[2], 0x02); // 域名类型
+        assert_eq!(buf[3], 10); // 域名长度
+        assert_eq!(&buf[4..14], b"google.com");
+    }
+
+    #[test]
+    fn test_create_auth_id() {
+        let cmd_key = *b"1234567890123456";
+        let timestamp = 0u64;
+        let auth_id = create_auth_id(cmd_key, timestamp);
         assert_eq!(auth_id.len(), 16);
-
-        // 由于 auth_id 包含随机数，每次生成的结果都不同
-        let auth_id2 = outbound.generate_auth_id(timestamp);
-        // auth_id 和 auth_id2 可能不同（因为随机数不同）
-        assert_eq!(auth_id2.len(), 16);
-
-        // 不同时间戳生成的 auth_id 也不同
-        let auth_id3 = outbound.generate_auth_id(timestamp + 1);
-        assert_eq!(auth_id3.len(), 16);
     }
 
     #[test]
-    fn test_generate_request_key_iv() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
+    fn test_vmess_builder() {
+        let opt = VmessOption {
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".to_string(),
+            alter_id: 0,
+            security: "auto".to_string(),
+            udp: true,
+            dst: TargetAddr::Domain("example.com".to_string(), 443),
         };
 
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        let key1 = outbound.generate_request_key();
-        let key2 = outbound.generate_request_key();
-        assert_eq!(key1.len(), 16);
-        assert_eq!(key2.len(), 16);
-        assert_ne!(key1, key2);
-
-        let iv1 = outbound.generate_request_iv();
-        let iv2 = outbound.generate_request_iv();
-        assert_eq!(iv1.len(), 16);
-        assert_eq!(iv2.len(), 16);
-        assert_ne!(iv1, iv2);
+        let builder = VmessBuilder::new(&opt).unwrap();
+        assert!(builder.is_aead);
+        assert!(builder.is_udp);
+        assert_eq!(builder.user.len(), 1);
     }
 
     #[test]
-    fn test_generate_response_key_iv() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
+    fn test_vmess_builder_with_alter_id() {
+        let opt = VmessOption {
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".to_string(),
+            alter_id: 4,
+            security: "aes-128-gcm".to_string(),
+            udp: false,
+            dst: TargetAddr::Domain("example.com".to_string(), 443),
         };
 
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        let request_key = [0x01u8; 16];
-        let request_iv = [0x02u8; 16];
-
-        let response_key = outbound.generate_response_key(&request_key);
-        let response_iv = outbound.generate_response_iv(&request_iv);
-
-        assert_eq!(response_key.len(), 16);
-        assert_eq!(response_iv.len(), 16);
-
-        let response_key2 = outbound.generate_response_key(&request_key);
-        let response_iv2 = outbound.generate_response_iv(&request_iv);
-        assert_eq!(response_key, response_key2);
-        assert_eq!(response_iv, response_iv2);
+        let builder = VmessBuilder::new(&opt).unwrap();
+        assert!(builder.is_aead);
+        assert!(!builder.is_udp);
+        assert_eq!(builder.user.len(), 5);
+        assert_eq!(builder.security, SECURITY_AES_128_GCM);
     }
 
     #[test]
-    fn test_encrypt_decrypt_aes_gcm_roundtrip() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-        options.insert(
-            "cipher".to_string(),
-            serde_yaml::Value::String("aes-128-gcm".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
+    fn test_h2_config() {
+        let config = crate::transport::h2::H2Config {
+            hosts: vec!["example.com".to_string()],
+            headers: HashMap::new(),
+            method: http::Method::GET,
+            path: "/vmess".to_string(),
         };
 
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        let key = [0x01u8; 16];
-        let iv = [0x02u8; 16];
-        let data = b"Hello, VMess!";
-
-        let encrypted = outbound.encrypt_aes_gcm(data, &key, &iv, 0).unwrap();
-        assert!(encrypted.len() > data.len());
-
-        let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-        let decrypted = outbound
-            .decrypt_aes_gcm(&encrypted[2..2 + length], &key, &iv, 0)
-            .unwrap();
-        assert_eq!(decrypted, data);
+        let client = crate::transport::h2::H2Client::new(config).unwrap();
+        assert_eq!(client.hosts.len(), 1);
+        assert_eq!(client.hosts[0], "example.com");
     }
 
     #[test]
-    fn test_encrypt_decrypt_chacha20_roundtrip() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-        options.insert(
-            "cipher".to_string(),
-            serde_yaml::Value::String("chacha20-poly1305".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
+    fn test_grpc_config() {
+        let config = crate::transport::grpc::GrpcConfig {
+            host: "example.com".to_string(),
+            service_name: "GunService".to_string(),
         };
 
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        let key = [0x01u8; 16];
-        let iv = [0x02u8; 16];
-        let data = b"Hello, VMess!";
-
-        let encrypted = outbound.encrypt_chacha20(data, &key, &iv, 0).unwrap();
-        assert!(encrypted.len() > data.len());
-
-        let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-        let decrypted = outbound
-            .decrypt_chacha20(&encrypted[2..2 + length], &key, &iv, 0)
-            .unwrap();
-        assert_eq!(decrypted, data);
+        let client = crate::transport::grpc::GrpcClient::new(config).unwrap();
+        assert_eq!(client.host, "example.com");
+        assert_eq!(client.path.as_str(), "/GunService/Tun");
     }
 
     #[test]
-    fn test_encrypt_decrypt_none_roundtrip() {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-        options.insert(
-            "cipher".to_string(),
-            serde_yaml::Value::String("none".to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
-
-        let outbound = VmessOutbound::new(config).unwrap();
-
-        let key = [0x01u8; 16];
-        let iv = [0x02u8; 16];
-        let data = b"Hello, VMess!";
-
-        let encrypted = outbound.encrypt_chunk(data, &key, &iv, 0).unwrap();
-        let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-        assert_eq!(length, data.len());
-
-        let decrypted = outbound
-            .decrypt_chunk(&encrypted[2..], &key, &iv, 0)
-            .unwrap();
-        assert_eq!(decrypted, data);
-    }
-}
-
-#[cfg(test)]
-mod property_tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    fn arb_key() -> impl Strategy<Value = [u8; 16]> {
-        prop::array::uniform16(any::<u8>())
-    }
-
-    fn arb_iv() -> impl Strategy<Value = [u8; 16]> {
-        prop::array::uniform16(any::<u8>())
-    }
-
-    fn arb_data() -> impl Strategy<Value = Vec<u8>> {
-        prop::collection::vec(any::<u8>(), 1..1024)
-    }
-
-    fn arb_count() -> impl Strategy<Value = u16> {
-        0u16..1000u16
-    }
-
-    fn arb_timestamp() -> impl Strategy<Value = i64> {
-        1000000000i64..2000000000i64
-    }
-
-    fn create_test_outbound(cipher_str: &str) -> VmessOutbound {
-        let mut options = std::collections::HashMap::new();
-        options.insert(
-            "uuid".to_string(),
-            serde_yaml::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        );
-        options.insert(
-            "cipher".to_string(),
-            serde_yaml::Value::String(cipher_str.to_string()),
-        );
-
-        let config = OutboundConfig {
-            tag: "vmess-test".to_string(),
-            outbound_type: crate::config::OutboundType::Vmess,
-            server: Some("server.example.com".to_string()),
-            port: Some(443),
-            options,
-        };
-
-        VmessOutbound::new(config).unwrap()
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
-
-        #[test]
-        fn prop_aes_gcm_encrypt_decrypt_roundtrip(
-            key in arb_key(),
-            iv in arb_iv(),
-            data in arb_data(),
-            count in arb_count()
-        ) {
-            let outbound = create_test_outbound("aes-128-gcm");
-
-            let encrypted = outbound.encrypt_aes_gcm(&data, &key, &iv, count).unwrap();
-            let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-            let decrypted = outbound.decrypt_aes_gcm(&encrypted[2..2+length], &key, &iv, count).unwrap();
-
-            prop_assert_eq!(decrypted, data);
-        }
-
-        #[test]
-        fn prop_chacha20_encrypt_decrypt_roundtrip(
-            key in arb_key(),
-            iv in arb_iv(),
-            data in arb_data(),
-            count in arb_count()
-        ) {
-            let outbound = create_test_outbound("chacha20-poly1305");
-
-            let encrypted = outbound.encrypt_chacha20(&data, &key, &iv, count).unwrap();
-            let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-            let decrypted = outbound.decrypt_chacha20(&encrypted[2..2+length], &key, &iv, count).unwrap();
-
-            prop_assert_eq!(decrypted, data);
-        }
-
-        #[test]
-        fn prop_none_cipher_roundtrip(
-            key in arb_key(),
-            iv in arb_iv(),
-            data in arb_data(),
-            count in arb_count()
-        ) {
-            let outbound = create_test_outbound("none");
-
-            let encrypted = outbound.encrypt_chunk(&data, &key, &iv, count).unwrap();
-            let length = u16::from_be_bytes([encrypted[0], encrypted[1]]) as usize;
-            prop_assert_eq!(length, data.len());
-
-            let decrypted = outbound.decrypt_chunk(&encrypted[2..], &key, &iv, count).unwrap();
-            prop_assert_eq!(decrypted, data);
-        }
-
-        #[test]
-        fn prop_auth_id_length(timestamp in arb_timestamp()) {
-            let outbound = create_test_outbound("auto");
-
-            // auth_id 包含随机数，所以每次生成的结果不同
-            // 但长度应该始终是 16 字节
-            let auth_id1 = outbound.generate_auth_id(timestamp);
-            let auth_id2 = outbound.generate_auth_id(timestamp);
-
-            // 由于随机数不同，auth_id 可能不同
-            prop_assert_eq!(auth_id1.len(), 16);
-            prop_assert_eq!(auth_id2.len(), 16);
-        }
-
-        #[test]
-        fn prop_auth_id_different_timestamps(
-            timestamp1 in arb_timestamp(),
-            timestamp2 in arb_timestamp()
-        ) {
-            prop_assume!(timestamp1 != timestamp2);
-            let outbound = create_test_outbound("auto");
-
-            let auth_id1 = outbound.generate_auth_id(timestamp1);
-            let auth_id2 = outbound.generate_auth_id(timestamp2);
-
-            // 不同时间戳生成的 auth_id 应该不同（除非随机数碰巧相同，概率极低）
-            // 这里只验证长度
-            prop_assert_eq!(auth_id1.len(), 16);
-            prop_assert_eq!(auth_id2.len(), 16);
-        }
-
-        #[test]
-        fn prop_response_key_iv_deterministic(
-            request_key in arb_key(),
-            request_iv in arb_iv()
-        ) {
-            let outbound = create_test_outbound("auto");
-
-            let response_key1 = outbound.generate_response_key(&request_key);
-            let response_key2 = outbound.generate_response_key(&request_key);
-            prop_assert_eq!(response_key1, response_key2);
-
-            let response_iv1 = outbound.generate_response_iv(&request_iv);
-            let response_iv2 = outbound.generate_response_iv(&request_iv);
-            prop_assert_eq!(response_iv1, response_iv2);
-        }
-
-        #[test]
-        fn prop_fnv1a_deterministic(data in arb_data()) {
-            let hash1 = fnv1a_hash(&data);
-            let hash2 = fnv1a_hash(&data);
-            prop_assert_eq!(hash1, hash2);
-        }
-
-        #[test]
-        fn prop_kdf_deterministic(
-            key in prop::collection::vec(any::<u8>(), 1..64),
-            path1 in prop::collection::vec(any::<u8>(), 1..32),
-            path2 in prop::collection::vec(any::<u8>(), 1..32)
-        ) {
-            let path = [path1.as_slice(), path2.as_slice()];
-
-            let result1 = kdf16(&key, &path);
-            let result2 = kdf16(&key, &path);
-            prop_assert_eq!(result1, result2);
-
-            let result3 = kdf12(&key, &path);
-            let result4 = kdf12(&key, &path);
-            prop_assert_eq!(result3, result4);
-        }
-
-        #[test]
-        fn prop_cmd_key_deterministic(uuid in prop::array::uniform16(any::<u8>())) {
-            let key1 = generate_cmd_key(&uuid);
-            let key2 = generate_cmd_key(&uuid);
-            prop_assert_eq!(key1, key2);
-            prop_assert_eq!(key1.len(), 16);
-        }
+    fn test_vmess_transport_from_str() {
+        assert_eq!(VmessTransport::from_str("tcp"), VmessTransport::Tcp);
+        assert_eq!(VmessTransport::from_str("ws"), VmessTransport::Ws);
+        assert_eq!(VmessTransport::from_str("websocket"), VmessTransport::Ws);
+        assert_eq!(VmessTransport::from_str("h2"), VmessTransport::H2);
+        assert_eq!(VmessTransport::from_str("http2"), VmessTransport::H2);
+        assert_eq!(VmessTransport::from_str("grpc"), VmessTransport::Grpc);
+        assert_eq!(VmessTransport::from_str("quic"), VmessTransport::Quic);
+        assert_eq!(VmessTransport::from_str("kcp"), VmessTransport::Mkcp);
+        assert_eq!(VmessTransport::from_str("mkcp"), VmessTransport::Mkcp);
+        assert_eq!(VmessTransport::from_str("unknown"), VmessTransport::Tcp);
     }
 }

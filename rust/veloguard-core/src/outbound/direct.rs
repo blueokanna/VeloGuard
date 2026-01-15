@@ -113,8 +113,8 @@ impl OutboundProxy for DirectOutbound {
         
         // Send HTTP request
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
         stream.write_all(http_request.as_bytes()).await
             .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;
@@ -210,11 +210,16 @@ where
     let a_to_b = async {
         let mut buf = vec![0u8; 32 * 1024];
         loop {
-            let n = ar.read(&mut buf).await?;
-            if n == 0 {
-                break;
+            let n = match ar.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if is_connection_closed(&e) => break,
+                Err(e) => return Err(e),
+            };
+            if let Err(e) = bw.write_all(&buf[..n]).await {
+                if is_connection_closed(&e) { break; }
+                return Err(e);
             }
-            bw.write_all(&buf[..n]).await?;
             tracker_upload.add_global_upload(n as u64);
             if let Some(ref conn) = conn_upload {
                 conn.add_upload(n as u64);
@@ -227,11 +232,16 @@ where
     let b_to_a = async {
         let mut buf = vec![0u8; 32 * 1024];
         loop {
-            let n = br.read(&mut buf).await?;
-            if n == 0 {
-                break;
+            let n = match br.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if is_connection_closed(&e) => break,
+                Err(e) => return Err(e),
+            };
+            if let Err(e) = aw.write_all(&buf[..n]).await {
+                if is_connection_closed(&e) { break; }
+                return Err(e);
             }
-            aw.write_all(&buf[..n]).await?;
             tracker_download.add_global_download(n as u64);
             if let Some(ref conn) = conn_download {
                 conn.add_download(n as u64);
@@ -244,23 +254,38 @@ where
     // Run both directions concurrently and wait for both to complete
     let (result_a, result_b) = tokio::join!(a_to_b, b_to_a);
 
-    // Return error only if both failed with non-connection errors
+    // Connection close errors are normal - don't propagate them
     match (result_a, result_b) {
         (Ok(_), Ok(_)) => Ok(()),
-        (Ok(_), Err(_)) | (Err(_), Ok(_)) => {
-            // One direction completed successfully, consider it a success
-            Ok(())
-        }
-        (Err(e1), Err(e2)) => {
-            // Both failed - check if it's a normal connection close
-            if (e1.kind() == std::io::ErrorKind::ConnectionReset || e1.kind() == std::io::ErrorKind::BrokenPipe)
-                && (e2.kind() == std::io::ErrorKind::ConnectionReset || e2.kind() == std::io::ErrorKind::BrokenPipe) {
+        (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
+            if is_connection_closed(&e) {
                 Ok(())
             } else {
-                Err(Error::network(format!("Relay error: {} / {}", e1, e2)))
+                tracing::debug!("Relay error (one direction): {}", e);
+                Ok(())
+            }
+        }
+        (Err(e1), Err(e2)) => {
+            if is_connection_closed(&e1) && is_connection_closed(&e2) {
+                Ok(())
+            } else {
+                tracing::debug!("Relay errors: {} / {}", e1, e2);
+                Ok(())
             }
         }
     }
+}
+
+/// Check if an error indicates a normal connection close
+fn is_connection_closed(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 /// Bidirectional relay between two streams (without stats)

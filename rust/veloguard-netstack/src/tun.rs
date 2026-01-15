@@ -236,25 +236,59 @@ impl TunDevice {
         let running_write = running.clone();
         tokio::spawn(async move {
             info!("TUN write task started");
+            let mut consecutive_errors = 0u32;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 10;
             
             loop {
                 tokio::select! {
                     Some(packet) = rx_from_stack.recv() => {
                         let session_clone = session_write.clone();
                         let packet_data = packet.to_vec();
-                        let _ = tokio::task::spawn_blocking(move || {
+                        let result = tokio::task::spawn_blocking(move || {
                             match session_clone.allocate_send_packet(packet_data.len() as u16) {
                                 Ok(mut send_packet) => {
                                     send_packet.bytes_mut().copy_from_slice(&packet_data);
                                     session_clone.send_packet(send_packet);
+                                    Ok(())
                                 }
-                                Err(e) => {
-                                    if !e.to_string().contains("ERROR_BUFFER_OVERFLOW") {
-                                        tracing::error!("Failed to allocate send packet: {}", e);
+                                Err(e) => Err(e)
+                            }
+                        }).await;
+                        
+                        match result {
+                            Ok(Ok(())) => {
+                                // Success - reset error counter
+                                consecutive_errors = 0;
+                            }
+                            Ok(Err(e)) => {
+                                let err_str = e.to_string();
+                                // Ignore buffer overflow errors (transient, expected under load)
+                                if !err_str.contains("ERROR_BUFFER_OVERFLOW") {
+                                    consecutive_errors += 1;
+                                    // Only log periodically to avoid log spam
+                                    if consecutive_errors == 1 || consecutive_errors % 100 == 0 {
+                                        tracing::warn!(
+                                            "TUN write error (count={}): {}",
+                                            consecutive_errors, e
+                                        );
+                                    }
+                                    
+                                    // If we get too many consecutive errors, the adapter might be dead
+                                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                                        tracing::error!(
+                                            "TUN adapter appears to be unavailable after {} errors, stopping write task",
+                                            consecutive_errors
+                                        );
+                                        break;
                                     }
                                 }
                             }
-                        }).await;
+                            Err(e) => {
+                                // spawn_blocking panicked or was cancelled
+                                tracing::error!("TUN write task spawn error: {}", e);
+                                break;
+                            }
+                        }
                     }
                     _ = shutdown_rx.recv() => {
                         debug!("TUN shutdown requested");
@@ -362,6 +396,8 @@ impl TunDevice {
 
         tokio::spawn(async move {
             let mut read_buf = vec![0u8; 65535];
+            let mut consecutive_write_errors = 0u32;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 10;
 
             loop {
                 tokio::select! {
@@ -382,8 +418,18 @@ impl TunDevice {
                     }
                     Some(packet) = rx_from_stack.recv() => {
                         if let Err(e) = device.send(&packet) {
-                            error!("TUN write error: {}", e);
-                            break;
+                            consecutive_write_errors += 1;
+                            // Only log periodically to avoid log spam
+                            if consecutive_write_errors == 1 || consecutive_write_errors % 100 == 0 {
+                                warn!("TUN write error (count={}): {}", consecutive_write_errors, e);
+                            }
+                            // If too many consecutive errors, the device might be dead
+                            if consecutive_write_errors >= MAX_CONSECUTIVE_ERRORS {
+                                error!("TUN device appears unavailable after {} write errors", consecutive_write_errors);
+                                break;
+                            }
+                        } else {
+                            consecutive_write_errors = 0;
                         }
                     }
                     _ = shutdown_rx.recv() => {

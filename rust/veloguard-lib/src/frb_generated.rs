@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueNom,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1477366539;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 211449993;
 
 // Section: executor
 
@@ -202,6 +202,27 @@ fn wire__crate__api__close_connection_by_id_impl(
         },
     )
 }
+fn wire__crate__api__convert_clash_to_veloguard_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    clash_yaml: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::DcoCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "convert_clash_to_veloguard",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_clash_yaml = clash_yaml.cst_decode();
+            move |context| {
+                transform_result_dco::<_, _, String>((move || {
+                    let output_ok = crate::api::convert_clash_to_veloguard(api_clash_yaml)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__disable_tun_mode_impl(port_: flutter_rust_bridge::for_generated::MessagePort) {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
         flutter_rust_bridge::for_generated::TaskInfo {
@@ -214,6 +235,30 @@ fn wire__crate__api__disable_tun_mode_impl(port_: flutter_rust_bridge::for_gener
                 transform_result_dco::<_, _, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::disable_tun_mode().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__download_config_from_url_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    url: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "download_config_from_url",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_url = url.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::download_config_from_url(api_url).await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -886,6 +931,56 @@ fn wire__crate__api__open_uwp_loopback_utility_impl(
         },
     )
 }
+fn wire__crate__api__reload_config_from_clash_file_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    config_path: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "reload_config_from_clash_file",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_config_path = config_path.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::reload_config_from_clash_file(api_config_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__reload_config_from_clash_yaml_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    clash_yaml: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "reload_config_from_clash_yaml",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_clash_yaml = clash_yaml.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::reload_config_from_clash_yaml(api_clash_yaml).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__reload_config_from_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     config_path: impl CstDecode<String>,
@@ -1200,6 +1295,56 @@ fn wire__crate__api__start_android_vpn_impl(
         },
     )
 }
+fn wire__crate__api__start_proxy_from_clash_file_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    config_path: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_proxy_from_clash_file",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_config_path = config_path.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::start_proxy_from_clash_file(api_config_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__start_proxy_from_clash_yaml_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    clash_yaml: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_proxy_from_clash_yaml",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_clash_yaml = clash_yaml.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::start_proxy_from_clash_yaml(api_clash_yaml).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__start_proxy_from_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     config_path: impl CstDecode<String>,
@@ -1216,6 +1361,30 @@ fn wire__crate__api__start_proxy_from_file_impl(
                 transform_result_dco::<_, _, String>(
                     (move || async move {
                         let output_ok = crate::api::start_proxy_from_file(api_config_path).await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__start_proxy_from_url_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    url: impl CstDecode<String>,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::DcoCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_proxy_from_url",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let api_url = url.cst_decode();
+            move |context| async move {
+                transform_result_dco::<_, _, String>(
+                    (move || async move {
+                        let output_ok = crate::api::start_proxy_from_url(api_url).await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -3730,8 +3899,24 @@ mod io {
     }
 
     #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__convert_clash_to_veloguard(
+        port_: i64,
+        clash_yaml: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__convert_clash_to_veloguard_impl(port_, clash_yaml)
+    }
+
+    #[unsafe(no_mangle)]
     pub extern "C" fn frbgen_veloguard_wire__crate__api__disable_tun_mode(port_: i64) {
         wire__crate__api__disable_tun_mode_impl(port_)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__download_config_from_url(
+        port_: i64,
+        url: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__download_config_from_url_impl(port_, url)
     }
 
     #[unsafe(no_mangle)]
@@ -3904,6 +4089,22 @@ mod io {
     }
 
     #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_config_from_clash_file(
+        port_: i64,
+        config_path: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__reload_config_from_clash_file_impl(port_, config_path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_config_from_clash_yaml(
+        port_: i64,
+        clash_yaml: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__reload_config_from_clash_yaml_impl(port_, clash_yaml)
+    }
+
+    #[unsafe(no_mangle)]
     pub extern "C" fn frbgen_veloguard_wire__crate__api__reload_config_from_file(
         port_: i64,
         config_path: *mut wire_cst_list_prim_u_8_strict,
@@ -3998,11 +4199,35 @@ mod io {
     }
 
     #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_clash_file(
+        port_: i64,
+        config_path: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_proxy_from_clash_file_impl(port_, config_path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_clash_yaml(
+        port_: i64,
+        clash_yaml: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_proxy_from_clash_yaml_impl(port_, clash_yaml)
+    }
+
+    #[unsafe(no_mangle)]
     pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_file(
         port_: i64,
         config_path: *mut wire_cst_list_prim_u_8_strict,
     ) {
         wire__crate__api__start_proxy_from_file_impl(port_, config_path)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn frbgen_veloguard_wire__crate__api__start_proxy_from_url(
+        port_: i64,
+        url: *mut wire_cst_list_prim_u_8_strict,
+    ) {
+        wire__crate__api__start_proxy_from_url_impl(port_, url)
     }
 
     #[unsafe(no_mangle)]
@@ -5215,10 +5440,26 @@ mod web {
     }
 
     #[wasm_bindgen]
+    pub fn wire__crate__api__convert_clash_to_veloguard(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        clash_yaml: String,
+    ) {
+        wire__crate__api__convert_clash_to_veloguard_impl(port_, clash_yaml)
+    }
+
+    #[wasm_bindgen]
     pub fn wire__crate__api__disable_tun_mode(
         port_: flutter_rust_bridge::for_generated::MessagePort,
     ) {
         wire__crate__api__disable_tun_mode_impl(port_)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__download_config_from_url(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        url: String,
+    ) {
+        wire__crate__api__download_config_from_url_impl(port_, url)
     }
 
     #[wasm_bindgen]
@@ -5442,6 +5683,22 @@ mod web {
     }
 
     #[wasm_bindgen]
+    pub fn wire__crate__api__reload_config_from_clash_file(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_path: String,
+    ) {
+        wire__crate__api__reload_config_from_clash_file_impl(port_, config_path)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__reload_config_from_clash_yaml(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        clash_yaml: String,
+    ) {
+        wire__crate__api__reload_config_from_clash_yaml_impl(port_, clash_yaml)
+    }
+
+    #[wasm_bindgen]
     pub fn wire__crate__api__reload_config_from_file(
         port_: flutter_rust_bridge::for_generated::MessagePort,
         config_path: String,
@@ -5547,11 +5804,35 @@ mod web {
     }
 
     #[wasm_bindgen]
+    pub fn wire__crate__api__start_proxy_from_clash_file(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        config_path: String,
+    ) {
+        wire__crate__api__start_proxy_from_clash_file_impl(port_, config_path)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_proxy_from_clash_yaml(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        clash_yaml: String,
+    ) {
+        wire__crate__api__start_proxy_from_clash_yaml_impl(port_, clash_yaml)
+    }
+
+    #[wasm_bindgen]
     pub fn wire__crate__api__start_proxy_from_file(
         port_: flutter_rust_bridge::for_generated::MessagePort,
         config_path: String,
     ) {
         wire__crate__api__start_proxy_from_file_impl(port_, config_path)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire__crate__api__start_proxy_from_url(
+        port_: flutter_rust_bridge::for_generated::MessagePort,
+        url: String,
+    ) {
+        wire__crate__api__start_proxy_from_url_impl(port_, url)
     }
 
     #[wasm_bindgen]

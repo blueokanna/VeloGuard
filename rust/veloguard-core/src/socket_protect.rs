@@ -8,7 +8,11 @@ use tracing::{debug, warn};
 #[cfg(target_os = "android")]
 use std::os::unix::io::AsRawFd;
 
-static PROTECT_CALLBACK: RwLock<Option<Arc<dyn Fn(i32) -> bool + Send + Sync>>> = RwLock::new(None);
+/// Socket 保护回调类型
+type ProtectCallback = Arc<dyn Fn(i32) -> bool + Send + Sync>;
+
+#[allow(clippy::type_complexity)]
+static PROTECT_CALLBACK: RwLock<Option<ProtectCallback>> = RwLock::new(None);
 pub fn set_protect_callback<F>(callback: F)
 where
     F: Fn(i32) -> bool + Send + Sync + 'static,
@@ -40,8 +44,9 @@ pub fn protect_socket(fd: i32) -> bool {
         }
         result
     } else {
-        warn!(
-            "No protect callback set for socket fd={} - this may cause routing loop!",
+        // Fallback: allow the connection and only emit a low-level debug to avoid noisy warnings.
+        debug!(
+            "No protect callback set for socket fd={}, using fallback allow",
             fd
         );
         true

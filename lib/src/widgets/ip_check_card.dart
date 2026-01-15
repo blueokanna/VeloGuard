@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:veloguard/src/utils/responsive_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
+import 'package:veloguard/src/services/platform_proxy_service.dart';
+import 'package:veloguard/src/services/storage_service.dart';
 
 /// IP 信息数据模型
 class IpInfo {
@@ -32,7 +34,6 @@ class IpInfo {
   }
 }
 
-/// IP 检测卡片组件
 class IpCheckCard extends StatefulWidget {
   final bool isProxyRunning;
 
@@ -47,9 +48,11 @@ class _IpCheckCardState extends State<IpCheckCard>
   IpInfo? _ipInfo;
   bool _isLoading = false;
   String? _error;
+  int _proxyPort = 7890;
   late AnimationController _refreshController;
   Timer? _autoRefreshTimer;
   String? _lastKnownIp;
+  bool _isVpnActive = false;
 
   @override
   void initState() {
@@ -59,18 +62,47 @@ class _IpCheckCardState extends State<IpCheckCard>
       vsync: this,
     );
 
-    // 立即获取 IP（不使用缓存）
+    _loadProxyPort();
     _checkIp();
-
-    // 启动自动检测定时器（每 30 秒检测一次 IP 变化）
     _startAutoRefresh();
+  }
+
+  Future<void> _loadProxyPort() async {
+    try {
+      final settings = await StorageService.instance.getGeneralSettings();
+      final port = settings.mixedPort > 0
+          ? settings.mixedPort
+          : settings.httpPort;
+      if (mounted && port > 0) {
+        setState(() {
+          _proxyPort = port;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load proxy port: $e');
+    }
   }
 
   void _startAutoRefresh() {
     _autoRefreshTimer?.cancel();
     _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _checkIpSilently();
+      _checkVpnStatus();
     });
+  }
+
+  ///
+  Future<void> _checkVpnStatus() async {
+    try {
+      final isVpnActive = await PlatformProxyService.instance.isAnyVpnActive();
+      if (mounted && _isVpnActive != isVpnActive) {
+        setState(() {
+          _isVpnActive = isVpnActive;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to check VPN status: $e');
+    }
   }
 
   /// 静默检测 IP 变化（不显示 loading 状态）
@@ -80,9 +112,7 @@ class _IpCheckCardState extends State<IpCheckCard>
     try {
       final ip = await _fetchIpFromIpSb();
       if (ip != null && mounted) {
-        // 检测 IP 是否发生变化
         if (_lastKnownIp != null && _lastKnownIp != ip) {
-          // IP 发生变化，触发完整刷新
           debugPrint('IP changed: $_lastKnownIp -> $ip');
           _checkIp();
         } else if (_lastKnownIp == null) {
@@ -123,6 +153,9 @@ class _IpCheckCardState extends State<IpCheckCard>
     _refreshController.repeat();
 
     try {
+      // 同时检查VPN状态
+      _checkVpnStatus();
+
       // 使用 ip.sb 获取 IP（不使用缓存）
       final ip = await _fetchIpFromIpSb();
       if (ip != null && mounted) {
@@ -155,41 +188,70 @@ class _IpCheckCardState extends State<IpCheckCard>
   }
 
   /// 从 ip.sb 获取 IP
+  /// 当代理运行时，请求会通过代理发出，获取的是代理出口 IP
   Future<String?> _fetchIpFromIpSb() async {
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 10);
+    // 尝试多个 IP 检测服务
+    final services = [
+      'https://api.ip.sb/ip',
+      'https://api.ipify.org',
+      'https://icanhazip.com',
+      'https://ifconfig.me/ip',
+    ];
 
-      final request = await client.getUrl(Uri.parse('https://api.ip.sb/ip'));
-      request.headers.set('User-Agent', 'VeloGuard/1.0');
+    for (final url in services) {
+      try {
+        final client = HttpClient();
+        client.connectionTimeout = const Duration(seconds: 10);
 
-      final response = await request.close();
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        return body.trim();
+        // 当应用自身的代理运行时（非TUN模式），通过本地代理发送请求
+        // 注意：如果是TUN模式或外部VPN，流量已经通过VPN隧道，不需要设置findProxy
+        // _isVpnActive 表示系统级VPN（包括我们的TUN模式），此时流量自动走VPN
+        // widget.isProxyRunning 表示应用的代理服务在运行
+        // 只有当代理运行但不是VPN模式时，才需要手动设置代理
+        if (widget.isProxyRunning && !_isVpnActive) {
+          client.findProxy = (uri) => 'PROXY 127.0.0.1:$_proxyPort';
+          // 允许自签名证书（某些代理可能使用）
+          client.badCertificateCallback = (cert, host, port) => true;
+        }
+
+        final request = await client.getUrl(Uri.parse(url));
+        request.headers.set('User-Agent', 'VeloGuard/1.0');
+
+        final response = await request.close();
+        if (response.statusCode == 200) {
+          final body = await response.transform(utf8.decoder).join();
+          final ip = body.trim();
+          // 验证是否是有效的 IP 地址
+          if (_isValidIp(ip)) {
+            client.close();
+            return ip;
+          }
+        }
+        client.close();
+      } catch (e) {
+        debugPrint('$url request failed: $e');
       }
-      client.close();
-    } catch (e) {
-      debugPrint('ip.sb request failed: $e');
-    }
-
-    // 备用方案：使用 ipify
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 10);
-
-      final request = await client.getUrl(Uri.parse('https://api.ipify.org'));
-      final response = await request.close();
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        return body.trim();
-      }
-      client.close();
-    } catch (e) {
-      debugPrint('ipify request failed: $e');
     }
 
     return null;
+  }
+
+  /// 验证 IP 地址格式
+  bool _isValidIp(String ip) {
+    // IPv4 验证
+    final ipv4Regex = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$');
+    if (ipv4Regex.hasMatch(ip)) {
+      final parts = ip.split('.').map(int.parse).toList();
+      return parts.every((p) => p >= 0 && p <= 255);
+    }
+
+    // IPv6 验证 (简化版)
+    final ipv6Regex = RegExp(r'^[0-9a-fA-F:]+$');
+    if (ipv6Regex.hasMatch(ip) && ip.contains(':')) {
+      return true;
+    }
+
+    return false;
   }
 
   /// 获取 IP 详细信息
@@ -197,6 +259,12 @@ class _IpCheckCardState extends State<IpCheckCard>
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 5);
+
+      // 当应用自身的代理运行时（非TUN模式），通过本地代理发送请求
+      if (widget.isProxyRunning && !_isVpnActive) {
+        client.findProxy = (uri) => 'PROXY 127.0.0.1:$_proxyPort';
+        client.badCertificateCallback = (cert, host, port) => true;
+      }
 
       // 使用 ip-api.com 获取详细信息
       final request = await client.getUrl(
@@ -242,6 +310,9 @@ class _IpCheckCardState extends State<IpCheckCard>
     final spacing = ResponsiveUtils.getSpacing(context);
     final l10n = AppLocalizations.of(context);
 
+    // 使用系统VPN状态来判断是否通过代理
+    final isUsingProxy = _isVpnActive || widget.isProxyRunning;
+
     return Card(
       elevation: 0,
       color: colorScheme.surfaceContainerLow,
@@ -260,7 +331,7 @@ class _IpCheckCardState extends State<IpCheckCard>
                 Container(
                   padding: EdgeInsets.all(spacing),
                   decoration: BoxDecoration(
-                    color: widget.isProxyRunning
+                    color: isUsingProxy
                         ? colorScheme.primaryContainer
                         : colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(borderRadius * 0.6),
@@ -268,7 +339,7 @@ class _IpCheckCardState extends State<IpCheckCard>
                   child: Icon(
                     Icons.public_rounded,
                     size: 20,
-                    color: widget.isProxyRunning
+                    color: isUsingProxy
                         ? colorScheme.onPrimaryContainer
                         : colorScheme.onSurfaceVariant,
                   ),
@@ -285,7 +356,7 @@ class _IpCheckCardState extends State<IpCheckCard>
                         ),
                       ),
                       Text(
-                        widget.isProxyRunning
+                        isUsingProxy
                             ? (l10n?.proxyConnection ?? 'Via proxy')
                             : (l10n?.directConnection ?? 'Direct connection'),
                         style: textTheme.bodySmall?.copyWith(
@@ -322,6 +393,7 @@ class _IpCheckCardState extends State<IpCheckCard>
                 textTheme,
                 borderRadius,
                 spacing,
+                isUsingProxy,
               ),
             ),
           ],
@@ -335,6 +407,7 @@ class _IpCheckCardState extends State<IpCheckCard>
     TextTheme textTheme,
     double borderRadius,
     double spacing,
+    bool isUsingProxy,
   ) {
     final l10n = AppLocalizations.of(context);
     if (_isLoading && _ipInfo == null) {
@@ -364,6 +437,7 @@ class _IpCheckCardState extends State<IpCheckCard>
         borderRadius,
         spacing,
         l10n,
+        isUsingProxy,
       );
     }
 
@@ -486,6 +560,7 @@ class _IpCheckCardState extends State<IpCheckCard>
     double borderRadius,
     double spacing,
     AppLocalizations? l10n,
+    bool isUsingProxy,
   ) {
     return Container(
       key: const ValueKey('ip_info'),
@@ -494,7 +569,7 @@ class _IpCheckCardState extends State<IpCheckCard>
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: widget.isProxyRunning
+          colors: isUsingProxy
               ? [
                   colorScheme.primaryContainer.withValues(alpha: 0.5),
                   colorScheme.primaryContainer.withValues(alpha: 0.2),
@@ -506,7 +581,7 @@ class _IpCheckCardState extends State<IpCheckCard>
         ),
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: widget.isProxyRunning
+          color: isUsingProxy
               ? colorScheme.primary.withValues(alpha: 0.3)
               : colorScheme.outlineVariant.withValues(alpha: 0.5),
         ),
@@ -532,7 +607,7 @@ class _IpCheckCardState extends State<IpCheckCard>
                       style: textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         fontFamily: 'monospace',
-                        color: widget.isProxyRunning
+                        color: isUsingProxy
                             ? colorScheme.primary
                             : colorScheme.onSurface,
                       ),
@@ -591,7 +666,7 @@ class _IpCheckCardState extends State<IpCheckCard>
               vertical: spacing,
             ),
             decoration: BoxDecoration(
-              color: widget.isProxyRunning
+              color: isUsingProxy
                   ? Colors.green.withValues(alpha: 0.15)
                   : colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(borderRadius * 0.5),
@@ -604,18 +679,16 @@ class _IpCheckCardState extends State<IpCheckCard>
                   height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: widget.isProxyRunning
-                        ? Colors.green
-                        : colorScheme.outline,
+                    color: isUsingProxy ? Colors.green : colorScheme.outline,
                   ),
                 ),
                 SizedBox(width: spacing),
                 Text(
-                  widget.isProxyRunning
+                  isUsingProxy
                       ? (l10n?.proxyConnection ?? 'Via proxy')
                       : (l10n?.directConnection ?? 'Direct connection'),
                   style: textTheme.bodySmall?.copyWith(
-                    color: widget.isProxyRunning
+                    color: isUsingProxy
                         ? Colors.green
                         : colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w500,

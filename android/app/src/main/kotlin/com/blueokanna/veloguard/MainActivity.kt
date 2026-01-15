@@ -79,6 +79,9 @@ class MainActivity : FlutterActivity() {
                 "isOtherVpnActive" -> {
                     result.success(isOtherVpnActive())
                 }
+                "isAnyVpnActive" -> {
+                    result.success(isAnyVpnActive())
+                }
                 "getVpnFd" -> {
                     result.success(VeloGuardVpnService.vpnFd)
                 }
@@ -318,6 +321,26 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to check if other VPN is active: ${e.message}")
             false
+        }
+    }
+    
+    /// Check if ANY VPN is currently active (including our own)
+    /// This is used for IP display to show "proxy" vs "direct" status
+    private fun isAnyVpnActive(): Boolean {
+        return try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val activeNetwork = connectivityManager.activeNetwork
+            if (activeNetwork != null) {
+                val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+                // Check if VPN transport is active (any VPN, including ours)
+                capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check VPN status: ${e.message}")
+            // Fallback to checking our own VPN state
+            VeloGuardVpnService.isRunning
         }
     }
     

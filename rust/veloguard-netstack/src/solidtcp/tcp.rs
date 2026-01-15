@@ -448,6 +448,20 @@ impl TcpConnection {
         }
     }
 
+    /// Force close the connection immediately
+    /// This drops the proxy channel to signal spawned tasks to exit
+    pub fn force_close(&mut self) {
+        self.state = TcpState::Closed;
+        // Drop the proxy sender to signal the write task to exit
+        self.proxy_tx = None;
+        // Clear buffers
+        self.recv_buf.clear();
+        self.send_buf.clear();
+        self.pending_data.clear();
+        self.ooo_segments.clear();
+        self.ooo_size = 0;
+    }
+
     pub fn is_timed_out(&self) -> bool {
         let timeout = match self.state {
             TcpState::Established => {
@@ -531,6 +545,23 @@ impl TcpManager {
             self.connections.remove(&key);
             trace!("TCP connection cleaned up: {:?}", key);
         }
+    }
+
+    /// Force close all connections immediately
+    /// This is called during shutdown to ensure all proxy tasks exit
+    pub fn force_close_all(&self) {
+        let count = self.connections.len();
+        
+        // Mark all connections as closed and drop their proxy channels
+        for entry in self.connections.iter() {
+            let mut conn = entry.write();
+            conn.force_close();
+        }
+        
+        // Clear all connections
+        self.connections.clear();
+        
+        info!("Force closed {} TCP connections", count);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Arc<RwLock<TcpConnection>>> + '_ {

@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1477366539;
+  int get rustContentHash => 211449993;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -92,7 +92,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiCloseConnectionById({required String id});
 
+  Future<String> crateApiConvertClashToVeloguard({required String clashYaml});
+
   Future<TunStatus> crateApiDisableTunMode();
+
+  Future<String> crateApiDownloadConfigFromUrl({required String url});
 
   Future<TunStatus> crateApiEnableTunMode();
 
@@ -159,6 +163,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<bool> crateApiOpenUwpLoopbackUtility();
 
+  Future<void> crateApiReloadConfigFromClashFile({required String configPath});
+
+  Future<void> crateApiReloadConfigFromClashYaml({required String clashYaml});
+
   Future<void> crateApiReloadConfigFromFile({required String configPath});
 
   Future<void> crateApiReloadConfigFromYaml({required String yamlConfig});
@@ -191,7 +199,13 @@ abstract class RustLibApi extends BaseApi {
 
   Future<bool> crateApiStartAndroidVpn();
 
+  Future<void> crateApiStartProxyFromClashFile({required String configPath});
+
+  Future<void> crateApiStartProxyFromClashYaml({required String clashYaml});
+
   Future<void> crateApiStartProxyFromFile({required String configPath});
+
+  Future<void> crateApiStartProxyFromUrl({required String url});
 
   Future<void> crateApiStartProxyFromYaml({required String yamlConfig});
 
@@ -422,6 +436,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiConvertClashToVeloguard({required String clashYaml}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(clashYaml);
+          return wire.wire__crate__api__convert_clash_to_veloguard(port_, arg0);
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_String,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiConvertClashToVeloguardConstMeta,
+        argValues: [clashYaml],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConvertClashToVeloguardConstMeta =>
+      const TaskConstMeta(
+        debugName: "convert_clash_to_veloguard",
+        argNames: ["clashYaml"],
+      );
+
+  @override
   Future<TunStatus> crateApiDisableTunMode() {
     return handler.executeNormal(
       NormalTask(
@@ -441,6 +480,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiDisableTunModeConstMeta =>
       const TaskConstMeta(debugName: "disable_tun_mode", argNames: []);
+
+  @override
+  Future<String> crateApiDownloadConfigFromUrl({required String url}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(url);
+          return wire.wire__crate__api__download_config_from_url(port_, arg0);
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_String,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiDownloadConfigFromUrlConstMeta,
+        argValues: [url],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDownloadConfigFromUrlConstMeta =>
+      const TaskConstMeta(
+        debugName: "download_config_from_url",
+        argNames: ["url"],
+      );
 
   @override
   Future<TunStatus> crateApiEnableTunMode() {
@@ -1135,6 +1199,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "open_uwp_loopback_utility", argNames: []);
 
   @override
+  Future<void> crateApiReloadConfigFromClashFile({required String configPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(configPath);
+          return wire.wire__crate__api__reload_config_from_clash_file(
+            port_,
+            arg0,
+          );
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_unit,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiReloadConfigFromClashFileConstMeta,
+        argValues: [configPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiReloadConfigFromClashFileConstMeta =>
+      const TaskConstMeta(
+        debugName: "reload_config_from_clash_file",
+        argNames: ["configPath"],
+      );
+
+  @override
+  Future<void> crateApiReloadConfigFromClashYaml({required String clashYaml}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(clashYaml);
+          return wire.wire__crate__api__reload_config_from_clash_yaml(
+            port_,
+            arg0,
+          );
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_unit,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiReloadConfigFromClashYamlConstMeta,
+        argValues: [clashYaml],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiReloadConfigFromClashYamlConstMeta =>
+      const TaskConstMeta(
+        debugName: "reload_config_from_clash_yaml",
+        argNames: ["clashYaml"],
+      );
+
+  @override
   Future<void> crateApiReloadConfigFromFile({required String configPath}) {
     return handler.executeNormal(
       NormalTask(
@@ -1458,6 +1578,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "start_android_vpn", argNames: []);
 
   @override
+  Future<void> crateApiStartProxyFromClashFile({required String configPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(configPath);
+          return wire.wire__crate__api__start_proxy_from_clash_file(
+            port_,
+            arg0,
+          );
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_unit,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiStartProxyFromClashFileConstMeta,
+        argValues: [configPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStartProxyFromClashFileConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_proxy_from_clash_file",
+        argNames: ["configPath"],
+      );
+
+  @override
+  Future<void> crateApiStartProxyFromClashYaml({required String clashYaml}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(clashYaml);
+          return wire.wire__crate__api__start_proxy_from_clash_yaml(
+            port_,
+            arg0,
+          );
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_unit,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiStartProxyFromClashYamlConstMeta,
+        argValues: [clashYaml],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStartProxyFromClashYamlConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_proxy_from_clash_yaml",
+        argNames: ["clashYaml"],
+      );
+
+  @override
   Future<void> crateApiStartProxyFromFile({required String configPath}) {
     return handler.executeNormal(
       NormalTask(
@@ -1480,6 +1656,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "start_proxy_from_file",
     argNames: ["configPath"],
   );
+
+  @override
+  Future<void> crateApiStartProxyFromUrl({required String url}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_String(url);
+          return wire.wire__crate__api__start_proxy_from_url(port_, arg0);
+        },
+        codec: DcoCodec(
+          decodeSuccessData: dco_decode_unit,
+          decodeErrorData: dco_decode_String,
+        ),
+        constMeta: kCrateApiStartProxyFromUrlConstMeta,
+        argValues: [url],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStartProxyFromUrlConstMeta =>
+      const TaskConstMeta(debugName: "start_proxy_from_url", argNames: ["url"]);
 
   @override
   Future<void> crateApiStartProxyFromYaml({required String yamlConfig}) {

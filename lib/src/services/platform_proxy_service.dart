@@ -830,6 +830,43 @@ class PlatformProxyService {
     }
   }
 
+  /// Check if any VPN is currently active on the system (including our own)
+  /// This is used to determine if traffic is going through a VPN for IP display
+  Future<bool> isAnyVpnActive() async {
+    if (Platform.isAndroid) {
+      try {
+        // First check if our VPN is running
+        if (_tunModeEnabled && _vpnFd >= 0) {
+          return true;
+        }
+        // Then check if any other VPN is active
+        final result = await _channel.invokeMethod('isAnyVpnActive');
+        return result == true;
+      } catch (e) {
+        debugPrint('Failed to check VPN status: $e');
+        // Fallback: check our own state
+        return _tunModeEnabled;
+      }
+    } else if (PlatformUtils.isOHOS) {
+      try {
+        if (_tunModeEnabled && _vpnFd >= 0) {
+          return true;
+        }
+        final result = await _ohosChannel.invokeMethod('isAnyVpnActive');
+        return result == true;
+      } catch (e) {
+        return _tunModeEnabled;
+      }
+    } else if (Platform.isWindows) {
+      // On Windows, check TUN mode status
+      return _tunModeEnabled;
+    } else if (Platform.isMacOS || Platform.isLinux) {
+      // On desktop, check system proxy or TUN mode
+      return _tunModeEnabled || _systemProxyEnabled;
+    }
+    return false;
+  }
+
   /// Check if native library is loaded (Android only)
   /// Returns true if the Rust native library was loaded successfully
   Future<bool> isNativeLibraryLoaded() async {

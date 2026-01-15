@@ -651,8 +651,8 @@ impl OutboundProxy for Hysteria2Outbound {
         let (mut send, mut recv) = conn.open_tcp_stream(&target).await?;
 
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
 
         send.write_all(http_request.as_bytes()).await.map_err(|e| {

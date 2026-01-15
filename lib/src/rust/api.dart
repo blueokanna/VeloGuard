@@ -27,6 +27,43 @@ Future<void> reloadConfigFromYaml({required String yamlConfig}) =>
 Future<void> reloadConfigFromFile({required String configPath}) =>
     RustLib.instance.api.crateApiReloadConfigFromFile(configPath: configPath);
 
+/// Start proxy from a Clash-format configuration file
+/// This automatically converts Clash config to VeloGuard format
+Future<void> startProxyFromClashYaml({required String clashYaml}) =>
+    RustLib.instance.api.crateApiStartProxyFromClashYaml(clashYaml: clashYaml);
+
+/// Start proxy from a Clash-format configuration file
+Future<void> startProxyFromClashFile({required String configPath}) => RustLib
+    .instance
+    .api
+    .crateApiStartProxyFromClashFile(configPath: configPath);
+
+/// Reload configuration from a Clash-format YAML string
+Future<void> reloadConfigFromClashYaml({required String clashYaml}) => RustLib
+    .instance
+    .api
+    .crateApiReloadConfigFromClashYaml(clashYaml: clashYaml);
+
+/// Reload configuration from a Clash-format file
+Future<void> reloadConfigFromClashFile({required String configPath}) => RustLib
+    .instance
+    .api
+    .crateApiReloadConfigFromClashFile(configPath: configPath);
+
+/// Download and start proxy from a subscription URL
+/// This fetches the Clash config from the URL and starts the proxy
+Future<void> startProxyFromUrl({required String url}) =>
+    RustLib.instance.api.crateApiStartProxyFromUrl(url: url);
+
+/// Download config from URL and return the YAML content
+/// Useful for saving the config locally before starting
+Future<String> downloadConfigFromUrl({required String url}) =>
+    RustLib.instance.api.crateApiDownloadConfigFromUrl(url: url);
+
+/// Convert a Clash config to VeloGuard format (for debugging/preview)
+Future<String> convertClashToVeloguard({required String clashYaml}) =>
+    RustLib.instance.api.crateApiConvertClashToVeloguard(clashYaml: clashYaml);
+
 Future<TrafficStatsDto> getTrafficStatsDto() =>
     RustLib.instance.api.crateApiGetTrafficStatsDto();
 

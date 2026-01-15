@@ -33,6 +33,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+veloguard-core = { path = "../veloguard-core" }
 veloguard-dns = { path = "../veloguard-dns" }
 
 [dev-dependencies]

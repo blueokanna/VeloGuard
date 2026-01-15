@@ -1111,6 +1111,28 @@ class RustLibWire implements BaseWire {
             void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
           >();
 
+  void wire__crate__api__convert_clash_to_veloguard(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> clash_yaml,
+  ) {
+    return _wire__crate__api__convert_clash_to_veloguard(port_, clash_yaml);
+  }
+
+  late final _wire__crate__api__convert_clash_to_veloguardPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__convert_clash_to_veloguard');
+  late final _wire__crate__api__convert_clash_to_veloguard =
+      _wire__crate__api__convert_clash_to_veloguardPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
   void wire__crate__api__disable_tun_mode(int port_) {
     return _wire__crate__api__disable_tun_mode(port_);
   }
@@ -1121,6 +1143,28 @@ class RustLibWire implements BaseWire {
       );
   late final _wire__crate__api__disable_tun_mode =
       _wire__crate__api__disable_tun_modePtr.asFunction<void Function(int)>();
+
+  void wire__crate__api__download_config_from_url(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> url,
+  ) {
+    return _wire__crate__api__download_config_from_url(port_, url);
+  }
+
+  late final _wire__crate__api__download_config_from_urlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__download_config_from_url');
+  late final _wire__crate__api__download_config_from_url =
+      _wire__crate__api__download_config_from_urlPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
 
   void wire__crate__api__enable_tun_mode(int port_) {
     return _wire__crate__api__enable_tun_mode(port_);
@@ -1521,6 +1565,50 @@ class RustLibWire implements BaseWire {
       _wire__crate__api__open_uwp_loopback_utilityPtr
           .asFunction<void Function(int)>();
 
+  void wire__crate__api__reload_config_from_clash_file(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
+  ) {
+    return _wire__crate__api__reload_config_from_clash_file(port_, config_path);
+  }
+
+  late final _wire__crate__api__reload_config_from_clash_filePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__reload_config_from_clash_file');
+  late final _wire__crate__api__reload_config_from_clash_file =
+      _wire__crate__api__reload_config_from_clash_filePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__reload_config_from_clash_yaml(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> clash_yaml,
+  ) {
+    return _wire__crate__api__reload_config_from_clash_yaml(port_, clash_yaml);
+  }
+
+  late final _wire__crate__api__reload_config_from_clash_yamlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__reload_config_from_clash_yaml');
+  late final _wire__crate__api__reload_config_from_clash_yaml =
+      _wire__crate__api__reload_config_from_clash_yamlPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
   void wire__crate__api__reload_config_from_file(
     int port_,
     ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
@@ -1777,6 +1865,50 @@ class RustLibWire implements BaseWire {
   late final _wire__crate__api__start_android_vpn =
       _wire__crate__api__start_android_vpnPtr.asFunction<void Function(int)>();
 
+  void wire__crate__api__start_proxy_from_clash_file(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
+  ) {
+    return _wire__crate__api__start_proxy_from_clash_file(port_, config_path);
+  }
+
+  late final _wire__crate__api__start_proxy_from_clash_filePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_proxy_from_clash_file');
+  late final _wire__crate__api__start_proxy_from_clash_file =
+      _wire__crate__api__start_proxy_from_clash_filePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__start_proxy_from_clash_yaml(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> clash_yaml,
+  ) {
+    return _wire__crate__api__start_proxy_from_clash_yaml(port_, clash_yaml);
+  }
+
+  late final _wire__crate__api__start_proxy_from_clash_yamlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_proxy_from_clash_yaml');
+  late final _wire__crate__api__start_proxy_from_clash_yaml =
+      _wire__crate__api__start_proxy_from_clash_yamlPtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
   void wire__crate__api__start_proxy_from_file(
     int port_,
     ffi.Pointer<wire_cst_list_prim_u_8_strict> config_path,
@@ -1795,6 +1927,28 @@ class RustLibWire implements BaseWire {
       >('frbgen_veloguard_wire__crate__api__start_proxy_from_file');
   late final _wire__crate__api__start_proxy_from_file =
       _wire__crate__api__start_proxy_from_filePtr
+          .asFunction<
+            void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
+          >();
+
+  void wire__crate__api__start_proxy_from_url(
+    int port_,
+    ffi.Pointer<wire_cst_list_prim_u_8_strict> url,
+  ) {
+    return _wire__crate__api__start_proxy_from_url(port_, url);
+  }
+
+  late final _wire__crate__api__start_proxy_from_urlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_cst_list_prim_u_8_strict>,
+          )
+        >
+      >('frbgen_veloguard_wire__crate__api__start_proxy_from_url');
+  late final _wire__crate__api__start_proxy_from_url =
+      _wire__crate__api__start_proxy_from_urlPtr
           .asFunction<
             void Function(int, ffi.Pointer<wire_cst_list_prim_u_8_strict>)
           >();

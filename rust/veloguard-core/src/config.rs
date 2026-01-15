@@ -1,7 +1,11 @@
 pub mod validator;
+pub mod veloguard_compat;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// Re-export clash compatibility functions
+pub use veloguard_compat::parse_clash_config;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {

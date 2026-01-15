@@ -77,8 +77,8 @@ impl OutboundProxy for Socks5Outbound {
         
         // Send HTTP request
         let http_request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
-            path, host
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: {}\r\n\r\n",
+            path, host, crate::USER_AGENT
         );
         stream.write_all(http_request.as_bytes()).await
             .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;

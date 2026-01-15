@@ -25,7 +25,11 @@ impl SelectorOutbound {
     pub fn new(config: OutboundConfig, registry: ProxyRegistry) -> Result<Self> {
         // Parse outbounds from options - the options field contains a YAML value
         // that was converted from JSON, so we need to handle both formats
-        let outbounds: Vec<String> = if let Some(outbounds_value) = config.options.get("outbounds") {
+        // Clash uses "proxies" while some configs use "outbounds"
+        let outbounds_value = config.options.get("proxies")
+            .or_else(|| config.options.get("outbounds"));
+        
+        let outbounds: Vec<String> = if let Some(outbounds_value) = outbounds_value {
             tracing::debug!("Selector '{}' outbounds_value type: {:?}", config.tag, outbounds_value);
             
             // Try to parse as array directly
@@ -45,7 +49,7 @@ impl SelectorOutbound {
                 Vec::new()
             }
         } else {
-            tracing::warn!("Selector '{}' has no 'outbounds' in options. Available keys: {:?}", 
+            tracing::warn!("Selector '{}' has no 'proxies' or 'outbounds' in options. Available keys: {:?}", 
                 config.tag, config.options.keys().collect::<Vec<_>>());
             Vec::new()
         };
@@ -91,9 +95,21 @@ impl SelectorOutbound {
         &self.outbounds
     }
     
-    /// Find a proxy by tag from the registry
+    /// Find a proxy by tag from the registry (case-insensitive)
     async fn find_proxy(&self, tag: &str) -> Option<Arc<dyn OutboundProxy>> {
-        self.registry.read().await.get(tag).cloned()
+        let registry = self.registry.read().await;
+        // First try exact match
+        if let Some(proxy) = registry.get(tag) {
+            return Some(proxy.clone());
+        }
+        // Then try case-insensitive match
+        let tag_lower = tag.to_lowercase();
+        for (key, proxy) in registry.iter() {
+            if key.to_lowercase() == tag_lower {
+                return Some(proxy.clone());
+            }
+        }
+        None
     }
     
     /// Resolve the actual proxy to use (handles nested selectors)
@@ -103,14 +119,18 @@ impl SelectorOutbound {
         }
         
         let selected = self.get_selected();
-        tracing::debug!("Selector '{}' resolving to '{}'", self.config.tag, selected);
+        tracing::info!("[Selector] '{}' resolving to proxy '{}'", self.config.tag, selected);
         
         if let Some(proxy) = self.find_proxy(&selected).await {
             // Check if the selected proxy is also a selector (nested group)
             // For now, we just return the proxy directly
             // In a full implementation, we'd check if it's a SelectorOutbound and resolve recursively
+            tracing::debug!("[Selector] '{}' resolved to proxy '{}' (type: {})", 
+                self.config.tag, proxy.tag(), std::any::type_name_of_val(&*proxy));
             Ok(proxy)
         } else {
+            tracing::error!("[Selector] '{}' failed to find proxy '{}' in registry", 
+                self.config.tag, selected);
             Err(Error::config(format!("Selected outbound '{}' not found in registry", selected)))
         }
     }

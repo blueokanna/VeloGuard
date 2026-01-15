@@ -12,6 +12,7 @@ import 'package:veloguard/src/utils/responsive_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
 import 'package:veloguard/src/providers/proxies_provider.dart'
     show proxySelectionChangedController;
+import 'package:veloguard/src/services/storage_service.dart';
 
 /// Traffic history data point
 class TrafficDataPoint {
@@ -188,6 +189,7 @@ class _TrafficChartState extends State<TrafficChart>
   bool _isLoadingIp = false;
   String? _ipError;
   StreamSubscription<String>? _proxySelectionSubscription;
+  int _proxyPort = 7890; // Default port, will be updated from settings
 
   @override
   void initState() {
@@ -200,6 +202,9 @@ class _TrafficChartState extends State<TrafficChart>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
+
+    // Load proxy port from settings
+    _loadProxyPort();
 
     // Use cached data if available
     if (_ipInfoCache.ipv4Info != null || _ipInfoCache.ipv6Info != null) {
@@ -222,6 +227,24 @@ class _TrafficChartState extends State<TrafficChart>
         });
       },
     );
+  }
+
+  /// Load proxy port from settings
+  Future<void> _loadProxyPort() async {
+    try {
+      final settings = await StorageService.instance.getGeneralSettings();
+      // Prefer mixedPort, fallback to httpPort
+      final port = settings.mixedPort > 0
+          ? settings.mixedPort
+          : settings.httpPort;
+      if (mounted && port > 0) {
+        setState(() {
+          _proxyPort = port;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load proxy port: $e');
+    }
   }
 
   @override
@@ -287,7 +310,7 @@ class _TrafficChartState extends State<TrafficChart>
         createHttpClient: () {
           final client = HttpClient();
           // Use local HTTP proxy (mixed port)
-          client.findProxy = (uri) => 'PROXY 127.0.0.1:7890';
+          client.findProxy = (uri) => 'PROXY 127.0.0.1:$_proxyPort';
           client.badCertificateCallback = (cert, host, port) => true;
           return client;
         },
