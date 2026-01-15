@@ -1,49 +1,25 @@
 # VeloGuard 🛡️
 
-## 这是什么？
+<p align="center">
+  <img src="assets/icon.png" alt="VeloGuard Logo" width="128" height="128" />
+</p>
 
-**VeloGuard** 是一款现代化网络代理客户端，可以让你：
+## 我能用它做什么？
+
+**VeloGuard** 是一款现代化网络代理客户端，帮你在手机和电脑上安全、快速、可视化地访问网络：
 - ✅ 更快更安全地浏览网络
-- ✅ 在多个设备上（手机、电脑）使用
-- ✅ 自动选择最快的连接方式
-- ✅ 随时监控网络流量
-
-简单来说，它就是一个「聪明的网络管家」🎯
+- ✅ 跨设备使用（Android / Windows / macOS / Linux）
+- ✅ 智能判断何时走代理、何时直连
+- ✅ 随时查看当前网速、流量和出口 IP
 
 ---
 
-## 🎯 主要功能（新手必读）
+## 🎯 核心特性（精简版）
 
-### 1️⃣ 支持多种连接协议
-你可以添加不同类型的代理：
-- Shadowsocks（简洁快速）
-- VMess / VLESS（功能强大）
-- Trojan（高效隐蔽）
-- WireGuard（现代安全）
-- 以及其他 7+ 种协议
-
-**小白提示**：不知道选哪个？建议先用 Shadowsocks 或 VMess 尝试！
-
-### 2️⃣ 智能自动转发
-VeloGuard 会自动决定：
-- 什么流量走代理
-- 什么流量直接连接
-- 哪些网站应该被加速
-
-**你无需手动配置**，系统会根据规则自动处理 🤖
-
-### 3️⃣ 实时流量监控
-随时查看：
-- 📊 当前网速
-- 📈 今日流量使用量
-- 🔗 活跃连接数
-- 📍 当前 IP 地址
-
-### 4️⃣ 简洁漂亮的界面
-采用最新的 Material Design 3 风格：
-- 深色/浅色自动切换
-- 清晰的信息展示
-- 新手友好的操作流程
+1. **多协议支持**：Shadowsocks / VMess / VLESS / Trojan / WireGuard / TUIC / Hysteria2 等。
+2. **智能分流**：规则/全局/直连三种模式，自动判定流量走向。
+3. **实时监控**：当前网速、今日流量、活跃连接、出口 IP 一目了然。
+4. **跨平台 UI**：Material Design 3，深浅色自适应，手机与桌面端均优化。
 
 ---
 
@@ -60,46 +36,25 @@ VeloGuard 会自动决定：
 
 ---
 
-## ⚡ 快速开始指南（新手版）
+## ⚡ 零基础上手（推荐顺序）
 
-### 方式一：直接下载使用（最简单！）
+### A. 获取并安装
+- **Android**：在 GitHub Releases 下载 APK → 安装 → 首次启动允许 VPN 权限。
+- **Windows/macOS/Linux**：下载对应安装包 → 安装 → 首次启动允许系统代理/TUN 权限。
 
-#### Android 用户
-1. 在 GitHub Releases 下载 APK 文件
-2. 点击安装
-3. 打开应用，添加你的代理配置
-4. 点击「连接」即可使用
+### B. 导入配置（必做）
+1. 在应用内找到「配置 / Profiles」。
+2. 选择「导入文件」或「粘贴 YAML 文本」。
+3. 设置为当前配置。
 
-#### Windows/Mac/Linux 用户
-1. 下载对应系统的安装包
-2. 双击安装
-3. 打开应用，导入配置文件（`.yaml`）
-4. 点击开关启用代理
+### C. 选择模式
+- 初次建议 **Global（全局）**，确认能连通后再切到 **Rule（规则）**。
 
-### 方式二：自己编译（面向开发者）
+### D. 启动
+- 点击「连接/开关」。Android 弹出 VPN 授权时选择允许。
 
-**需要的工具**：
-# 1. 安装 Flutter（用于 UI）
-flutter --version   # 需要 3.24+
-
-# 2. 安装 Rust（用于核心引擎）
-rustup --version    # 需要 1.75+
-
-# 3. 克隆项目
-git clone https://github.com/aspect-build/veloguard.git
-cd veloguard
-
-# 4. 安装依赖
-flutter pub get
-
-# 5. 生成代码
-flutter_rust_bridge_codegen generate
-
-# 6. 构建
-flutter build apk --release   # Android
-flutter build windows --release  # Windows
-
-**提示**：编译需要 20-30 分钟，请耐心等待 ☕
+### E. 验证是否生效
+- 访问 `https://ipinfo.io`，若 IP 变为节点所在地，则成功。
 
 ---
 
@@ -124,40 +79,43 @@ flutter build windows --release  # Windows
 
 ---
 
-## 📚 配置文件快速上手
+## 📚 配置文件快速上手（最小可用示例）
 
-VeloGuard 兼容 Clash 配置格式（`.yaml` 文件）。最简单的配置看起来这样：
+VeloGuard 兼容 Clash 配置（`.yaml`）。按需替换 server/密码：
 
+```yaml
 # 基础设置
-mixed-port: 7890          # 代理端口
-allow-lan: false          # 是否允许 LAN 访问
-mode: rule                # 使用规则模式
-log-level: info           # 日志级别
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
 
-# 代理节点配置示例
+# 代理节点
 proxies:
   - name: "我的代理"
-    type: ss              # Shadowsocks 协议
-    server: 1.2.3.4       # 服务器地址
-    port: 443             # 端口号
-    cipher: aes-256-gcm   # 加密方式
-    password: "你的密码"   # 密码
+    type: ss
+    server: 1.2.3.4
+    port: 443
+    cipher: aes-256-gcm
+    password: "你的密码"
 
-# 代理组（选择使用哪个节点）
+# 代理组
 proxy-groups:
   - name: "Proxy"
-    type: select          # 手动选择
+    type: select
     proxies:
       - 我的代理
-      - DIRECT            # 直接连接
+      - DIRECT
 
-# 简单规则
+# 路由规则
 rules:
-  - DOMAIN-SUFFIX,google.com,Proxy  # Google 走代理
-  - GEOIP,CN,DIRECT                 # 国内流量直连
-  - MATCH,Proxy                     # 其他走代理
+  - DOMAIN-SUFFIX,google.com,Proxy
+  - GEOIP,CN,DIRECT
+  - MATCH,Proxy
+```
 
-**小白提示**：配置初期不用改这些，大多数预设配置都能用！
+**记住三件事：**
+1) `proxies` 放节点；2) `proxy-groups` 选择节点；3) `rules` 决定谁走代理。
 
 ---
 
