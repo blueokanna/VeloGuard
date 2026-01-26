@@ -114,10 +114,9 @@ pub async fn start_proxy_from_file(config_path: String) -> std::result::Result<(
 
 #[frb]
 pub async fn stop_proxy() -> std::result::Result<(), String> {
-    tracing::info!("Stopping proxy...");
+    tracing::info!("Stopping proxy and VPN service...");
 
-    let tracker = veloguard_core::connection_tracker::global_tracker();
-    tracker.reset();
+    // 步骤 1: 停止代理核心（先停止代理，避免新连接）
     {
         let instance = get_veloguard_instance()
             .await
@@ -125,23 +124,76 @@ pub async fn stop_proxy() -> std::result::Result<(), String> {
         let veloguard_guard = instance.read().await;
 
         if let Some(veloguard) = veloguard_guard.as_ref() {
+            tracing::info!("Stopping proxy core...");
             veloguard
                 .stop()
                 .await
                 .map_err(|e| format!("Failed to stop proxy: {}", e))?;
+            tracing::info!("Proxy core stopped");
         } else {
             tracing::warn!("Proxy was not running");
-            return Ok(());
         }
     }
 
+    // 步骤 2: 断开VPN连接（Android和Windows）
+    #[cfg(target_os = "android")]
+    {
+        tracing::info!("Disconnecting Android VPN...");
+        veloguard_netstack::clear_android_vpn_fd();
+        if let Some(processor) = crate::get_android_vpn_processor() {
+            processor.stop();
+            processor.reset();
+        }
+        crate::clear_android_vpn_processor();
+        tracing::info!("Android VPN disconnected");
+    }
+
+    #[cfg(windows)]
+    {
+        tracing::info!("Disconnecting Windows VPN (TUN mode)...");
+        if let Some(processor) = crate::get_windows_vpn_processor() {
+            processor.stop();
+            processor.reset();
+        }
+        crate::clear_windows_vpn_processor();
+        
+        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
+            let _ = route_manager.disable_global_mode();
+        }
+        crate::clear_windows_route_manager();
+        
+        if let Some(mut tun_device) = crate::take_windows_tun_device() {
+            let _ = tun_device.stop().await;
+        }
+        tracing::info!("Windows VPN (TUN mode) disconnected");
+    }
+
+    // 步骤 3: 重置连接追踪器
+    let tracker = veloguard_core::connection_tracker::global_tracker();
+    tracker.reset();
+    tracing::info!("Connection tracker reset");
+    
+    // 步骤 4: 等待清理完成
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    
+    // 步骤 5: 清理实例
     {
         let mut instance = VELOGUARD_INSTANCE.write().await;
         *instance = None;
     }
 
-    tracing::info!("Proxy stopped successfully");
+    // 步骤 6: 重置代理模式
+    veloguard_core::set_runtime_proxy_mode(0);
+    #[cfg(target_os = "android")]
+    {
+        veloguard_netstack::set_android_proxy_mode(0);
+    }
+    #[cfg(windows)]
+    {
+        veloguard_netstack::set_windows_proxy_mode(0);
+    }
+
+    tracing::info!("✓ Proxy and VPN service stopped successfully");
     Ok(())
 }
 

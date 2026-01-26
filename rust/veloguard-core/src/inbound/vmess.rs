@@ -868,21 +868,30 @@ impl VmessInbound {
     ) -> Result<()> {
         let header = [response_header, 0x00, 0x00, 0x00];
 
+        // 根据 V2Ray 官方协议：
+        // 1. 先派生 responseBodyKey = SHA256(requestKey)[:16]
+        // 2. 再用 responseBodyKey 做 KDF 派生响应头密钥
+        let response_body_key = Self::generate_response_body_key_aead(request_key);
+        let response_body_iv = Self::generate_response_body_iv_aead(request_iv);
+
         // Encrypt response header length (2 bytes)
-        let length_key = kdf(request_key, &[b"AEAD Resp Header Len Key"]);
-        let length_iv = kdf(request_iv, &[b"AEAD Resp Header Len IV"]);
+        // 使用 response_body_key 派生长度加密密钥
+        let length_key = kdf(&response_body_key, &[b"AEAD Resp Header Len Key"]);
+        let length_iv = kdf(&response_body_iv, &[b"AEAD Resp Header Len IV"]);
         let length_cipher = Aes128Gcm::new_from_slice(&length_key[..16]).map_err(|e| {
             Error::protocol(format!("Failed to create AEAD response length cipher: {}", e))
         })?;
+        let header_len_bytes = (header.len() as u16).to_be_bytes();
         let length_encrypted = length_cipher
-            .encrypt(Nonce::from_slice(&length_iv[..12]), header.len().to_be_bytes().as_ref())
+            .encrypt(Nonce::from_slice(&length_iv[..12]), header_len_bytes.as_ref())
             .map_err(|e| {
                 Error::protocol(format!("Failed to encrypt AEAD response length: {}", e))
             })?;
 
         // Encrypt response header payload
-        let header_key = kdf(request_key, &[b"AEAD Resp Header Key"]);
-        let header_iv = kdf(request_iv, &[b"AEAD Resp Header IV"]);
+        // 使用 response_body_key 派生头部加密密钥
+        let header_key = kdf(&response_body_key, &[b"AEAD Resp Header Key"]);
+        let header_iv = kdf(&response_body_iv, &[b"AEAD Resp Header IV"]);
         let cipher = Aes128Gcm::new_from_slice(&header_key[..16]).map_err(|e| {
             Error::protocol(format!("Failed to create AEAD response cipher: {}", e))
         })?;
@@ -936,31 +945,34 @@ fn generate_cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
 
 /// VMess AEAD KDF 函数
 ///
-/// 根据 VMess AEAD 协议规范，KDF 使用递归 HMAC-SHA256：
-/// K1 = HMAC("VMess AEAD KDF", key)  // "VMess AEAD KDF" 作为 HMAC 密钥
-/// K2 = HMAC(K1, path[0])
-/// K3 = HMAC(K2, path[1])
-/// ...
+/// 根据 V2Ray 官方实现 (kdf.go)，KDF 使用递归 HMAC-SHA256：
+/// 1. 创建 HMAC 链：H1 = HMAC with key "VMess AEAD KDF"
+/// 2. 对于每个 path 元素：H(n+1) = HMAC with key = H(n).Sum(), then update with path[n]
+/// 3. 最终：result = H(last).Write(key).Sum()
+///
+/// 即：path 元素构建 HMAC 密钥链，key 是最终输入的数据
 fn kdf(key: &[u8], path: &[&[u8]]) -> [u8; 32] {
-    // K1 = HMAC("VMess AEAD KDF", key)
-    let mut current_key = {
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(b"VMess AEAD KDF")
-            .expect("HMAC can take key of any size");
-        mac.update(key);
-        mac.finalize().into_bytes()
-    };
+    // 构建 HMAC 密钥链
+    // 初始密钥是 "VMess AEAD KDF"
+    let mut hmac_key: Vec<u8> = b"VMess AEAD KDF".to_vec();
 
-    // K(n+1) = HMAC(K(n), path[n])
+    // 对于每个 path 元素，生成新的 HMAC 密钥
     for p in path {
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&current_key)
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(&hmac_key)
             .expect("HMAC can take key of any size");
         mac.update(p);
-        current_key = mac.finalize().into_bytes();
+        hmac_key = mac.finalize().into_bytes().to_vec();
     }
 
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&current_key);
-    result
+    // 使用最终的 HMAC 密钥处理 key
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(&hmac_key)
+        .expect("HMAC can take key of any size");
+    mac.update(key);
+    let result = mac.finalize().into_bytes();
+
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&result);
+    output
 }
 
 fn sha256_hash(data: &[u8]) -> [u8; 32] {
