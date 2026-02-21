@@ -464,10 +464,10 @@ class PlatformProxyService {
       debugPrint('=== _disableAndroidVpn: Starting VPN shutdown ===');
 
       // First cleanup Rust layer - stop packet processing
+      // stopAndroidVpn internally clears fd, protect callbacks, and proxy mode
       try {
         debugPrint('_disableAndroidVpn: Stopping Rust VPN processing...');
         await rust_api.stopAndroidVpn();
-        rust_api.clearAndroidVpnFd();
         debugPrint('_disableAndroidVpn: Rust VPN state cleared');
       } catch (e) {
         debugPrint('_disableAndroidVpn: Failed to cleanup Rust VPN state: $e');

@@ -189,22 +189,10 @@ impl Router {
             }
         }
 
-        // No rule matched - in Rule mode, use the first proxy group or DIRECT
-        let default_outbound = if matches!(effective_mode, Mode::Rule) {
-            // In rule mode, prefer to go through proxy for unmatched traffic
-            // unless explicitly configured otherwise
-            config.outbounds.iter()
-                .find(|o| matches!(o.outbound_type,
-                    crate::config::OutboundType::Selector |
-                    crate::config::OutboundType::Urltest |
-                    crate::config::OutboundType::Fallback |
-                    crate::config::OutboundType::Loadbalance
-                ))
-                .map(|o| o.tag.clone())
-                .unwrap_or_else(|| "DIRECT".to_string())
-        } else {
-            "DIRECT".to_string()
-        };
+        // No rule matched - in Rule mode, use DIRECT for unmatched traffic
+        // Standard behavior: unmatched traffic goes DIRECT unless a MATCH rule is defined
+        // (MATCH rules are already handled above since RuleType::Match always returns true)
+        let default_outbound = "DIRECT".to_string();
         
         tracing::info!("[Router] No rule matched for domain={:?}, using default: {}", domain, default_outbound);
         default_outbound

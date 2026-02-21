@@ -784,69 +784,98 @@ enum WriteState {
     FlushingData(usize, (usize, usize)),
 }
 
-/// AES-CFB 解密器状态（用于 Legacy 模式）
+/// AES-128-CFB 解密器状态（用于 Legacy 模式）
+///
+/// 正确实现 CFB-128 流模式：维护一个 16 字节的 keystream 缓冲区，
+/// 逐字节处理数据，确保跨多次 decrypt() 调用时状态一致。
+/// 
+/// CFB-128 解密流程：
+/// 1. 加密 prev_block → 得到 keystream
+/// 2. 保存密文字节到 prev_block[pos]
+/// 3. 明文 = 密文 XOR keystream[pos]
+/// 4. pos++，当 pos == 16 时重置为 0（触发下一轮加密）
 struct AesCfbDecryptor {
     cipher: aes::Aes128,
+    /// 反馈寄存器：上一轮的密文块（或初始 IV）
     prev_block: [u8; 16],
+    /// 当前 keystream（prev_block 加密后的结果）
+    keystream: [u8; 16],
+    /// 当前在 keystream 中的位置 (0..16)
+    pos: usize,
 }
 
 impl AesCfbDecryptor {
     fn new(key: &[u8], iv: &[u8]) -> std::io::Result<Self> {
-        use aes::cipher::KeyInit as AesKeyInit;
+        use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
         let cipher = aes::Aes128::new_from_slice(key)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         let mut prev_block = [0u8; 16];
         prev_block.copy_from_slice(iv);
-        Ok(Self { cipher, prev_block })
+        // 预计算第一个 keystream
+        let mut ks_block = aes::Block::from(prev_block);
+        cipher.encrypt_block(&mut ks_block);
+        let keystream: [u8; 16] = ks_block.into();
+        Ok(Self { cipher, prev_block, keystream, pos: 0 })
     }
 
     fn decrypt(&mut self, data: &mut [u8]) {
         use aes::cipher::BlockEncrypt;
-        for chunk in data.chunks_mut(16) {
-            let mut block = aes::Block::from(self.prev_block);
-            self.cipher.encrypt_block(&mut block);
-
-            // 保存密文用于下一轮
-            let mut next_prev = [0u8; 16];
-            next_prev[..chunk.len()].copy_from_slice(chunk);
-
-            // 解密
-            for (i, byte) in chunk.iter_mut().enumerate() {
-                *byte ^= block[i];
+        for byte in data.iter_mut() {
+            if self.pos == 16 {
+                // 用更新后的 prev_block 生成新的 keystream
+                let mut block = aes::Block::from(self.prev_block);
+                self.cipher.encrypt_block(&mut block);
+                self.keystream = block.into();
+                self.pos = 0;
             }
-
-            self.prev_block = next_prev;
+            let ciphertext_byte = *byte;
+            *byte = ciphertext_byte ^ self.keystream[self.pos];
+            self.prev_block[self.pos] = ciphertext_byte;
+            self.pos += 1;
         }
     }
 }
 
-/// AES-CFB 加密器状态（用于 Legacy 模式写入）
+/// AES-128-CFB 加密器状态（用于 Legacy 模式写入）
+///
+/// CFB-128 加密流程：
+/// 1. 加密 prev_block → 得到 keystream
+/// 2. 密文 = 明文 XOR keystream[pos]
+/// 3. 保存密文字节到 prev_block[pos]
+/// 4. pos++，当 pos == 16 时重置为 0（触发下一轮加密）
 struct AesCfbEncryptor {
     cipher: aes::Aes128,
     prev_block: [u8; 16],
+    keystream: [u8; 16],
+    pos: usize,
 }
 
 impl AesCfbEncryptor {
     fn new(key: &[u8], iv: &[u8]) -> std::io::Result<Self> {
-        use aes::cipher::KeyInit as AesKeyInit;
+        use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
         let cipher = aes::Aes128::new_from_slice(key)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         let mut prev_block = [0u8; 16];
         prev_block.copy_from_slice(iv);
-        Ok(Self { cipher, prev_block })
+        let mut ks_block = aes::Block::from(prev_block);
+        cipher.encrypt_block(&mut ks_block);
+        let keystream: [u8; 16] = ks_block.into();
+        Ok(Self { cipher, prev_block, keystream, pos: 0 })
     }
 
     fn encrypt(&mut self, data: &mut [u8]) {
         use aes::cipher::BlockEncrypt;
-        for chunk in data.chunks_mut(16) {
-            let mut block = aes::Block::from(self.prev_block);
-            self.cipher.encrypt_block(&mut block);
-
-            // 加密并保存密文
-            for (i, byte) in chunk.iter_mut().enumerate() {
-                *byte ^= block[i];
-                self.prev_block[i] = *byte;
+        for byte in data.iter_mut() {
+            if self.pos == 16 {
+                let mut block = aes::Block::from(self.prev_block);
+                self.cipher.encrypt_block(&mut block);
+                self.keystream = block.into();
+                self.pos = 0;
             }
+            let ciphertext_byte = *byte ^ self.keystream[self.pos];
+            *byte = ciphertext_byte;
+            self.prev_block[self.pos] = ciphertext_byte;
+            self.pos += 1;
         }
     }
 }
@@ -870,6 +899,7 @@ pub struct VmessStream<S> {
     resp_body_iv: Vec<u8>,
     resp_body_key: Vec<u8>,
     resp_v: u8,
+    #[allow(dead_code)]
     security: u8,
     is_aead: bool,
     #[allow(dead_code)]
@@ -1376,31 +1406,75 @@ impl<S: AsyncRead + Unpin + Send> AsyncRead for VmessStream<S> {
 
                 ReadState::StreamWaitingLength => {
                     let this = &mut *self;
-                    ready!(this.poll_read_exact(cx, 2))?;
-
-                    // Legacy 模式: 长度字段也在 AES-CFB 流加密中
-                    let mut len_buf = this.read_buf.split().freeze().to_vec();
-                    if let Some(ref mut cfb) = this.legacy_read_cipher {
-                        cfb.decrypt(&mut len_buf);
-                    }
                     
-                    let len = u16::from_be_bytes(len_buf[..2].try_into().unwrap()) as usize;
-                    
-                    tracing::trace!("[VMess] Chunk length: {}", len);
-
-                    if len == 0 {
-                        // 长度为 0 表示流结束
-                        return Poll::Ready(Ok(()));
+                    if this.is_aead && this.aead_read_cipher.is_some() {
+                        // AEAD 模式 (AES-128-GCM / ChaCha20-Poly1305):
+                        // 长度字段也是 AEAD 加密的: [2字节明文 + 16字节tag] = 18字节
+                        // 使用与数据块相同的 AEAD cipher 和 nonce 计数器
+                        ready!(this.poll_read_exact(cx, 2 + 16))?;
+                        let mut len_data = this.read_buf.split().to_vec();
+                        
+                        if let Some(ref mut cipher) = this.aead_read_cipher {
+                            cipher.decrypt_inplace(&mut len_data)?;
+                        }
+                        
+                        if len_data.len() < 2 {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "invalid chunk length after AEAD decrypt",
+                            )));
+                        }
+                        
+                        // 解密后的长度值 = 明文 payload 大小
+                        let payload_len = u16::from_be_bytes(len_data[..2].try_into().unwrap()) as usize;
+                        tracing::trace!("[VMess AEAD] Chunk payload length: {}", payload_len);
+                        
+                        if payload_len == 0 {
+                            // 长度为 0 表示流结束
+                            return Poll::Ready(Ok(()));
+                        }
+                        
+                        // 实际需要从流中读取的字节数 = payload + AEAD overhead (16字节 tag)
+                        let overhead = this.aead_read_cipher.as_ref()
+                            .map(|c| c.security.overhead_len())
+                            .unwrap_or(0);
+                        let wire_len = payload_len + overhead;
+                        
+                        if wire_len > MAX_CHUNK_SIZE {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("invalid response - chunk size too large: {}", wire_len),
+                            )));
+                        }
+                        
+                        this.read_state = ReadState::StreamWaitingData(wire_len);
+                    } else {
+                        // Legacy 模式或 AEAD SECURITY_NONE:
+                        // 长度字段为 2 字节
+                        ready!(this.poll_read_exact(cx, 2))?;
+                        let mut len_buf = this.read_buf.split().freeze().to_vec();
+                        
+                        // Legacy 模式: 长度字段也在 AES-CFB 流加密中
+                        if let Some(ref mut cfb) = this.legacy_read_cipher {
+                            cfb.decrypt(&mut len_buf);
+                        }
+                        
+                        let len = u16::from_be_bytes(len_buf[..2].try_into().unwrap()) as usize;
+                        tracing::trace!("[VMess] Chunk length: {}", len);
+                        
+                        if len == 0 {
+                            return Poll::Ready(Ok(()));
+                        }
+                        
+                        if len > MAX_CHUNK_SIZE {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("invalid response - chunk size too large: {}", len),
+                            )));
+                        }
+                        
+                        this.read_state = ReadState::StreamWaitingData(len);
                     }
-
-                    if len > MAX_CHUNK_SIZE {
-                        return Poll::Ready(Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("invalid response - chunk size too large: {}", len),
-                        )));
-                    }
-
-                    this.read_state = ReadState::StreamWaitingData(len);
                 }
 
                 ReadState::StreamWaitingData(size) => {
@@ -1489,23 +1563,34 @@ impl<S: AsyncWrite + Unpin + Send> AsyncWrite for VmessStream<S> {
                 WriteState::BuildingData => {
                     let this = &mut *self;
                     
-                    // 确定 overhead 长度
-                    let overhead_len = if !this.is_aead && this.security != SECURITY_NONE {
-                        // Legacy 模式: FNV1a 4 字节
+                    // 确定数据 payload 的 overhead 长度
+                    let data_overhead_len = if !this.is_aead {
+                        // Legacy 模式: 始终使用 AES-CFB + FNV1a，FNV1a 占 4 字节
+                        // security 字段在 Legacy 模式下被忽略
                         4
                     } else if let Some(ref cipher) = this.aead_write_cipher {
-                        // AEAD 模式: 16 字节 tag
+                        // AEAD 模式: 16 字节 tag (数据部分)
                         cipher.security.overhead_len()
                     } else {
                         0
                     };
 
-                    let max_payload_size = CHUNK_SIZE - overhead_len;
+                    let max_payload_size = CHUNK_SIZE - data_overhead_len;
                     let consume_len = std::cmp::min(buf.len(), max_payload_size);
-                    let chunk_len = consume_len + overhead_len;
 
                     this.write_buf.clear();
-                    this.write_buf.reserve(2 + chunk_len);
+                    // 预估缓冲区大小:
+                    // Legacy: 2(len) + 4(fnv) + payload
+                    // AEAD: 18(encrypted len) + payload + 16(tag)
+                    // NONE: 2(len) + payload
+                    let estimated_size = if !this.is_aead {
+                        2 + 4 + consume_len
+                    } else if this.aead_write_cipher.is_some() {
+                        18 + consume_len + 16
+                    } else {
+                        2 + consume_len
+                    };
+                    this.write_buf.reserve(estimated_size);
                     
                     // 构建数据块
                     if !this.is_aead {
@@ -1519,6 +1604,8 @@ impl<S: AsyncWrite + Unpin + Send> AsyncWrite for VmessStream<S> {
                         }
                         
                         // 构建明文: [2字节长度][4字节FNV][数据]
+                        // chunk_len = FNV(4) + payload
+                        let chunk_len = consume_len + 4;
                         let mut plaintext = BytesMut::new();
                         plaintext.put_u16(chunk_len as u16);
                         
@@ -1536,19 +1623,26 @@ impl<S: AsyncWrite + Unpin + Send> AsyncWrite for VmessStream<S> {
                         this.write_buf.extend_from_slice(&encrypted);
                     } else {
                         // AEAD 模式
-                        this.write_buf.put_u16(chunk_len as u16);
-
-                        let mut piece2 = this.write_buf.split_off(2);
-                        piece2.put_slice(&buf[..consume_len]);
-
+                        // 
+                        // V2Ray 协议 AEAD 数据块格式:
+                        // [18字节: AEAD加密的长度] [N+16字节: AEAD加密的数据]
+                        //
+                        // 长度字段和数据字段共享同一个 AEAD cipher 和 nonce 计数器
+                        // 长度字段的明文值 = payload 大小（不含 AEAD overhead）
+                        
+                        // 1. AEAD 加密长度字段
+                        let mut len_plaintext = (consume_len as u16).to_be_bytes().to_vec();
                         if let Some(ref mut cipher) = this.aead_write_cipher {
-                            piece2.extend_from_slice(&vec![0u8; cipher.security.overhead_len()]);
-                            let mut piece2_vec = piece2.to_vec();
-                            cipher.encrypt_inplace(&mut piece2_vec)?;
-                            piece2 = BytesMut::from(&piece2_vec[..]);
+                            cipher.encrypt_inplace(&mut len_plaintext)?;
                         }
-
-                        this.write_buf.unsplit(piece2);
+                        this.write_buf.extend_from_slice(&len_plaintext);
+                        
+                        // 2. AEAD 加密数据字段
+                        let mut payload = buf[..consume_len].to_vec();
+                        if let Some(ref mut cipher) = this.aead_write_cipher {
+                            cipher.encrypt_inplace(&mut payload)?;
+                        }
+                        this.write_buf.extend_from_slice(&payload);
                     }
                     
                     this.write_state =
@@ -2763,16 +2857,21 @@ impl VmessOutbound {
 
     async fn connect_tcp(&self) -> Result<TcpStream> {
         let addr = format!("{}:{}", self.server, self.port);
-        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
-            .await
-            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
-            .next()
-            .ok_or_else(|| Error::network("No addresses found"))?;
-
-        tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(socket_addr))
-            .await
-            .map_err(|_| Error::network("TCP connect timeout"))?
-            .map_err(|e| Error::network(format!("TCP connect failed: {}", e)))
+        
+        // 使用 connect_protected 建立连接
+        // - Android: 通过 VpnService.protect() 保护 socket，防止路由回环
+        // - Windows/其他: 直接连接，但使用 hostname 而非预解析 IP，
+        //   避免 DNS 查询经过 TUN 的 Fake-IP 解析器导致回环
+        let stream = tokio::time::timeout(
+            Duration::from_secs(10),
+            crate::socket_protect::connect_protected(&addr),
+        )
+        .await
+        .map_err(|_| Error::network("TCP connect timeout"))?
+        .map_err(|e| Error::network(format!("TCP connect failed: {}", e)))?;
+        
+        stream.set_nodelay(true).ok();
+        Ok(stream)
     }
 
     async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
@@ -2898,11 +2997,18 @@ impl VmessOutbound {
 
     async fn connect_quic(&self) -> Result<QuicBiStream> {
         let addr = format!("{}:{}", self.server, self.port);
-        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
-            .await
-            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
-            .next()
-            .ok_or_else(|| Error::network("No addresses found"))?;
+        // 使用 connect_protected 先建立一个临时 TCP 连接来安全解析 DNS
+        // 这样可以避免 TUN Fake-IP DNS 拦截导致的回环
+        // QUIC 需要 SocketAddr，所以我们需要先解析出真实 IP
+        let socket_addr: SocketAddr = {
+            let tmp = crate::socket_protect::connect_protected(&addr)
+                .await
+                .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?;
+            let peer = tmp.peer_addr()
+                .map_err(|e| Error::network(format!("Failed to get peer addr: {}", e)))?;
+            drop(tmp);
+            peer
+        };
 
         let mut root_store = rustls::RootCertStore::empty();
         for cert in rustls_native_certs::load_native_certs().certs {
@@ -2957,11 +3063,16 @@ impl VmessOutbound {
         use crate::transport::mkcp::{MkcpConfig, MkcpHeaderType, MkcpStream};
 
         let addr = format!("{}:{}", self.server, self.port);
-        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
-            .await
-            .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?
-            .next()
-            .ok_or_else(|| Error::network("No addresses found"))?;
+        // 安全解析 DNS，避免 TUN Fake-IP 拦截
+        let socket_addr: SocketAddr = {
+            let tmp = crate::socket_protect::connect_protected(&addr)
+                .await
+                .map_err(|e| Error::network(format!("DNS lookup failed: {}", e)))?;
+            let peer = tmp.peer_addr()
+                .map_err(|e| Error::network(format!("Failed to get peer addr: {}", e)))?;
+            drop(tmp);
+            peer
+        };
 
         let mkcp_config = if let Some(ref opts) = self.mkcp_opts {
             MkcpConfig {
@@ -3457,7 +3568,7 @@ mod tests {
         };
 
         let builder = VmessBuilder::new(&opt).unwrap();
-        assert!(builder.is_aead);
+        assert!(!builder.is_aead); // alterId > 0 时应使用 Legacy 模式
         assert!(!builder.is_udp);
         assert_eq!(builder.user.len(), 5);
         assert_eq!(builder.security, SECURITY_AES_128_GCM);
@@ -3501,5 +3612,96 @@ mod tests {
         assert_eq!(VmessTransport::from_str("kcp"), VmessTransport::Mkcp);
         assert_eq!(VmessTransport::from_str("mkcp"), VmessTransport::Mkcp);
         assert_eq!(VmessTransport::from_str("unknown"), VmessTransport::Tcp);
+    }
+
+    /// 测试 AES-CFB 加解密在跨多次调用时的正确性
+    /// 这是 Legacy 模式的关键：数据流被分成多次调用（响应头4字节、长度2字节、数据N字节），
+    /// CFB 状态必须在这些调用之间正确维护
+    #[test]
+    fn test_aes_cfb_partial_block_consistency() {
+        let key = b"0123456789abcdef";
+        let iv = b"fedcba9876543210";
+        
+        // 方法1: 一次性加密所有数据
+        let plaintext = b"Hello, World! This is a test of AES-CFB with partial blocks across calls.";
+        let mut data_oneshot = plaintext.to_vec();
+        let mut enc = AesCfbEncryptor::new(key, iv).unwrap();
+        enc.encrypt(&mut data_oneshot);
+        
+        // 方法2: 分多次加密（模拟 Legacy 模式的分块调用）
+        let mut data_split = plaintext.to_vec();
+        let mut enc2 = AesCfbEncryptor::new(key, iv).unwrap();
+        // 模拟: 4字节 + 2字节 + 7字节 + 16字节 + 剩余
+        enc2.encrypt(&mut data_split[0..4]);
+        enc2.encrypt(&mut data_split[4..6]);
+        enc2.encrypt(&mut data_split[6..13]);
+        enc2.encrypt(&mut data_split[13..29]);
+        enc2.encrypt(&mut data_split[29..]);
+        
+        // 两种方式的密文必须完全一致
+        assert_eq!(data_oneshot, data_split, "CFB encryption must be consistent across split calls");
+        
+        // 方法1: 一次性解密
+        let mut dec_oneshot = data_oneshot.clone();
+        let mut dec = AesCfbDecryptor::new(key, iv).unwrap();
+        dec.decrypt(&mut dec_oneshot);
+        assert_eq!(&dec_oneshot, plaintext, "One-shot decryption failed");
+        
+        // 方法2: 分多次解密（与加密时不同的分割方式）
+        let mut dec_split = data_oneshot.clone();
+        let mut dec2 = AesCfbDecryptor::new(key, iv).unwrap();
+        dec2.decrypt(&mut dec_split[0..3]);
+        dec2.decrypt(&mut dec_split[3..5]);
+        dec2.decrypt(&mut dec_split[5..20]);
+        dec2.decrypt(&mut dec_split[20..]);
+        assert_eq!(&dec_split, plaintext, "Split decryption failed");
+    }
+
+    /// 测试 AES-CFB 加密后解密恢复原文
+    #[test]
+    fn test_aes_cfb_encrypt_decrypt_roundtrip() {
+        let key = b"testkey123456789";
+        let iv = b"testiv1234567890";
+        
+        for size in [1, 2, 4, 7, 15, 16, 17, 31, 32, 33, 48, 100, 255] {
+            let plaintext: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+            let mut ciphertext = plaintext.clone();
+            
+            let mut enc = AesCfbEncryptor::new(key, iv).unwrap();
+            enc.encrypt(&mut ciphertext);
+            
+            // 密文不应等于明文（除非极端巧合）
+            if size > 0 {
+                assert_ne!(ciphertext, plaintext, "Ciphertext should differ from plaintext for size={}", size);
+            }
+            
+            let mut decrypted = ciphertext.clone();
+            let mut dec = AesCfbDecryptor::new(key, iv).unwrap();
+            dec.decrypt(&mut decrypted);
+            
+            assert_eq!(decrypted, plaintext, "Roundtrip failed for size={}", size);
+        }
+    }
+
+    /// 测试 AEAD 加密器的 nonce 计数器正确递增
+    #[test]
+    fn test_aead_cipher_nonce_counter() {
+        let key = b"0123456789abcdef";
+        let iv = b"0123456789abcdef";
+        
+        let security = VmessSecurity::Aes128Gcm(Aes128Gcm::new_from_slice(key).unwrap());
+        let mut enc = AeadCipher::new(iv, security);
+        
+        let security2 = VmessSecurity::Aes128Gcm(Aes128Gcm::new_from_slice(key).unwrap());
+        let mut dec = AeadCipher::new(iv, security2);
+        
+        // 模拟多次加密/解密，验证 nonce 计数器同步
+        for i in 0..10 {
+            let plaintext = format!("message {}", i);
+            let mut data = plaintext.as_bytes().to_vec();
+            enc.encrypt_inplace(&mut data).unwrap();
+            dec.decrypt_inplace(&mut data).unwrap();
+            assert_eq!(data, plaintext.as_bytes(), "AEAD roundtrip failed at iteration {}", i);
+        }
     }
 }

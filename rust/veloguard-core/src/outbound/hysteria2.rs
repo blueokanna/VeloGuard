@@ -523,11 +523,17 @@ impl Hysteria2Outbound {
         }
 
         let addr = format!("{}:{}", self.hy2_config.server, self.hy2_config.port);
-        let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
-            .await
-            .map_err(|e| Error::network(format!("Failed to resolve Hysteria2 server {}: {}", addr, e)))?
-            .next()
-            .ok_or_else(|| Error::network(format!("No addresses found for Hysteria2 server {}", addr)))?;
+        // Use connect_protected to safely resolve DNS without going through TUN's Fake-IP resolver.
+        // This avoids the routing loop where DNS queries get intercepted by TUN.
+        let socket_addr: SocketAddr = {
+            let tmp = crate::socket_protect::connect_protected(&addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to resolve Hysteria2 server {}: {}", addr, e)))?;
+            let peer = tmp.peer_addr()
+                .map_err(|e| Error::network(format!("Failed to get peer addr: {}", e)))?;
+            drop(tmp);
+            peer
+        };
 
         let mut endpoint_guard = self.endpoint.lock().await;
         let endpoint = match endpoint_guard.take() {

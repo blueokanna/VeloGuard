@@ -139,13 +139,20 @@ pub async fn stop_proxy() -> std::result::Result<(), String> {
     #[cfg(target_os = "android")]
     {
         tracing::info!("Disconnecting Android VPN...");
-        veloguard_netstack::clear_android_vpn_fd();
         if let Some(processor) = crate::get_android_vpn_processor() {
             processor.stop();
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             processor.reset();
+            processor.reset_fake_ip_pool();
         }
         crate::clear_android_vpn_processor();
-        tracing::info!("Android VPN disconnected");
+        veloguard_netstack::clear_android_vpn_fd();
+        
+        // Clear protect callbacks in ALL modules to ensure clean state
+        veloguard_netstack::clear_protect_callback();
+        veloguard_netstack::solidtcp::clear_protect_callback();
+        veloguard_core::clear_protect_callback();
+        tracing::info!("Android VPN disconnected and protect callbacks cleared");
     }
 
     #[cfg(windows)]
@@ -2120,10 +2127,25 @@ pub async fn select_proxy_in_group(group_name: String, proxy_name: String) -> Re
         let outbound_manager = proxy_manager.outbound_manager();
 
         if outbound_manager.get_proxy(&group_name).is_some() {
+            // Check if the selection actually changed
+            let old_selection = outbound_manager.get_selector_proxy(&group_name);
+            let changed = old_selection.as_deref() != Some(&proxy_name);
+
             outbound_manager
                 .set_selector_proxy(&group_name, &proxy_name)
                 .await
                 .map_err(VeloGuardError::from)?;
+
+            // If the selection changed, close all existing connections so new
+            // connections will use the newly selected proxy node
+            if changed {
+                tracing::info!(
+                    "Node switched: {} -> {} (was {:?}), closing existing connections",
+                    group_name, proxy_name, old_selection
+                );
+                let tracker = veloguard_core::connection_tracker::global_tracker();
+                tracker.close_all();
+            }
 
             tracing::info!("Proxy selection updated: {} -> {}", group_name, proxy_name);
             Ok(true)
@@ -2477,6 +2499,57 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
         if mode.to_lowercase() == "global" {
             if let Err(e) = route_manager.enable_global_mode() {
                 tracing::warn!("Failed to enable global mode routes: {}", e);
+            }
+
+            // Exclude proxy server IPs from TUN routing to prevent infinite loop.
+            // In global mode, all traffic goes through TUN, but the outbound connection
+            // to the proxy server itself must bypass TUN and use the real network.
+            {
+                let instance = get_veloguard_instance().await;
+                if let Ok(inst) = instance {
+                    let guard = inst.read().await;
+                    if let Some(veloguard) = guard.as_ref() {
+                        let vg_config = veloguard.config();
+                        for outbound in &vg_config.outbounds {
+                            if let Some(ref server) = outbound.server {
+                                // Try to resolve hostname to IP for route exclusion
+                                match tokio::net::lookup_host(format!("{}:0", server)).await {
+                                    Ok(addrs) => {
+                                        for addr in addrs {
+                                            let ip_str = addr.ip().to_string();
+                                            if let Err(e) = route_manager.exclude_ip(&ip_str) {
+                                                tracing::warn!(
+                                                    "Failed to exclude proxy server IP {} ({}): {}",
+                                                    ip_str, server, e
+                                                );
+                                            } else {
+                                                tracing::info!(
+                                                    "Excluded proxy server IP {} ({}) from TUN routing",
+                                                    ip_str, server
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to resolve proxy server {}: {}",
+                                            server, e
+                                        );
+                                        // If server is already an IP address, try to exclude it directly
+                                        if server.parse::<std::net::IpAddr>().is_ok() {
+                                            if let Err(e) = route_manager.exclude_ip(server) {
+                                                tracing::warn!(
+                                                    "Failed to exclude proxy server IP {}: {}",
+                                                    server, e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2967,6 +3040,12 @@ pub async fn start_android_vpn() -> Result<bool> {
             tracing::info!("=== Android VPN read task started ===");
 
             loop {
+                // Check if processor is still running before waiting for data
+                if !processor_clone.is_running() {
+                    tracing::info!("VPN processor stopped, exiting read task");
+                    break;
+                }
+
                 let mut guard = match async_fd_read.readable().await {
                     Ok(g) => g,
                     Err(e) => {
@@ -2974,6 +3053,12 @@ pub async fn start_android_vpn() -> Result<bool> {
                         break;
                     }
                 };
+
+                // Double-check running flag after waking up
+                if !processor_clone.is_running() {
+                    tracing::info!("VPN processor stopped after readable, exiting read task");
+                    break;
+                }
 
                 match guard.try_io(|inner| {
                     use std::io::Read;
@@ -2993,10 +3078,17 @@ pub async fn start_android_vpn() -> Result<bool> {
                         break;
                     }
                     Ok(Err(e)) => {
-                        if e.kind() != std::io::ErrorKind::WouldBlock {
-                            tracing::error!("TUN read error: {}", e);
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            continue;
+                        }
+                        // EBADF means the fd was closed — normal during stop
+                        #[cfg(target_os = "android")]
+                        if e.raw_os_error() == Some(9) {
+                            tracing::info!("TUN fd closed (EBADF), exiting read task");
                             break;
                         }
+                        tracing::error!("TUN read error: {}", e);
+                        break;
                     }
                     Err(_) => continue,
                 }
@@ -3088,7 +3180,7 @@ pub async fn stop_android_vpn() -> Result<bool> {
             processor.stop();
 
             // Give spawned tasks a moment to notice the shutdown and exit
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
             processor.reset();
             processor.reset_fake_ip_pool();
@@ -3102,16 +3194,25 @@ pub async fn stop_android_vpn() -> Result<bool> {
 
         veloguard_netstack::clear_android_vpn_fd();
         tracing::info!("VPN fd cleared");
+        
+        // Clear protect callbacks in ALL modules to ensure clean state
         veloguard_netstack::clear_protect_callback();
         tracing::info!("Socket protect callback cleared");
         
-        // Also clear the solidtcp protect callback
         veloguard_netstack::solidtcp::clear_protect_callback();
         tracing::info!("SolidTCP protect callback cleared");
+        
+        veloguard_core::clear_protect_callback();
+        tracing::info!("Core protect callback cleared");
 
         let tracker = veloguard_core::connection_tracker::global_tracker();
         tracker.reset();
         tracing::info!("Connection tracker reset");
+        
+        // Reset proxy mode to default
+        veloguard_core::set_runtime_proxy_mode(0);
+        veloguard_netstack::set_android_proxy_mode(0);
+        tracing::info!("Proxy mode reset to 0");
 
         tracing::info!("=== Android VPN packet processing stopped completely ===");
         Ok(true)

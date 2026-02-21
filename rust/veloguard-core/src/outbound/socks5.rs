@@ -21,7 +21,7 @@ impl OutboundProxy for Socks5Outbound {
     async fn connect(&self) -> Result<()> {
         // Test connection to SOCKS5 server (DNS resolution happens here)
         let addr = format!("{}:{}", self.server, self.port);
-        let _stream = TcpStream::connect(&addr).await
+        let _stream = crate::socket_protect::connect_protected(&addr).await
             .map_err(|e| Error::network(format!("Failed to connect to SOCKS5 server {}: {}", addr, e)))?;
         Ok(())
     }

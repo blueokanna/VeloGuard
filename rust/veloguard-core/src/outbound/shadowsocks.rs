@@ -30,7 +30,7 @@ impl OutboundProxy for ShadowsocksOutbound {
     async fn connect(&self) -> Result<()> {
         // Test connection to Shadowsocks server (DNS resolution happens here)
         let addr = format!("{}:{}", self.server, self.port);
-        let _stream = tokio::net::TcpStream::connect(&addr).await.map_err(|e| {
+        let _stream = crate::socket_protect::connect_protected(&addr).await.map_err(|e| {
             Error::network(format!(
                 "Failed to connect to Shadowsocks server {}: {}",
                 addr, e
@@ -509,12 +509,16 @@ impl ShadowsocksOutbound {
         let server_socket = UdpSocket::bind("0.0.0.0:0").await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
         
-        // Resolve server address
-        let resolved_addr: SocketAddr = tokio::net::lookup_host(&server_addr)
-            .await
-            .map_err(|e| Error::network(format!("Failed to resolve SS server: {}", e)))?
-            .next()
-            .ok_or_else(|| Error::network("No addresses found for SS server"))?;
+        // Resolve server address safely using connect_protected to avoid TUN Fake-IP DNS loop
+        let resolved_addr: SocketAddr = {
+            let tmp = crate::socket_protect::connect_protected(&server_addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to resolve SS server: {}", e)))?;
+            let peer = tmp.peer_addr()
+                .map_err(|e| Error::network(format!("Failed to get peer addr: {}", e)))?;
+            drop(tmp);
+            peer
+        };
         
         // Connect to server (for send/recv convenience)
         server_socket.connect(resolved_addr).await

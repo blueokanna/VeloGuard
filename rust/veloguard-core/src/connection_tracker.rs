@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 /// Unique connection ID generator
 static CONNECTION_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -33,6 +34,8 @@ pub struct TrackedConnection {
     pub rule: String,
     pub rule_payload: String,
     pub process_name: Option<String>,
+    /// Cancellation token — cancel this to abort the relay task
+    pub cancel_token: CancellationToken,
 }
 
 impl TrackedConnection {
@@ -68,6 +71,7 @@ impl TrackedConnection {
             rule,
             rule_payload,
             process_name: None,
+            cancel_token: CancellationToken::new(),
         }
     }
     
@@ -105,6 +109,7 @@ impl TrackedConnection {
             rule,
             rule_payload,
             process_name: None,
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -266,19 +271,25 @@ impl ConnectionTracker {
         self.total_download.load(Ordering::Relaxed)
     }
 
-    /// Close a connection by ID
+    /// Close a connection by ID — cancels the relay task
     pub fn close_connection(&self, id: &str) -> bool {
-        self.connections.remove(id).is_some()
+        if let Some((_, conn)) = self.connections.remove(id) {
+            conn.cancel_token.cancel();
+            true
+        } else {
+            false
+        }
     }
 
-    /// Close all connections
+    /// Close all connections — cancels all relay tasks
     pub fn close_all(&self) {
-        let ids: Vec<String> = self.connections
+        let entries: Vec<(String, Arc<TrackedConnection>)> = self.connections
             .iter()
-            .map(|e| e.key().clone())
+            .map(|e| (e.key().clone(), e.value().clone()))
             .collect();
-        for id in ids {
-            self.untrack(&id);
+        for (id, conn) in entries {
+            conn.cancel_token.cancel();
+            self.connections.remove(&id);
         }
     }
 

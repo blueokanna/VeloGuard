@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veloguard/src/rust/api.dart';
-import 'package:veloguard/src/rust/api.dart' as rust_api;
 import 'package:veloguard/src/rust/types.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
@@ -387,10 +386,11 @@ class AppStateProvider extends ChangeNotifier {
 
         // Try to enable VPN with retry
         bool vpnSuccess = false;
+        final currentMode = PlatformProxyService.instance.currentProxyMode;
         for (int attempt = 1; attempt <= 5; attempt++) {
-          debugPrint('VPN enable attempt $attempt/5...');
+          debugPrint('VPN enable attempt $attempt/5 with mode=$currentMode...');
           vpnSuccess = await PlatformProxyService.instance.enableTunMode(
-            mode: ProxyMode.rule,
+            mode: currentMode,
           );
           if (vpnSuccess) {
             debugPrint('VPN enabled successfully on attempt $attempt');
@@ -437,20 +437,14 @@ class AppStateProvider extends ChangeNotifier {
       // Stop status timer first to prevent concurrent refresh during shutdown
       _stopStatusTimer();
 
-      // Android: Always disable VPN FIRST when stopping service
+      // Android: Disable VPN FIRST when stopping service
       // This ensures VPN is properly disconnected before stopping the proxy
       if (Platform.isAndroid) {
         debugPrint('Auto disabling VPN on Android...');
-        try {
-          // Stop Rust VPN processing first
-          await rust_api.stopAndroidVpn();
-          rust_api.clearAndroidVpnFd();
-          debugPrint('Rust VPN processing stopped');
-        } catch (e) {
-          debugPrint('Error stopping Rust VPN: $e');
-        }
-
-        // Then stop Android VPN service
+        // Use PlatformProxyService which handles the full cleanup sequence:
+        // 1. Stops Rust VPN processing (stopAndroidVpn)
+        // 2. Clears VPN fd
+        // 3. Stops Android VPN service via MethodChannel
         await PlatformProxyService.instance.disableTunMode();
         debugPrint('VPN disabled automatically');
 

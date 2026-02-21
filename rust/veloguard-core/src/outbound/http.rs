@@ -4,7 +4,6 @@ use crate::outbound::{AsyncReadWrite, OutboundProxy, TargetAddr};
 use crate::outbound::direct::relay_bidirectional_with_connection;
 use crate::connection_tracker::global_tracker;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
 
 /// HTTP outbound proxy (HTTP CONNECT tunnel)
 pub struct HttpOutbound {
@@ -20,7 +19,7 @@ impl OutboundProxy for HttpOutbound {
     async fn connect(&self) -> Result<()> {
         // Test connection to HTTP proxy server
         let addr = format!("{}:{}", self.server, self.port);
-        let _stream = TcpStream::connect(&addr).await
+        let _stream = crate::socket_protect::connect_protected(&addr).await
             .map_err(|e| Error::network(format!("Failed to connect to HTTP proxy {}: {}", addr, e)))?;
         Ok(())
     }

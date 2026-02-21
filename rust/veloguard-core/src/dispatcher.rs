@@ -39,7 +39,7 @@ impl Dispatcher {
 
         let outbound_tag = self
             .router
-            .match_outbound(domain_for_routing.or(Some(&target.host())), ip_for_routing, Some(target.port()), None)
+            .match_outbound(domain_for_routing, ip_for_routing, Some(target.port()), None)
             .await;
 
         tracing::info!(
@@ -89,11 +89,18 @@ impl Dispatcher {
         let tracker = global_tracker();
         let tracked = tracker.track(tracked_conn);
         let conn_arc = Arc::clone(&tracked);
+        let cancel_token = tracked.cancel_token.clone();
 
-        // Relay traffic through outbound
-        let result = outbound
-            .relay_tcp_with_connection(inbound_stream, target.clone(), Some(conn_arc))
-            .await;
+        // Relay traffic through outbound, with cancellation support for node switching
+        let result = tokio::select! {
+            relay_result = outbound.relay_tcp_with_connection(inbound_stream, target.clone(), Some(conn_arc)) => {
+                relay_result
+            }
+            _ = cancel_token.cancelled() => {
+                tracing::info!("[Dispatcher] Connection to {} cancelled (node switch)", target);
+                Ok(())
+            }
+        };
 
         tracker.untrack(&tracked.id);
 
@@ -119,7 +126,7 @@ impl Dispatcher {
 
         let outbound_tag = self
             .router
-            .match_outbound(domain_for_routing.or(Some(&target.host())), ip_for_routing, Some(target.port()), None)
+            .match_outbound(domain_for_routing, ip_for_routing, Some(target.port()), None)
             .await;
 
         tracing::debug!(
@@ -153,8 +160,12 @@ impl Dispatcher {
     }
 
     pub async fn resolve_outbound(&self, target: &TargetAddr) -> String {
+        let (domain, ip) = match target {
+            TargetAddr::Ip(addr) => (None, Some(addr.ip())),
+            TargetAddr::Domain(domain, _) => (Some(domain.as_str()), None),
+        };
         self.router
-            .match_outbound(Some(&target.host()), None, Some(target.port()), None)
+            .match_outbound(domain, ip, Some(target.port()), None)
             .await
     }
 }
