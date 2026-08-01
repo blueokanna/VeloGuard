@@ -11,6 +11,11 @@ void main() {
 
     expect(triggers.containsKey('push'), isTrue);
     expect(triggers.containsKey('workflow_dispatch'), isTrue);
+    expect(
+      source,
+      contains(r'group: stable-release-${{ github.repository }}'),
+    );
+    expect(source, contains('skip=true'));
     expect(source, contains(r'tag_name: ${{ steps.release.outputs.tag }}'));
     expect(source, contains('prerelease: false'));
     expect(source.toLowerCase(), isNot(contains('nightly')));
