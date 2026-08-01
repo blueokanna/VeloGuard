@@ -478,16 +478,12 @@ mod tests {
 
     #[test]
     fn test_contains_bogon() {
-        let ips_with_bogon: Vec<IpAddr> = vec![
-            "8.8.8.8".parse().unwrap(),
-            "10.0.0.1".parse().unwrap(),
-        ];
+        let ips_with_bogon: Vec<IpAddr> =
+            vec!["8.8.8.8".parse().unwrap(), "10.0.0.1".parse().unwrap()];
         assert!(contains_bogon(&ips_with_bogon));
 
-        let ips_without_bogon: Vec<IpAddr> = vec![
-            "8.8.8.8".parse().unwrap(),
-            "1.1.1.1".parse().unwrap(),
-        ];
+        let ips_without_bogon: Vec<IpAddr> =
+            vec!["8.8.8.8".parse().unwrap(), "1.1.1.1".parse().unwrap()];
         assert!(!contains_bogon(&ips_without_bogon));
     }
 

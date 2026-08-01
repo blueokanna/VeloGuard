@@ -61,23 +61,24 @@
 //! }
 //! ```
 
+#[cfg(target_os = "android")]
+pub mod android_tun;
+#[cfg(target_os = "android")]
+pub mod android_vpn;
 pub mod error;
-pub mod solidtcp;
 pub mod route;
+pub mod solidtcp;
 pub mod stack;
 pub mod tcp;
 pub mod tun;
 pub mod udp;
+pub mod vpn;
 #[cfg(windows)]
-pub mod wintun_embed;
+pub mod windows_route;
 #[cfg(windows)]
 pub mod windows_vpn;
 #[cfg(windows)]
-pub mod windows_route;
-#[cfg(target_os = "android")]
-pub mod android_vpn;
-#[cfg(target_os = "android")]
-pub mod android_tun;
+pub mod wintun_embed;
 
 // Re-exports
 pub use error::{NetStackError, Result};
@@ -86,53 +87,70 @@ pub use stack::{NetStack, NetStackBuilder, StackConfig, StackStats};
 pub use tcp::{TcpConnection, TcpConnectionId, TcpListener, TcpStack, TcpState, TcpStream};
 pub use tun::{TunConfig, TunDevice};
 pub use udp::{UdpListener, UdpNatTable, UdpPacket, UdpSession, UdpSocket, UdpStack};
+pub use vpn::{TunPacketProcessor, TunTrafficStats};
 
 // Re-export DNS types from veloguard-dns crate
 pub use veloguard_dns::{
-    // Core types
-    DnsManager, DnsConfig, DnsCache, DnsError, DnsResolver, DnsServer,
-    // DoH/DoT
-    DohClient, DohResolver, DohClientConfig, DohMethod,
-    DotClient, DotResolver, DotClientConfig,
-    // Fake-IP
-    FakeIpPool, FakeIpEntry,
-    // Config
-    UpstreamConfig, UpstreamProtocol, FallbackFilter,
+    CacheStatistics,
+    DnsCache,
     // Client
-    DnsClient, DnsProtocol,
+    DnsClient,
+    DnsConfig,
+    DnsError,
+    // Core types
+    DnsManager,
+    DnsManagerState,
+    DnsProtocol,
+    DnsResolver,
+    DnsServer,
+    // DoH/DoT
+    DohClient,
+    DohClientConfig,
+    DohMethod,
+    DohResolver,
+    DotClient,
+    DotClientConfig,
+    DotResolver,
+    FakeIpEntry,
+    // Fake-IP
+    FakeIpPool,
+    FallbackFilter,
     // Other
-    HostsFile, RecordType, CacheStatistics, DnsManagerState,
+    HostsFile,
+    RecordType,
     Result as DnsResult,
+    // Config
+    UpstreamConfig,
+    UpstreamProtocol,
 };
 
 // Android-specific exports
 #[cfg(target_os = "android")]
 pub use tun::{
-    set_android_vpn_fd, get_android_vpn_fd, clear_android_vpn_fd,
-    set_android_proxy_mode, get_android_proxy_mode,
-    ANDROID_VPN_FD, ANDROID_PROXY_MODE,
+    clear_android_vpn_fd, get_android_proxy_mode, get_android_vpn_fd, set_android_proxy_mode,
+    set_android_vpn_fd, ANDROID_PROXY_MODE, ANDROID_VPN_FD,
 };
 
 #[cfg(target_os = "android")]
 pub use android_vpn::{AndroidVpnProcessor, VpnTrafficStats};
 
 #[cfg(target_os = "android")]
-pub use android_tun::{
-    set_protect_callback, protect_socket, has_protect_callback, clear_protect_callback,
-    AndroidTunProcessor, FakeIpPool as AndroidFakeIpPool,
+pub use android_tun::{AndroidTunProcessor, FakeIpPool as AndroidFakeIpPool};
+
+#[cfg(target_os = "android")]
+pub use solidtcp::{
+    clear_protect_callback, has_protect_callback, protect_socket, set_protect_callback,
 };
 
 // Windows-specific exports
 #[cfg(windows)]
 pub use windows_vpn::{
-    WindowsVpnProcessor, WindowsVpnTrafficStats,
-    set_windows_proxy_mode, get_windows_proxy_mode, WINDOWS_PROXY_MODE,
+    get_windows_proxy_mode, set_windows_proxy_mode, WindowsVpnProcessor, WindowsVpnTrafficStats,
 };
 
 #[cfg(windows)]
-pub use windows_route::{WindowsRouteManager, set_tun_dns, flush_dns_cache};
+pub use windows_route::{flush_dns_cache, set_tun_dns, WindowsRouteManager};
 
-/// Check if wintun.dll is available (Windows only)
 #[cfg(windows)]
 pub fn check_wintun_available() -> bool {
     wintun_embed::is_wintun_available()
@@ -163,7 +181,7 @@ pub async fn ensure_wintun() -> Result<std::path::PathBuf> {
     if let Ok(path) = wintun_embed::ensure_wintun_available() {
         return Ok(path);
     }
-    
+
     // Try to download
     wintun_embed::download_wintun_dll().await
 }

@@ -20,10 +20,23 @@ pub use types::*;
 static VELOGUARD_INSTANCE: once_cell::sync::Lazy<Arc<RwLock<Option<VeloGuard>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
 
+pub(crate) static TUN_LIFECYCLE_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
 #[cfg(target_os = "android")]
 static ANDROID_VPN_PROCESSOR: once_cell::sync::Lazy<
     Arc<parking_lot::RwLock<Option<Arc<veloguard_netstack::AndroidVpnProcessor>>>>,
 > = once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
+
+#[cfg(target_os = "android")]
+static ANDROID_TUN_DEVICE: once_cell::sync::Lazy<
+    parking_lot::Mutex<Option<veloguard_netstack::TunDevice>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(None));
+
+#[cfg(target_os = "android")]
+static ANDROID_PACKET_TASK: once_cell::sync::Lazy<
+    parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(None));
 
 /// Global Windows VPN processor for stats tracking
 #[cfg(windows)]
@@ -42,6 +55,26 @@ static WINDOWS_ROUTE_MANAGER: once_cell::sync::Lazy<
 static WINDOWS_TUN_DEVICE: once_cell::sync::Lazy<
     Arc<parking_lot::RwLock<Option<veloguard_netstack::TunDevice>>>,
 > = once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(None)));
+
+#[cfg(target_os = "linux")]
+static LINUX_VPN_PROCESSOR: once_cell::sync::Lazy<
+    parking_lot::RwLock<Option<Arc<veloguard_netstack::TunPacketProcessor>>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
+
+#[cfg(target_os = "linux")]
+static LINUX_TUN_DEVICE: once_cell::sync::Lazy<
+    parking_lot::Mutex<Option<veloguard_netstack::TunDevice>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(None));
+
+#[cfg(target_os = "linux")]
+static LINUX_ROUTE_MANAGER: once_cell::sync::Lazy<
+    parking_lot::Mutex<Option<veloguard_netstack::RouteManager>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(None));
+
+#[cfg(target_os = "linux")]
+static LINUX_PACKET_TASK: once_cell::sync::Lazy<
+    parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
+> = once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(None));
 
 /// Set the global Android VPN processor
 #[cfg(target_os = "android")]
@@ -66,6 +99,87 @@ pub fn get_android_vpn_processor() -> Option<Arc<veloguard_netstack::AndroidVpnP
     guard.clone()
 }
 
+#[cfg(target_os = "android")]
+pub fn set_android_tun_device(device: veloguard_netstack::TunDevice) {
+    *ANDROID_TUN_DEVICE.lock() = Some(device);
+}
+
+#[cfg(target_os = "android")]
+pub fn take_android_tun_device() -> Option<veloguard_netstack::TunDevice> {
+    ANDROID_TUN_DEVICE.lock().take()
+}
+
+#[cfg(target_os = "android")]
+pub fn set_android_packet_task(task: tokio::task::JoinHandle<()>) {
+    *ANDROID_PACKET_TASK.lock() = Some(task);
+}
+
+#[cfg(target_os = "android")]
+pub fn take_android_packet_task() -> Option<tokio::task::JoinHandle<()>> {
+    ANDROID_PACKET_TASK.lock().take()
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_linux_vpn_processor(processor: Arc<veloguard_netstack::TunPacketProcessor>) {
+    *LINUX_VPN_PROCESSOR.write() = Some(processor);
+}
+
+#[cfg(target_os = "linux")]
+pub fn get_linux_vpn_processor() -> Option<Arc<veloguard_netstack::TunPacketProcessor>> {
+    LINUX_VPN_PROCESSOR.read().clone()
+}
+
+#[cfg(target_os = "linux")]
+pub fn take_linux_vpn_processor() -> Option<Arc<veloguard_netstack::TunPacketProcessor>> {
+    LINUX_VPN_PROCESSOR.write().take()
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_linux_tun_device(device: veloguard_netstack::TunDevice) {
+    *LINUX_TUN_DEVICE.lock() = Some(device);
+}
+
+#[cfg(target_os = "linux")]
+pub fn take_linux_tun_device() -> Option<veloguard_netstack::TunDevice> {
+    LINUX_TUN_DEVICE.lock().take()
+}
+
+#[cfg(target_os = "linux")]
+pub fn linux_tun_device_is_running() -> bool {
+    LINUX_TUN_DEVICE
+        .lock()
+        .as_ref()
+        .is_some_and(veloguard_netstack::TunDevice::is_running)
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_linux_route_manager(manager: veloguard_netstack::RouteManager) {
+    *LINUX_ROUTE_MANAGER.lock() = Some(manager);
+}
+
+#[cfg(target_os = "linux")]
+pub fn take_linux_route_manager() -> Option<veloguard_netstack::RouteManager> {
+    LINUX_ROUTE_MANAGER.lock().take()
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_linux_packet_task(task: tokio::task::JoinHandle<()>) {
+    *LINUX_PACKET_TASK.lock() = Some(task);
+}
+
+#[cfg(target_os = "linux")]
+pub fn take_linux_packet_task() -> Option<tokio::task::JoinHandle<()>> {
+    LINUX_PACKET_TASK.lock().take()
+}
+
+#[cfg(target_os = "linux")]
+pub fn linux_packet_task_is_running() -> bool {
+    LINUX_PACKET_TASK
+        .lock()
+        .as_ref()
+        .is_some_and(|task| !task.is_finished())
+}
+
 /// Set the global Windows VPN processor
 #[cfg(windows)]
 pub fn set_windows_vpn_processor(processor: Arc<veloguard_netstack::WindowsVpnProcessor>) {
@@ -87,6 +201,11 @@ pub fn clear_windows_vpn_processor() {
 pub fn get_windows_vpn_processor() -> Option<Arc<veloguard_netstack::WindowsVpnProcessor>> {
     let guard = WINDOWS_VPN_PROCESSOR.read();
     guard.clone()
+}
+
+#[cfg(windows)]
+pub fn take_windows_vpn_processor() -> Option<Arc<veloguard_netstack::WindowsVpnProcessor>> {
+    WINDOWS_VPN_PROCESSOR.write().take()
 }
 
 /// Set the global Windows route manager
@@ -131,6 +250,11 @@ pub fn clear_windows_route_manager() {
     let mut guard = WINDOWS_ROUTE_MANAGER.write();
     *guard = None;
     tracing::info!("Windows route manager cleared");
+}
+
+#[cfg(windows)]
+pub fn take_windows_route_manager() -> Option<veloguard_netstack::WindowsRouteManager> {
+    WINDOWS_ROUTE_MANAGER.write().take()
 }
 
 /// Set the global Windows TUN device

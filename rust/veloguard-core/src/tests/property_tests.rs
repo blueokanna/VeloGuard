@@ -6,10 +6,11 @@
 //! **Validates: Requirements 8.1-8.5**
 
 use crate::config::OutboundType;
-use crate::proxy_provider::{ProxyProvider, ProxyProviderConfig, ProxyProviderType, HealthCheckConfig};
+use crate::proxy_provider::{
+    HealthCheckConfig, ProxyProvider, ProxyProviderConfig, ProxyProviderType,
+};
 use crate::rule_provider::{
-    RuleProvider, RuleProviderConfig, RuleProviderType, RuleProviderBehavior,
-    CompiledRuleEntry,
+    CompiledRuleEntry, RuleProvider, RuleProviderBehavior, RuleProviderConfig, RuleProviderType,
 };
 use proptest::prelude::*;
 use std::net::IpAddr;
@@ -49,25 +50,24 @@ fn ipv4_in_cidr_strategy(cidr: &str) -> impl Strategy<Value = IpAddr> {
         .map(|s| s.parse().unwrap_or(0))
         .collect();
     let prefix: u8 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(24);
-    
+
     let base_ip = ((ip_parts[0] as u32) << 24)
         | ((ip_parts[1] as u32) << 16)
         | ((ip_parts[2] as u32) << 8)
         | (ip_parts[3] as u32);
-    
+
     let mask = if prefix >= 32 { 0 } else { !0u32 >> prefix };
     let network = base_ip & !mask;
-    
-    (0u32..=mask.min(255))
-        .prop_map(move |offset| {
-            let ip = network | offset;
-            IpAddr::V4(std::net::Ipv4Addr::new(
-                ((ip >> 24) & 0xff) as u8,
-                ((ip >> 16) & 0xff) as u8,
-                ((ip >> 8) & 0xff) as u8,
-                (ip & 0xff) as u8,
-            ))
-        })
+
+    (0u32..=mask.min(255)).prop_map(move |offset| {
+        let ip = network | offset;
+        IpAddr::V4(std::net::Ipv4Addr::new(
+            ((ip >> 24) & 0xff) as u8,
+            ((ip >> 16) & 0xff) as u8,
+            ((ip >> 8) & 0xff) as u8,
+            (ip & 0xff) as u8,
+        ))
+    })
 }
 
 fn rule_provider_config_strategy() -> impl Strategy<Value = RuleProviderConfig> {
@@ -91,18 +91,14 @@ fn rule_provider_config_strategy() -> impl Strategy<Value = RuleProviderConfig> 
 }
 
 fn proxy_provider_config_strategy() -> impl Strategy<Value = ProxyProviderConfig> {
-    (
-        "[a-z]{3,10}",
-        1u64..=86400,
-    )
-        .prop_map(|(name, interval)| ProxyProviderConfig {
-            name,
-            provider_type: ProxyProviderType::File,
-            url: None,
-            path: Some("/tmp/test_proxies.yaml".to_string()),
-            interval,
-            health_check: HealthCheckConfig::default(),
-        })
+    ("[a-z]{3,10}", 1u64..=86400).prop_map(|(name, interval)| ProxyProviderConfig {
+        name,
+        provider_type: ProxyProviderType::File,
+        url: None,
+        path: Some("/tmp/test_proxies.yaml".to_string()),
+        interval,
+        health_check: HealthCheckConfig::default(),
+    })
 }
 
 proptest! {

@@ -4,7 +4,7 @@ use crate::config::DnsConfig;
 use crate::error::{DnsError, Result};
 use crate::resolver::DnsResolver;
 use crate::RecordType;
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::{RData, Record};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use std::net::{IpAddr, SocketAddr};
@@ -172,7 +172,9 @@ async fn handle_udp_query(
     let request = Message::from_bytes(data).map_err(|e| DnsError::Protocol(e.to_string()))?;
 
     let response = process_query(resolver, &request).await?;
-    let response_data = response.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+    let response_data = response
+        .to_bytes()
+        .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
     socket.send_to(&response_data, addr).await?;
     Ok(())
@@ -194,7 +196,9 @@ async fn handle_tcp_connection(mut stream: TcpStream, resolver: &DnsResolver) ->
 
         let request = Message::from_bytes(&buf).map_err(|e| DnsError::Protocol(e.to_string()))?;
         let response = process_query(resolver, &request).await?;
-        let response_data = response.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let response_data = response
+            .to_bytes()
+            .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
         // Write response with length prefix
         let len = (response_data.len() as u16).to_be_bytes();
@@ -207,20 +211,17 @@ async fn handle_tcp_connection(mut stream: TcpStream, resolver: &DnsResolver) ->
 
 /// Process DNS query and generate response
 async fn process_query(resolver: &DnsResolver, request: &Message) -> Result<Message> {
-    let mut response = Message::new();
-    response.set_id(request.id());
-    response.set_message_type(MessageType::Response);
-    response.set_op_code(OpCode::Query);
-    response.set_recursion_desired(request.recursion_desired());
-    response.set_recursion_available(true);
+    let mut response = Message::response(request.metadata.id, request.metadata.op_code);
+    response.metadata.recursion_desired = request.metadata.recursion_desired;
+    response.metadata.recursion_available = true;
 
     // Copy queries to response
-    for query in request.queries() {
+    for query in &request.queries {
         response.add_query(query.clone());
     }
 
     // Process each query
-    for query in request.queries() {
+    for query in &request.queries {
         let name = query.name().to_string();
         let record_type = RecordType::from(query.query_type());
 
@@ -242,15 +243,15 @@ async fn process_query(resolver: &DnsResolver, request: &Message) -> Result<Mess
                     response.add_answer(record);
                 }
 
-                if response.answers().is_empty() {
-                    response.set_response_code(ResponseCode::NXDomain);
+                if response.answers.is_empty() {
+                    response.metadata.response_code = ResponseCode::NXDomain;
                 } else {
-                    response.set_response_code(ResponseCode::NoError);
+                    response.metadata.response_code = ResponseCode::NoError;
                 }
             }
             Err(e) => {
                 warn!("DNS resolution failed for {}: {}", name, e);
-                response.set_response_code(ResponseCode::ServFail);
+                response.metadata.response_code = ResponseCode::ServFail;
             }
         }
     }

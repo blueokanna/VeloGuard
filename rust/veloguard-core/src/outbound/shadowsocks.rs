@@ -3,7 +3,7 @@ use crate::error::{Error, Result};
 use crate::outbound::{AsyncReadWrite, OutboundProxy, TargetAddr};
 use crate::tls::yaml_value_to_string;
 use aes_gcm::{
-    aead::{generic_array::typenum, generic_array::GenericArray, Aead, KeyInit},
+    aead::{Aead, KeyInit},
     Aes256Gcm,
 };
 use chacha20poly1305::ChaCha20Poly1305;
@@ -51,135 +51,146 @@ impl OutboundProxy for ShadowsocksOutbound {
     fn tag(&self) -> &str {
         &self.config.tag
     }
-    
+
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.server.clone(), self.port))
     }
-    
+
     fn supports_udp(&self) -> bool {
         self.udp_enabled
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         if !self.udp_enabled {
-            return Err(Error::config("UDP relay is not enabled for this Shadowsocks proxy"));
+            return Err(Error::config(
+                "UDP relay is not enabled for this Shadowsocks proxy",
+            ));
         }
         // Create a dummy socket for the relay_udp call
-        let dummy_socket = UdpSocket::bind("0.0.0.0:0").await
+        let dummy_socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
         self.relay_udp(&dummy_socket, target, data).await
     }
-    
+
     async fn test_http_latency(
         &self,
         test_url: &str,
         timeout: std::time::Duration,
     ) -> Result<std::time::Duration> {
-        use tokio::io::AsyncWriteExt;
         use std::time::Instant;
-        
+        use tokio::io::AsyncWriteExt;
+
         // Parse the test URL to get host and port
         let url = url::Url::parse(test_url)
             .map_err(|e| Error::config(format!("Invalid test URL: {}", e)))?;
-        
-        let host = url.host_str()
+
+        let host = url
+            .host_str()
             .ok_or_else(|| Error::config("Test URL has no host"))?
             .to_string();
-        let url_port = url.port().unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
-        
+        let url_port = url
+            .port()
+            .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
+
         let start = Instant::now();
-        
+
         // First resolve the SS server address
         let server_addr = format!("{}:{}", self.server, self.port);
         tracing::debug!("SS latency test: resolving {}", server_addr);
-        
+
         // Use tokio's DNS resolution with timeout
         let addrs = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            tokio::net::lookup_host(&server_addr)
-        ).await
-            .map_err(|_| Error::network("DNS resolution timeout"))?
-            .map_err(|e| Error::network(format!("DNS resolution failed: {}", e)))?
-            .collect::<Vec<_>>();
-        
+            tokio::net::lookup_host(&server_addr),
+        )
+        .await
+        .map_err(|_| Error::network("DNS resolution timeout"))?
+        .map_err(|e| Error::network(format!("DNS resolution failed: {}", e)))?
+        .collect::<Vec<_>>();
+
         if addrs.is_empty() {
             return Err(Error::network("No addresses found for server"));
         }
-        
+
         tracing::debug!("SS latency test: connecting to {:?}", addrs[0]);
-        
+
         // Connect to the Shadowsocks server
-        let stream = tokio::time::timeout(
-            timeout,
-            tokio::net::TcpStream::connect(&addrs[0])
-        ).await
+        let stream = tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&addrs[0]))
+            .await
             .map_err(|_| Error::network("Connection timeout"))?
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
-        
+
         // Disable Nagle's algorithm for lower latency
         stream.set_nodelay(true).ok();
-        
-        tracing::debug!("SS latency test: connected, setting up cipher {}", self.cipher);
-        
+
+        tracing::debug!(
+            "SS latency test: connected, setting up cipher {}",
+            self.cipher
+        );
+
         // Set up cipher
         let cipher_spec = CipherSpec::new(&self.cipher)?;
-        
+
         // Generate client salt for sending
         let mut client_salt = vec![0u8; cipher_spec.salt_len];
         getrandom::fill(&mut client_salt)
             .map_err(|e| Error::network(format!("Failed to generate salt: {}", e)))?;
-        
+
         // Derive encryption key from client salt
         let enc_subkey = derive_subkey_for_cipher(&self.password, &client_salt, &cipher_spec)?;
         let mut enc = AeadCipher::new(cipher_spec, enc_subkey);
-        
+
         let (mut ro, mut wo) = tokio::io::split(stream);
-        
+
         // Build address header
         let target = crate::outbound::TargetAddr::Domain(host.clone(), url_port);
         let addr_header = self.build_address_header(&target)?;
-        
+
         // Build HTTP request
         let http_request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
             path, host
         );
-        
+
         // Combine address header and HTTP request into one payload
         let mut first_payload = addr_header;
         first_payload.extend_from_slice(http_request.as_bytes());
-        
+
         // Encrypt the combined payload
         let len = first_payload.len();
         let len_bytes = (len as u16).to_be_bytes();
         let enc_len = enc.encrypt(&len_bytes)?;
         let enc_data = enc.encrypt(&first_payload)?;
-        
+
         // Send client_salt + encrypted length + encrypted data in one write
         let mut send_buf = Vec::with_capacity(client_salt.len() + enc_len.len() + enc_data.len());
         send_buf.extend_from_slice(&client_salt);
         send_buf.extend_from_slice(&enc_len);
         send_buf.extend_from_slice(&enc_data);
-        
+
         tracing::debug!("SS latency test: sending {} bytes", send_buf.len());
-        
-        wo.write_all(&send_buf).await
+
+        wo.write_all(&send_buf)
+            .await
             .map_err(|e| Error::network(format!("Failed to send request: {}", e)))?;
-        wo.flush().await.map_err(|e| Error::network(format!("Flush failed: {}", e)))?;
-        
+        wo.flush()
+            .await
+            .map_err(|e| Error::network(format!("Flush failed: {}", e)))?;
+
         tracing::debug!("SS latency test: waiting for response");
-        
+
         // Read response with proper salt handling
         // Some servers may close connection early or have issues, handle gracefully
         let result = tokio::time::timeout(timeout, async {
             // First, read the server's salt (server uses its own salt for responses)
             let mut server_salt = vec![0u8; cipher_spec.salt_len];
-            
+
             // Use a more robust read with retry for salt
             let salt_result = ro.read_exact(&mut server_salt).await;
             match salt_result {
@@ -190,35 +201,44 @@ impl OutboundProxy for ShadowsocksOutbound {
                     // 2. Password is wrong
                     // 3. Server is overloaded
                     // For latency test, we consider TCP connection success as partial success
-                    return Err(Error::network("Server closed connection (check password/cipher)"));
+                    return Err(Error::network(
+                        "Server closed connection (check password/cipher)",
+                    ));
                 }
                 Err(e) => {
                     return Err(Error::network(format!("Failed to read server salt: {}", e)));
                 }
             }
-            
+
             tracing::debug!("SS latency test: received server salt");
-            
+
             // Derive decryption key from server's salt
             let dec_subkey = derive_subkey_for_cipher(&self.password, &server_salt, &cipher_spec)?;
             let mut dec = AeadCipher::new(cipher_spec, dec_subkey);
-            
+
             // Now read and decrypt the response
             match recv_decrypted_chunk(&mut ro, &mut dec).await? {
                 Some(chunk) => {
                     // Check if we got HTTP response
                     let response = String::from_utf8_lossy(&chunk);
-                    tracing::debug!("SS latency test: got response: {}", &response[..response.len().min(100)]);
+                    tracing::debug!(
+                        "SS latency test: got response: {}",
+                        &response[..response.len().min(100)]
+                    );
                     if response.starts_with("HTTP/") {
                         Ok(())
                     } else {
-                        Err(Error::network(format!("Invalid HTTP response: {}", &response[..response.len().min(50)])))
+                        Err(Error::network(format!(
+                            "Invalid HTTP response: {}",
+                            &response[..response.len().min(50)]
+                        )))
                     }
                 }
                 None => Err(Error::network("No response received")),
             }
-        }).await;
-        
+        })
+        .await;
+
         match result {
             Ok(Ok(())) => {
                 let elapsed = start.elapsed();
@@ -239,7 +259,7 @@ impl OutboundProxy for ShadowsocksOutbound {
     async fn relay_tcp(&self, inbound: Box<dyn AsyncReadWrite>, target: TargetAddr) -> Result<()> {
         self.relay_tcp_with_connection(inbound, target, None).await
     }
-    
+
     async fn relay_tcp_with_connection(
         &self,
         inbound: Box<dyn AsyncReadWrite>,
@@ -247,7 +267,7 @@ impl OutboundProxy for ShadowsocksOutbound {
         connection: Option<std::sync::Arc<crate::connection_tracker::TrackedConnection>>,
     ) -> Result<()> {
         use crate::connection_tracker::global_tracker;
-        
+
         let cipher_spec = CipherSpec::new(&self.cipher)?;
 
         let server_addr = format!("{}:{}", self.server, self.port);
@@ -257,7 +277,7 @@ impl OutboundProxy for ShadowsocksOutbound {
                 server_addr, e
             ))
         })?;
-        
+
         // Disable Nagle's algorithm for lower latency
         outbound.set_nodelay(true).ok();
 
@@ -287,10 +307,10 @@ impl OutboundProxy for ShadowsocksOutbound {
 
         let (mut ri, mut wi) = tokio::io::split(inbound);
         let (mut ro, mut wo) = tokio::io::split(outbound);
-        
+
         // Get global tracker for traffic stats
         let tracker = global_tracker();
-        
+
         // Clone values needed for the async blocks
         let password = self.password.clone();
         let conn_upload = connection.clone();
@@ -307,7 +327,7 @@ impl OutboundProxy for ShadowsocksOutbound {
                     break;
                 }
                 send_encrypted_chunk(&mut wo, &mut enc, &buf[..n]).await?;
-                
+
                 // Update upload traffic stats (global + per-connection)
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -320,19 +340,20 @@ impl OutboundProxy for ShadowsocksOutbound {
         let remote_to_client = async {
             // First, read the server's salt
             let mut server_salt = vec![0u8; cipher_spec.salt_len];
-            ro.read_exact(&mut server_salt).await
+            ro.read_exact(&mut server_salt)
+                .await
                 .map_err(|e| Error::network(format!("Failed to read server salt: {}", e)))?;
-            
+
             // Derive decryption key from server's salt
             let dec_subkey = derive_subkey_for_cipher(&password, &server_salt, &cipher_spec)?;
             let mut dec = AeadCipher::new(cipher_spec, dec_subkey);
-            
+
             while let Some(chunk) = recv_decrypted_chunk(&mut ro, &mut dec).await? {
                 let chunk_len = chunk.len();
-                wi.write_all(&chunk).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
-                
+                wi.write_all(&chunk)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to inbound: {}", e)))?;
+
                 // Update download traffic stats (global + per-connection)
                 tracker.add_global_download(chunk_len as u64);
                 if let Some(ref conn) = conn_download {
@@ -373,17 +394,21 @@ impl ShadowsocksOutbound {
             .or_else(|| config.options.get("method"))
             .map(yaml_value_to_string)
             .unwrap_or_else(|| "aes-256-gcm".to_string());
-        
+
         // Get UDP option - default to true to support QUIC and other UDP protocols
         let udp_enabled = config
             .options
             .get("udp")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        
+
         tracing::debug!(
             "Creating SS outbound: server={}, port={}, cipher={}, password_len={}, udp={}",
-            server, port, cipher, password.len(), udp_enabled
+            server,
+            port,
+            cipher,
+            password.len(),
+            udp_enabled
         );
 
         if password.is_empty() {
@@ -438,14 +463,14 @@ impl ShadowsocksOutbound {
 
         Ok(header)
     }
-    
+
     /// Check if UDP relay is enabled
     pub fn is_udp_enabled(&self) -> bool {
         self.udp_enabled
     }
-    
+
     /// Relay UDP packets through Shadowsocks
-    /// 
+    ///
     /// This method handles UDP relay by:
     /// 1. Binding a local UDP socket
     /// 2. Encrypting outgoing packets with address header
@@ -457,39 +482,46 @@ impl ShadowsocksOutbound {
         data: &[u8],
     ) -> Result<Vec<u8>> {
         if !self.udp_enabled {
-            return Err(Error::config("UDP relay is not enabled for this Shadowsocks proxy"));
+            return Err(Error::config(
+                "UDP relay is not enabled for this Shadowsocks proxy",
+            ));
         }
-        
+
         let cipher_spec = CipherSpec::new(&self.cipher)?;
-        
+
         // Create UDP socket to SS server
         let server_addr = format!("{}:{}", self.server, self.port);
-        let server_socket = UdpSocket::bind("0.0.0.0:0").await
+        let server_socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
-        
+
         // Resolve server address
         let resolved_addr: SocketAddr = tokio::net::lookup_host(&server_addr)
             .await
             .map_err(|e| Error::network(format!("Failed to resolve SS server: {}", e)))?
             .next()
             .ok_or_else(|| Error::network("No addresses found for SS server"))?;
-        
+
         // Connect to server (for send/recv convenience)
-        server_socket.connect(resolved_addr).await
+        server_socket
+            .connect(resolved_addr)
+            .await
             .map_err(|e| Error::network(format!("Failed to connect UDP to SS server: {}", e)))?;
-        
+
         // Encrypt and send UDP packet
         let encrypted = self.encrypt_udp_packet(target, data, &cipher_spec)?;
-        server_socket.send(&encrypted).await
+        server_socket
+            .send(&encrypted)
+            .await
             .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
-        
+
         tracing::debug!(
             "Shadowsocks UDP: sent {} bytes to {} via {}",
             data.len(),
             target,
             server_addr
         );
-        
+
         // Receive response with timeout
         let mut recv_buf = vec![0u8; 65535];
         let timeout = std::time::Duration::from_secs(30);
@@ -497,66 +529,76 @@ impl ShadowsocksOutbound {
             .await
             .map_err(|_| Error::network("UDP receive timeout"))?
             .map_err(|e| Error::network(format!("Failed to receive UDP packet: {}", e)))?;
-        
+
         // Decrypt response
-        let (response_data, _response_addr) = self.decrypt_udp_packet(&recv_buf[..recv_len], &cipher_spec)?;
-        
+        let (response_data, _response_addr) =
+            self.decrypt_udp_packet(&recv_buf[..recv_len], &cipher_spec)?;
+
         tracing::debug!(
             "Shadowsocks UDP: received {} bytes response",
             response_data.len()
         );
-        
+
         Ok(response_data)
     }
-    
+
     /// Encrypt a UDP packet for Shadowsocks
     /// Format: [salt][encrypted([address][payload])]
-    fn encrypt_udp_packet(&self, target: &TargetAddr, data: &[u8], cipher_spec: &CipherSpec) -> Result<Vec<u8>> {
+    fn encrypt_udp_packet(
+        &self,
+        target: &TargetAddr,
+        data: &[u8],
+        cipher_spec: &CipherSpec,
+    ) -> Result<Vec<u8>> {
         // Generate salt
         let mut salt = vec![0u8; cipher_spec.salt_len];
         getrandom::fill(&mut salt)
             .map_err(|e| Error::network(format!("Failed to generate salt: {}", e)))?;
-        
+
         // Derive key from salt
         let key = derive_subkey_for_cipher(&self.password, &salt, cipher_spec)?;
-        
+
         // Build payload: [address][data]
         let addr_header = self.build_address_header(target)?;
         let mut payload = addr_header;
         payload.extend_from_slice(data);
-        
+
         // Encrypt payload (UDP uses single-shot encryption, not chunked)
         let encrypted = encrypt_udp_payload(&key, &payload, cipher_spec)?;
-        
+
         // Combine: [salt][encrypted_payload]
         let mut result = salt;
         result.extend_from_slice(&encrypted);
-        
+
         Ok(result)
     }
-    
+
     /// Decrypt a UDP packet from Shadowsocks
     /// Format: [salt][encrypted([address][payload])]
     /// Returns: (payload, target_address)
-    fn decrypt_udp_packet(&self, data: &[u8], cipher_spec: &CipherSpec) -> Result<(Vec<u8>, TargetAddr)> {
+    fn decrypt_udp_packet(
+        &self,
+        data: &[u8],
+        cipher_spec: &CipherSpec,
+    ) -> Result<(Vec<u8>, TargetAddr)> {
         if data.len() < cipher_spec.salt_len + cipher_spec.tag_len {
             return Err(Error::protocol("UDP packet too short"));
         }
-        
+
         // Extract salt
         let salt = &data[..cipher_spec.salt_len];
         let encrypted = &data[cipher_spec.salt_len..];
-        
+
         // Derive key from salt
         let key = derive_subkey_for_cipher(&self.password, salt, cipher_spec)?;
-        
+
         // Decrypt payload
         let decrypted = decrypt_udp_payload(&key, encrypted, cipher_spec)?;
-        
+
         // Parse address from decrypted payload
         let (target, addr_len) = parse_address_header(&decrypted)?;
         let payload = decrypted[addr_len..].to_vec();
-        
+
         Ok((payload, target))
     }
 }
@@ -626,20 +668,22 @@ impl CipherSpec {
             ))),
         }
     }
-    
+
     /// Check if this is a 2022 cipher
     pub fn is_2022(&self) -> bool {
         matches!(
             self.cipher_type,
-            CipherType::Aes128Gcm2022 | CipherType::Aes256Gcm2022 | CipherType::Chacha20Poly13052022
+            CipherType::Aes128Gcm2022
+                | CipherType::Aes256Gcm2022
+                | CipherType::Chacha20Poly13052022
         )
     }
 }
 
 /// Derive key from password using EVP_BytesToKey (OpenSSL-style MD5)
 fn evp_bytes_to_key(password: &str, key_len: usize) -> Vec<u8> {
-    use md5::{Md5, Digest};
-    
+    use md5::{Digest, Md5};
+
     let mut key = Vec::new();
     let mut prev: Vec<u8> = Vec::new();
     while key.len() < key_len {
@@ -657,7 +701,7 @@ fn evp_bytes_to_key(password: &str, key_len: usize) -> Vec<u8> {
 fn derive_subkey(password: &str, salt: &[u8], key_len: usize) -> Result<Vec<u8>> {
     // First derive master key from password using EVP_BytesToKey
     let master_key = evp_bytes_to_key(password, key_len);
-    
+
     // Then derive session subkey using HKDF-SHA1
     let hk = Hkdf::<Sha1>::new(Some(salt), &master_key);
     let mut okm = vec![0u8; key_len];
@@ -672,11 +716,12 @@ fn derive_subkey(password: &str, salt: &[u8], key_len: usize) -> Result<Vec<u8>>
 fn derive_subkey_2022(password: &str, salt: &[u8], key_len: usize) -> Result<Vec<u8>> {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine as _;
-    
+
     // For 2022 ciphers, the password is a base64-encoded key
-    let master_key = STANDARD.decode(password)
+    let master_key = STANDARD
+        .decode(password)
         .map_err(|e| Error::config(format!("Invalid 2022 cipher key (must be base64): {}", e)))?;
-    
+
     if master_key.len() != key_len {
         return Err(Error::config(format!(
             "Invalid 2022 cipher key length: expected {}, got {}",
@@ -684,19 +729,23 @@ fn derive_subkey_2022(password: &str, salt: &[u8], key_len: usize) -> Result<Vec
             master_key.len()
         )));
     }
-    
+
     // Derive session key using BLAKE3 with salt
     let mut hasher = blake3::Hasher::new_derive_key("shadowsocks 2022 session subkey");
     hasher.update(&master_key);
     hasher.update(salt);
     let mut output = vec![0u8; key_len];
     hasher.finalize_xof().fill(&mut output);
-    
+
     Ok(output)
 }
 
 /// Derive subkey based on cipher type
-fn derive_subkey_for_cipher(password: &str, salt: &[u8], cipher_spec: &CipherSpec) -> Result<Vec<u8>> {
+fn derive_subkey_for_cipher(
+    password: &str,
+    salt: &[u8],
+    cipher_spec: &CipherSpec,
+) -> Result<Vec<u8>> {
     if cipher_spec.is_2022() {
         derive_subkey_2022(password, salt, cipher_spec.key_len)
     } else {
@@ -722,14 +771,16 @@ struct AeadCipher {
 impl AeadCipher {
     fn new(spec: CipherSpec, key: Vec<u8>) -> Self {
         let inner = match spec.cipher_type {
-            CipherType::Aes256Gcm | CipherType::Aes256Gcm2022 => {
-                AeadCipherInner::Aes256Gcm(Aes256Gcm::new(GenericArray::from_slice(&key)))
-            }
-            CipherType::Aes128Gcm | CipherType::Aes128Gcm2022 => {
-                AeadCipherInner::Aes128Gcm(aes_gcm::Aes128Gcm::new(GenericArray::from_slice(&key)))
-            }
+            CipherType::Aes256Gcm | CipherType::Aes256Gcm2022 => AeadCipherInner::Aes256Gcm(
+                Aes256Gcm::new_from_slice(&key).expect("validated key length"),
+            ),
+            CipherType::Aes128Gcm | CipherType::Aes128Gcm2022 => AeadCipherInner::Aes128Gcm(
+                aes_gcm::Aes128Gcm::new_from_slice(&key).expect("validated key length"),
+            ),
             CipherType::Chacha20Poly1305 | CipherType::Chacha20Poly13052022 => {
-                AeadCipherInner::ChaCha20Poly1305(ChaCha20Poly1305::new(GenericArray::from_slice(&key)))
+                AeadCipherInner::ChaCha20Poly1305(
+                    ChaCha20Poly1305::new_from_slice(&key).expect("validated key length"),
+                )
             }
         };
         Self {
@@ -739,13 +790,13 @@ impl AeadCipher {
         }
     }
 
-    fn next_nonce(&mut self) -> GenericArray<u8, typenum::U12> {
+    fn next_nonce(&mut self) -> chacha20poly1305::Nonce {
         // Shadowsocks AEAD uses little-endian nonce counter
         // The nonce is simply the counter value in little-endian format
         let mut nonce = [0u8; 12];
         nonce[..8].copy_from_slice(&self.counter.to_le_bytes());
         self.counter = self.counter.wrapping_add(1);
-        GenericArray::clone_from_slice(&nonce)
+        chacha20poly1305::Nonce::try_from(nonce.as_slice()).expect("fixed 12-byte nonce")
     }
 
     fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
@@ -847,22 +898,25 @@ async fn recv_decrypted_chunk<R: tokio::io::AsyncRead + Unpin>(
 /// Encrypt UDP payload (single-shot, not chunked like TCP)
 fn encrypt_udp_payload(key: &[u8], plaintext: &[u8], cipher_spec: &CipherSpec) -> Result<Vec<u8>> {
     // UDP uses nonce = 0 for single-shot encryption
-    let nonce = GenericArray::clone_from_slice(&[0u8; 12]);
-    
+    let nonce = chacha20poly1305::Nonce::try_from(&[0u8; 12][..]).expect("fixed 12-byte nonce");
+
     match cipher_spec.cipher_type {
         CipherType::Aes256Gcm | CipherType::Aes256Gcm2022 => {
-            let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
-            cipher.encrypt(&nonce, plaintext)
+            let cipher = Aes256Gcm::new_from_slice(key).expect("validated key length");
+            cipher
+                .encrypt(&nonce, plaintext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD encrypt failed: {}", e)))
         }
         CipherType::Aes128Gcm | CipherType::Aes128Gcm2022 => {
-            let cipher = aes_gcm::Aes128Gcm::new(GenericArray::from_slice(key));
-            cipher.encrypt(&nonce, plaintext)
+            let cipher = aes_gcm::Aes128Gcm::new_from_slice(key).expect("validated key length");
+            cipher
+                .encrypt(&nonce, plaintext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD encrypt failed: {}", e)))
         }
         CipherType::Chacha20Poly1305 | CipherType::Chacha20Poly13052022 => {
-            let cipher = ChaCha20Poly1305::new(GenericArray::from_slice(key));
-            cipher.encrypt(&nonce, plaintext)
+            let cipher = ChaCha20Poly1305::new_from_slice(key).expect("validated key length");
+            cipher
+                .encrypt(&nonce, plaintext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD encrypt failed: {}", e)))
         }
     }
@@ -871,22 +925,25 @@ fn encrypt_udp_payload(key: &[u8], plaintext: &[u8], cipher_spec: &CipherSpec) -
 /// Decrypt UDP payload (single-shot, not chunked like TCP)
 fn decrypt_udp_payload(key: &[u8], ciphertext: &[u8], cipher_spec: &CipherSpec) -> Result<Vec<u8>> {
     // UDP uses nonce = 0 for single-shot decryption
-    let nonce = GenericArray::clone_from_slice(&[0u8; 12]);
-    
+    let nonce = chacha20poly1305::Nonce::try_from(&[0u8; 12][..]).expect("fixed 12-byte nonce");
+
     match cipher_spec.cipher_type {
         CipherType::Aes256Gcm | CipherType::Aes256Gcm2022 => {
-            let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
-            cipher.decrypt(&nonce, ciphertext)
+            let cipher = Aes256Gcm::new_from_slice(key).expect("validated key length");
+            cipher
+                .decrypt(&nonce, ciphertext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD decrypt failed: {}", e)))
         }
         CipherType::Aes128Gcm | CipherType::Aes128Gcm2022 => {
-            let cipher = aes_gcm::Aes128Gcm::new(GenericArray::from_slice(key));
-            cipher.decrypt(&nonce, ciphertext)
+            let cipher = aes_gcm::Aes128Gcm::new_from_slice(key).expect("validated key length");
+            cipher
+                .decrypt(&nonce, ciphertext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD decrypt failed: {}", e)))
         }
         CipherType::Chacha20Poly1305 | CipherType::Chacha20Poly13052022 => {
-            let cipher = ChaCha20Poly1305::new(GenericArray::from_slice(key));
-            cipher.decrypt(&nonce, ciphertext)
+            let cipher = ChaCha20Poly1305::new_from_slice(key).expect("validated key length");
+            cipher
+                .decrypt(&nonce, ciphertext)
                 .map_err(|e| Error::protocol(format!("UDP AEAD decrypt failed: {}", e)))
         }
     }
@@ -898,7 +955,7 @@ fn parse_address_header(data: &[u8]) -> Result<(TargetAddr, usize)> {
     if data.is_empty() {
         return Err(Error::protocol("Empty address header"));
     }
-    
+
     let atype = data[0];
     match atype {
         0x01 => {
@@ -908,7 +965,12 @@ fn parse_address_header(data: &[u8]) -> Result<(TargetAddr, usize)> {
             }
             let ip = std::net::Ipv4Addr::new(data[1], data[2], data[3], data[4]);
             let port = u16::from_be_bytes([data[5], data[6]]);
-            Ok((TargetAddr::Ip(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(ip, port))), 7))
+            Ok((
+                TargetAddr::Ip(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+                    ip, port,
+                ))),
+                7,
+            ))
         }
         0x03 => {
             // Domain: 1 + 1 + domain_len + 2
@@ -934,7 +996,12 @@ fn parse_address_header(data: &[u8]) -> Result<(TargetAddr, usize)> {
             octets.copy_from_slice(&data[1..17]);
             let ip = std::net::Ipv6Addr::from(octets);
             let port = u16::from_be_bytes([data[17], data[18]]);
-            Ok((TargetAddr::Ip(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0))), 19))
+            Ok((
+                TargetAddr::Ip(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+                    ip, port, 0, 0,
+                ))),
+                19,
+            ))
         }
         _ => Err(Error::protocol(format!("Unknown address type: {}", atype))),
     }
@@ -1010,11 +1077,11 @@ mod tests {
         let key = vec![0u8; 32];
         let mut enc = AeadCipher::new(spec, key.clone());
         let mut dec = AeadCipher::new(spec, key);
-        
+
         let plaintext = b"Hello, Shadowsocks!";
         let ciphertext = enc.encrypt(plaintext).unwrap();
         let decrypted = dec.decrypt(&ciphertext).unwrap();
-        
+
         assert_eq!(plaintext.as_slice(), decrypted.as_slice());
     }
 
@@ -1024,11 +1091,11 @@ mod tests {
         let key = vec![0u8; 32];
         let mut enc = AeadCipher::new(spec, key.clone());
         let mut dec = AeadCipher::new(spec, key);
-        
+
         let plaintext = b"Hello, ChaCha20!";
         let ciphertext = enc.encrypt(plaintext).unwrap();
         let decrypted = dec.decrypt(&ciphertext).unwrap();
-        
+
         assert_eq!(plaintext.as_slice(), decrypted.as_slice());
     }
 
@@ -1041,18 +1108,25 @@ mod tests {
             port: Some(8388),
             options: {
                 let mut opts = std::collections::HashMap::new();
-                opts.insert("password".to_string(), serde_yaml::Value::String("test".to_string()));
-                opts.insert("cipher".to_string(), serde_yaml::Value::String("aes-256-gcm".to_string()));
+                opts.insert(
+                    "password".to_string(),
+                    serde_yaml::Value::String("test".to_string()),
+                );
+                opts.insert(
+                    "cipher".to_string(),
+                    serde_yaml::Value::String("aes-256-gcm".to_string()),
+                );
                 opts
             },
         };
         let outbound = ShadowsocksOutbound::new(config).unwrap();
-        
-        let target = TargetAddr::Ip(std::net::SocketAddr::V4(
-            std::net::SocketAddrV4::new(std::net::Ipv4Addr::new(192, 168, 1, 1), 443)
-        ));
+
+        let target = TargetAddr::Ip(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            std::net::Ipv4Addr::new(192, 168, 1, 1),
+            443,
+        )));
         let header = outbound.build_address_header(&target).unwrap();
-        
+
         assert_eq!(header[0], 0x01); // IPv4 type
         assert_eq!(&header[1..5], &[192, 168, 1, 1]); // IP address
         assert_eq!(&header[5..7], &[0x01, 0xBB]); // Port 443 in big-endian
@@ -1067,16 +1141,22 @@ mod tests {
             port: Some(8388),
             options: {
                 let mut opts = std::collections::HashMap::new();
-                opts.insert("password".to_string(), serde_yaml::Value::String("test".to_string()));
-                opts.insert("cipher".to_string(), serde_yaml::Value::String("aes-256-gcm".to_string()));
+                opts.insert(
+                    "password".to_string(),
+                    serde_yaml::Value::String("test".to_string()),
+                );
+                opts.insert(
+                    "cipher".to_string(),
+                    serde_yaml::Value::String("aes-256-gcm".to_string()),
+                );
                 opts
             },
         };
         let outbound = ShadowsocksOutbound::new(config).unwrap();
-        
+
         let target = TargetAddr::Domain("example.com".to_string(), 80);
         let header = outbound.build_address_header(&target).unwrap();
-        
+
         assert_eq!(header[0], 0x03); // Domain type
         assert_eq!(header[1], 11); // Domain length
         assert_eq!(&header[2..13], b"example.com");
@@ -1087,7 +1167,7 @@ mod tests {
     fn test_parse_address_header_ipv4() {
         let data = [0x01, 192, 168, 1, 1, 0x01, 0xBB]; // IPv4 192.168.1.1:443
         let (target, len) = parse_address_header(&data).unwrap();
-        
+
         assert_eq!(len, 7);
         match target {
             TargetAddr::Ip(addr) => {
@@ -1103,9 +1183,9 @@ mod tests {
         let mut data = vec![0x03, 11]; // Domain type, length 11
         data.extend_from_slice(b"example.com");
         data.extend_from_slice(&[0x00, 0x50]); // Port 80
-        
+
         let (target, len) = parse_address_header(&data).unwrap();
-        
+
         assert_eq!(len, 15);
         match target {
             TargetAddr::Domain(domain, port) => {
@@ -1153,13 +1233,13 @@ mod property_tests {
         ) {
             let spec = CipherSpec::new(cipher).unwrap();
             let key = arb_key_for_cipher(cipher);
-            
+
             let mut enc = AeadCipher::new(spec, key.clone());
             let mut dec = AeadCipher::new(spec, key);
-            
+
             let ciphertext = enc.encrypt(&plaintext).unwrap();
             let decrypted = dec.decrypt(&ciphertext).unwrap();
-            
+
             prop_assert_eq!(plaintext, decrypted);
         }
 
@@ -1174,10 +1254,10 @@ mod property_tests {
         ) {
             let spec = CipherSpec::new(cipher).unwrap();
             let key = arb_key_for_cipher(cipher);
-            
+
             let mut enc = AeadCipher::new(spec, key);
             let ciphertext = enc.encrypt(&plaintext).unwrap();
-            
+
             prop_assert_eq!(ciphertext.len(), plaintext.len() + spec.tag_len);
         }
 
@@ -1192,14 +1272,14 @@ mod property_tests {
             cipher in arb_cipher_type(),
         ) {
             prop_assume!(plaintext1 != plaintext2);
-            
+
             let spec = CipherSpec::new(cipher).unwrap();
             let key = arb_key_for_cipher(cipher);
-            
+
             let mut enc = AeadCipher::new(spec, key);
             let ciphertext1 = enc.encrypt(&plaintext1).unwrap();
             let ciphertext2 = enc.encrypt(&plaintext2).unwrap();
-            
+
             prop_assert_ne!(ciphertext1, ciphertext2);
         }
 
@@ -1214,11 +1294,11 @@ mod property_tests {
         ) {
             let spec = CipherSpec::new(cipher).unwrap();
             let key = arb_key_for_cipher(cipher);
-            
+
             let mut enc = AeadCipher::new(spec, key);
             let ciphertext1 = enc.encrypt(&plaintext).unwrap();
             let ciphertext2 = enc.encrypt(&plaintext).unwrap();
-            
+
             // Same plaintext encrypted twice should produce different ciphertexts
             // because the nonce increments
             prop_assert_ne!(ciphertext1, ciphertext2);
@@ -1235,10 +1315,10 @@ mod property_tests {
         ) {
             let spec = CipherSpec::new(cipher).unwrap();
             let key = arb_key_for_cipher(cipher);
-            
+
             let encrypted = encrypt_udp_payload(&key, &plaintext, &spec).unwrap();
             let decrypted = decrypt_udp_payload(&key, &encrypted, &spec).unwrap();
-            
+
             prop_assert_eq!(plaintext, decrypted);
         }
     }

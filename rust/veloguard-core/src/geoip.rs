@@ -15,9 +15,8 @@ impl GeoIpDatabase {
     }
 
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let reader = Reader::open_readfile(path.as_ref()).map_err(|e| {
-            Error::config(format!("Failed to load GeoIP database: {}", e))
-        })?;
+        let reader = Reader::open_readfile(path.as_ref())
+            .map_err(|e| Error::config(format!("Failed to load GeoIP database: {}", e)))?;
         Ok(Self {
             reader: Some(reader),
         })
@@ -53,11 +52,11 @@ impl GeoIpDatabase {
 
     fn fallback_country_match(&self, country_code: &str, ip: IpAddr) -> bool {
         let code_upper = country_code.to_uppercase();
-        
+
         if code_upper == "LAN" || code_upper == "PRIVATE" {
             return is_private_ip(ip);
         }
-        
+
         false
     }
 }
@@ -133,11 +132,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
                 || ipv4.is_unspecified()
                 || is_cgnat(ipv4)
         }
-        IpAddr::V6(ipv6) => {
-            ipv6.is_loopback()
-                || ipv6.is_unspecified()
-                || is_ipv6_private(&ipv6)
-        }
+        IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified() || is_ipv6_private(&ipv6),
     }
 }
 
@@ -148,9 +143,7 @@ fn is_cgnat(ip: std::net::Ipv4Addr) -> bool {
 
 fn is_ipv6_private(ip: &std::net::Ipv6Addr) -> bool {
     let segments = ip.segments();
-    (segments[0] & 0xfe00) == 0xfc00
-        || (segments[0] & 0xffc0) == 0xfe80
-        || ip.is_multicast()
+    (segments[0] & 0xfe00) == 0xfc00 || (segments[0] & 0xffc0) == 0xfe80 || ip.is_multicast()
 }
 
 #[cfg(test)]

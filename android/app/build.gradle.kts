@@ -20,23 +20,33 @@ android {
     }
 
     defaultConfig {
+        applicationId = "com.blueokanna.veloguard"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
-        // 支持多架构
-        // arm64-v8a for physical devices, x86_64 for emulator testing
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+        // Do not filter Flutter's supported armeabi-v7a, arm64-v8a, and x86_64
+        // libraries. Android selects the matching ABI at install time.
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("VELOGUARD_KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("VELOGUARD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VELOGUARD_KEY_ALIAS")
+                keyPassword = System.getenv("VELOGUARD_KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
         }
     }
     

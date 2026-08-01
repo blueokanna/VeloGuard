@@ -1,7 +1,7 @@
 import { FlutterPage, FlutterEntry } from '@aspect/flutter_ohos';
 
 /**
- * Main entry page for CatClash on HarmonyOS NEXT
+ * Main entry page for VeloGuard on HarmonyOS NEXT
  * 
  * This page hosts the Flutter application.
  */

@@ -6,6 +6,7 @@ import 'package:veloguard/src/providers/app_state_provider.dart';
 import 'package:veloguard/src/providers/theme_provider.dart';
 import 'package:veloguard/src/providers/locale_provider.dart';
 import 'package:veloguard/src/providers/general_settings_provider.dart';
+import 'package:veloguard/src/providers/update_provider.dart';
 import 'package:veloguard/src/widgets/adaptive_list_tile.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
@@ -177,6 +178,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle: Text(
                               localeProvider.getLocaleName(
                                 localeProvider.currentLocale,
+                                systemDefaultName:
+                                    l10n?.systemDefault ?? 'System Default',
                               ),
                             ),
                             leading: Icon(
@@ -387,6 +390,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Icons.tag_outlined,
                           color: colorScheme.primary,
                         ),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      Consumer<UpdateProvider>(
+                        builder: (context, updater, child) {
+                          final update = updater.availableUpdate;
+                          final busy =
+                              updater.state == UpdateState.checking ||
+                              updater.state == UpdateState.downloading ||
+                              updater.state == UpdateState.installing;
+                          final subtitle = switch (updater.state) {
+                            UpdateState.available =>
+                              'VeloGuard ${update!.version} is available',
+                            UpdateState.downloading =>
+                              'Downloading ${(updater.downloadProgress * 100).round()}%',
+                            UpdateState.installing => 'Opening installer',
+                            UpdateState.error =>
+                              'Update failed: ${updater.lastError}',
+                            _ => 'Check stable GitHub Releases',
+                          };
+                          return AdaptiveListTile(
+                            title: const Text('Check for updates'),
+                            subtitle: Text(subtitle),
+                            leading: Icon(
+                              Icons.system_update_alt_rounded,
+                              color: colorScheme.primary,
+                            ),
+                            trailing: busy
+                                ? const SizedBox.square(
+                                    dimension: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.chevron_right),
+                            enabled: !busy,
+                            onTap: busy
+                                ? null
+                                : update == null
+                                ? () => updater.check()
+                                : () => updater.downloadAndInstall(),
+                          );
+                        },
                       ),
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       AdaptiveListTile(

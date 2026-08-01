@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:veloguard/src/rust/api.dart' as rust_api;
@@ -28,6 +28,26 @@ class PlatformProxyService {
   int get vpnFd => _vpnFd;
   int get androidVpnFd => _vpnFd;
   Function(bool isRunning)? onVpnStatusChanged;
+
+  static int _runtimeModeValue(ProxyMode mode) => switch (mode) {
+    ProxyMode.global => 1,
+    ProxyMode.direct => 2,
+    ProxyMode.rule => 3,
+  };
+
+  /// Updates the router without starting a VPN. If a tunnel is already active,
+  /// its platform routing state is updated as part of the same operation.
+  Future<bool> configureProxyMode(ProxyMode mode) async {
+    try {
+      _currentProxyMode = mode;
+      await rust_api.setProxyMode(mode: _runtimeModeValue(mode));
+      if (!_tunModeEnabled) return true;
+      return await setProxyMode(mode);
+    } catch (error) {
+      debugPrint('Failed to configure proxy mode: $error');
+      return false;
+    }
+  }
 
   void _setupMethodChannel() {
     debugPrint('PlatformProxyService: Setting up MethodChannel handlers');
@@ -161,11 +181,14 @@ class PlatformProxyService {
 
   Future<bool> _enableWindowsSystemProxy(String host, int port) async {
     try {
+      final endpointHost = host.contains(':') && !host.startsWith('[')
+          ? '[$host]'
+          : host;
       final result = await Process.run('powershell', [
         '-Command',
         '\$regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"; '
             'Set-ItemProperty -Path \$regPath -Name ProxyEnable -Value 1; '
-            'Set-ItemProperty -Path \$regPath -Name ProxyServer -Value "$host:$port"',
+            'Set-ItemProperty -Path \$regPath -Name ProxyServer -Value "$endpointHost:$port"',
       ]);
       if (result.exitCode == 0) {
         _systemProxyEnabled = true;

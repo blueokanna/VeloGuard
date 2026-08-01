@@ -247,10 +247,6 @@ impl ConnectionStats {
     }
 
     pub fn average_rtt_us(&self) -> Option<u64> {
-        if self.rtt_samples > 0 {
-            Some(self.rtt_sum_us / self.rtt_samples)
-        } else {
-            None
-        }
+        self.rtt_sum_us.checked_div(self.rtt_samples)
     }
 }

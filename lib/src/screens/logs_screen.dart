@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:veloguard/src/rust/api.dart' as rust_api;
 import 'package:veloguard/src/utils/platform_utils.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
-import 'package:veloguard/main.dart' show isRustLibInitialized;
+import 'package:veloguard/src/services/native_core_service.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
@@ -46,7 +46,7 @@ class _LogsScreenState extends State<LogsScreen> {
   Future<void> _loadLogs({bool scrollToBottom = true}) async {
     try {
       // Check if RustLib is initialized
-      if (!isRustLibInitialized) {
+      if (!NativeCoreService.instance.isReady) {
         if (mounted) {
           setState(() {
             _logs = ['Rust library not initialized. Please restart the app.'];

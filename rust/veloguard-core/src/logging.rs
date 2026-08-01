@@ -3,9 +3,7 @@ use crate::error::{Error, Result};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, Once};
 use tracing::Level;
-use tracing_subscriber::{
-    fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
-};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 static INIT: Once = Once::new();
 
@@ -95,16 +93,31 @@ fn init_logging_inner(level: LogLevel) -> Result<()> {
 
     // Create filter for console output
     let filter = EnvFilter::from_default_env()
-        .add_directive(format!("veloguard_core={}", tracing_level).parse()
-            .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?)
-        .add_directive(format!("veloguard_netstack={}", tracing_level).parse()
-            .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?)
-        .add_directive("tokio=warn".parse()
-            .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?)
-        .add_directive("hyper=warn".parse()
-            .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?)
-        .add_directive("rustls=warn".parse()
-            .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?);
+        .add_directive(
+            format!("veloguard_core={}", tracing_level)
+                .parse()
+                .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?,
+        )
+        .add_directive(
+            format!("veloguard_netstack={}", tracing_level)
+                .parse()
+                .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?,
+        )
+        .add_directive(
+            "tokio=warn"
+                .parse()
+                .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?,
+        )
+        .add_directive(
+            "hyper=warn"
+                .parse()
+                .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?,
+        )
+        .add_directive(
+            "rustls=warn"
+                .parse()
+                .map_err(|e| Error::config(format!("Invalid log directive: {}", e)))?,
+        );
 
     // Create formatter for console
     let fmt_layer = fmt::layer()
@@ -126,7 +139,7 @@ fn init_logging_inner(level: LogLevel) -> Result<()> {
 
     // If tracing was already initialized, that's fine - just log to buffer
     if result.is_err() {
-        add_log(format!("[INFO] Tracing already initialized, using existing subscriber"));
+        add_log("[INFO] Tracing already initialized, using existing subscriber".to_string());
     } else {
         // Add initial log entry
         add_log(format!("[INFO] Logging initialized at level: {:?}", level));
@@ -151,18 +164,21 @@ where
         let metadata = event.metadata();
         let level = metadata.level();
         let target = metadata.target();
-        
+
         // Skip internal logs
-        if target.starts_with("tokio") || target.starts_with("hyper") || target.starts_with("rustls") {
+        if target.starts_with("tokio")
+            || target.starts_with("hyper")
+            || target.starts_with("rustls")
+        {
             return;
         }
 
         let mut visitor = LogVisitor::default();
         event.record(&mut visitor);
-        
+
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         let log_line = format!("[{}] [{}] {}", timestamp, level, visitor.message);
-        
+
         add_log(log_line);
     }
 }
@@ -177,7 +193,8 @@ impl tracing::field::Visit for LogVisitor {
         if field.name() == "message" || self.message.is_empty() {
             self.message = value.to_string();
         } else {
-            self.message.push_str(&format!(" {}={}", field.name(), value));
+            self.message
+                .push_str(&format!(" {}={}", field.name(), value));
         }
     }
 
@@ -185,7 +202,8 @@ impl tracing::field::Visit for LogVisitor {
         if field.name() == "message" || self.message.is_empty() {
             self.message = format!("{:?}", value);
         } else {
-            self.message.push_str(&format!(" {}={:?}", field.name(), value));
+            self.message
+                .push_str(&format!(" {}={:?}", field.name(), value));
         }
     }
 }

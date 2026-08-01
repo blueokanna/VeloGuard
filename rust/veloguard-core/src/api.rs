@@ -133,9 +133,7 @@ impl ApiServer {
 }
 
 /// Get server information
-async fn get_server_info(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<ServerInfo>> {
+async fn get_server_info(State(state): State<ApiState>) -> Json<ApiResponse<ServerInfo>> {
     let active_connections = state.traffic_stats.active_connections();
 
     Json(ApiResponse::success(ServerInfo {
@@ -146,9 +144,7 @@ async fn get_server_info(
 }
 
 /// Get traffic statistics
-async fn get_traffic_stats(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<TrafficResponse>> {
+async fn get_traffic_stats(State(state): State<ApiState>) -> Json<ApiResponse<TrafficResponse>> {
     let stats = state.traffic_stats.global_stats();
     Json(ApiResponse::success(TrafficResponse {
         upload_bytes: stats.upload_bytes,
@@ -160,9 +156,7 @@ async fn get_traffic_stats(
 }
 
 /// Reset traffic statistics
-async fn reset_traffic_stats(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<String>> {
+async fn reset_traffic_stats(State(state): State<ApiState>) -> Json<ApiResponse<String>> {
     state.traffic_stats.reset().await;
     Json(ApiResponse::success("Traffic statistics reset".to_string()))
 }
@@ -200,9 +194,7 @@ async fn get_health_status(
 }
 
 /// Get all proxies
-async fn get_proxies(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<Vec<ProxyInfo>>> {
+async fn get_proxies(State(state): State<ApiState>) -> Json<ApiResponse<Vec<ProxyInfo>>> {
     let config = state.proxy_manager.get_config().await;
     let proxies = config
         .outbounds
@@ -254,9 +246,7 @@ async fn get_proxy(
 }
 
 /// Get current configuration
-async fn get_config(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<Config>> {
+async fn get_config(State(state): State<ApiState>) -> Json<ApiResponse<Config>> {
     let config = state.proxy_manager.get_config().await;
     Json(ApiResponse::success(config))
 }
@@ -267,15 +257,18 @@ async fn update_config(
     Json(request): Json<ConfigUpdateRequest>,
 ) -> Json<ApiResponse<String>> {
     match state.proxy_manager.reload(request.config).await {
-        Ok(()) => Json(ApiResponse::success("Configuration updated successfully".to_string())),
-        Err(e) => Json(ApiResponse::error(format!("Failed to update configuration: {}", e))),
+        Ok(()) => Json(ApiResponse::success(
+            "Configuration updated successfully".to_string(),
+        )),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to update configuration: {}",
+            e
+        ))),
     }
 }
 
 /// Get routing rules
-async fn get_rules(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<Vec<serde_json::Value>>> {
+async fn get_rules(State(state): State<ApiState>) -> Json<ApiResponse<Vec<serde_json::Value>>> {
     let config = state.proxy_manager.get_config().await;
     let rules = config
         .rules
@@ -302,4 +295,3 @@ pub fn create_router(
     let api_server = ApiServer::new(proxy_manager, health_monitor, traffic_stats);
     api_server.router()
 }
-

@@ -44,7 +44,7 @@ impl Default for PoolConfig {
         Self {
             max_connections: 10,
             max_idle_time: Duration::from_secs(300), // 5 minutes
-            max_lifetime: Duration::from_secs(3600),  // 1 hour
+            max_lifetime: Duration::from_secs(3600), // 1 hour
         }
     }
 }

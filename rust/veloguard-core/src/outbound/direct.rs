@@ -23,24 +23,20 @@ impl OutboundProxy for DirectOutbound {
     fn tag(&self) -> &str {
         &self.config.tag
     }
-    
+
     fn server_addr(&self) -> Option<(String, u16)> {
         // Direct outbound has no server
         None
     }
-    
+
     fn supports_udp(&self) -> bool {
         true
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
-        use tokio::net::UdpSocket;
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         use std::time::Duration;
-        
+        use tokio::net::UdpSocket;
+
         // Resolve target address
         let target_addr = match target {
             TargetAddr::Ip(addr) => *addr,
@@ -54,26 +50,32 @@ impl OutboundProxy for DirectOutbound {
                 resolved
             }
         };
-        
+
         // Create UDP socket
-        let socket = UdpSocket::bind("0.0.0.0:0").await
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
-        
+
         // Send data
-        socket.send_to(data, target_addr).await
+        socket
+            .send_to(data, target_addr)
+            .await
             .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
-        
+
         // Receive response with timeout
         let mut buf = vec![0u8; 65535];
         let timeout = Duration::from_secs(30);
-        
+
         match tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await {
             Ok(Ok((n, _))) => Ok(buf[..n].to_vec()),
-            Ok(Err(e)) => Err(Error::network(format!("Failed to receive UDP response: {}", e))),
+            Ok(Err(e)) => Err(Error::network(format!(
+                "Failed to receive UDP response: {}",
+                e
+            ))),
             Err(_) => Err(Error::network("UDP response timeout")),
         }
     }
-    
+
     async fn test_http_latency(
         &self,
         test_url: &str,
@@ -81,65 +83,71 @@ impl OutboundProxy for DirectOutbound {
     ) -> Result<std::time::Duration> {
         use std::time::Instant;
         use tokio::io::{AsyncBufReadExt, BufReader};
-        
+
         // Parse the test URL
         let url = url::Url::parse(test_url)
             .map_err(|e| Error::config(format!("Invalid test URL: {}", e)))?;
-        
-        let host = url.host_str()
+
+        let host = url
+            .host_str()
             .ok_or_else(|| Error::config("Test URL has no host"))?
             .to_string();
-        let url_port = url.port().unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
-        
+        let url_port = url
+            .port()
+            .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
+
         let start = Instant::now();
-        
+
         // Direct connection to target
         let addr = format!("{}:{}", host, url_port);
-        let mut stream = tokio::time::timeout(
-            timeout,
-            TcpStream::connect(&addr)
-        ).await
+        let mut stream = tokio::time::timeout(timeout, TcpStream::connect(&addr))
+            .await
             .map_err(|_| Error::network("Connection timeout"))?
             .map_err(|e| Error::network(format!("Failed to connect: {}", e)))?;
-        
+
         // Send HTTP request
         let http_request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: VeloGuard/1.0\r\n\r\n",
             path, host
         );
-        stream.write_all(http_request.as_bytes()).await
+        stream
+            .write_all(http_request.as_bytes())
+            .await
             .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;
-        
+
         // Read HTTP response
         let result = tokio::time::timeout(timeout, async {
             let mut reader = BufReader::new(stream);
             let mut response_line = String::new();
-            reader.read_line(&mut response_line).await
+            reader
+                .read_line(&mut response_line)
+                .await
                 .map_err(|e| Error::network(format!("Failed to read response: {}", e)))?;
-            
+
             if response_line.starts_with("HTTP/") {
                 Ok(())
             } else {
                 Err(Error::network("Invalid HTTP response"))
             }
-        }).await;
-        
+        })
+        .await;
+
         match result {
             Ok(Ok(())) => Ok(start.elapsed()),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(Error::network("Response timeout")),
         }
     }
-    
-    async fn relay_tcp(
-        &self,
-        inbound: Box<dyn AsyncReadWrite>,
-        target: TargetAddr,
-    ) -> Result<()> {
+
+    async fn relay_tcp(&self, inbound: Box<dyn AsyncReadWrite>, target: TargetAddr) -> Result<()> {
         self.relay_tcp_with_connection(inbound, target, None).await
     }
-    
+
     async fn relay_tcp_with_connection(
         &self,
         mut inbound: Box<dyn AsyncReadWrite>,
@@ -147,25 +155,27 @@ impl OutboundProxy for DirectOutbound {
         connection: Option<std::sync::Arc<crate::connection_tracker::TrackedConnection>>,
     ) -> Result<()> {
         use crate::connection_tracker::global_tracker;
-        
+
         // Connect directly to target
         let target_str = target.to_string();
         let mut outbound = TcpStream::connect(&target_str).await.map_err(|e| {
             Error::network(format!("Direct connect to {} failed: {}", target_str, e))
         })?;
-        
+
         // Disable Nagle's algorithm
         outbound.set_nodelay(true).ok();
-        
+
         tracing::debug!("Direct connection to {} established", target_str);
-        
+
         // Relay data bidirectionally with traffic tracking
         let tracker = global_tracker();
-        let result = relay_bidirectional_with_connection(&mut inbound, &mut outbound, tracker, connection).await;
-        
+        let result =
+            relay_bidirectional_with_connection(&mut inbound, &mut outbound, tracker, connection)
+                .await;
+
         // Cleanup
         let _ = outbound.shutdown().await;
-        
+
         result
     }
 }
@@ -178,7 +188,7 @@ impl DirectOutbound {
 
 /// Bidirectional relay between two streams with traffic statistics and optional connection tracking
 pub async fn relay_bidirectional_with_connection<A, B>(
-    a: &mut A, 
+    a: &mut A,
     b: &mut B,
     tracker: std::sync::Arc<crate::connection_tracker::ConnectionTracker>,
     connection: Option<std::sync::Arc<crate::connection_tracker::TrackedConnection>>,
@@ -188,10 +198,10 @@ where
     B: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + ?Sized,
 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    
+
     let (mut ar, mut aw) = tokio::io::split(a);
     let (mut br, mut bw) = tokio::io::split(b);
-    
+
     let tracker_upload = tracker.clone();
     let tracker_download = tracker.clone();
     let conn_upload = connection.clone();
@@ -213,7 +223,7 @@ where
         let _ = bw.shutdown().await;
         Ok::<(), std::io::Error>(())
     };
-    
+
     let b_to_a = async {
         let mut buf = vec![0u8; 32 * 1024];
         loop {
@@ -243,8 +253,11 @@ where
         }
         (Err(e1), Err(e2)) => {
             // Both failed - check if it's a normal connection close
-            if (e1.kind() == std::io::ErrorKind::ConnectionReset || e1.kind() == std::io::ErrorKind::BrokenPipe)
-                && (e2.kind() == std::io::ErrorKind::ConnectionReset || e2.kind() == std::io::ErrorKind::BrokenPipe) {
+            if (e1.kind() == std::io::ErrorKind::ConnectionReset
+                || e1.kind() == std::io::ErrorKind::BrokenPipe)
+                && (e2.kind() == std::io::ErrorKind::ConnectionReset
+                    || e2.kind() == std::io::ErrorKind::BrokenPipe)
+            {
                 Ok(())
             } else {
                 Err(Error::network(format!("Relay error: {} / {}", e1, e2)))
@@ -265,19 +278,19 @@ where
 
     let result = tokio::select! {
         biased;
-        
+
         result = tokio::io::copy(&mut ar, &mut bw) => {
             let _ = bw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay A->B completed: {} bytes", bytes);
-                
+
             })
         }
         result = tokio::io::copy(&mut br, &mut aw) => {
             let _ = aw.shutdown().await;
             result.map(|bytes| {
                 tracing::trace!("Relay B->A completed: {} bytes", bytes);
-                
+
             })
         }
     };

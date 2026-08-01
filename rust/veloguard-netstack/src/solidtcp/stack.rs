@@ -4,7 +4,9 @@ use crate::solidtcp::device::DeviceConfig;
 use crate::solidtcp::dns::{DnsHandler, FakeIpConfig, FakeIpPool};
 use crate::solidtcp::error::{Result, SolidTcpError};
 use crate::solidtcp::nat::{NatConfig, NatTable};
-use crate::solidtcp::packet::{build_ipv4_tcp, build_ipv4_udp, parse_packet, ParsedPacket, TcpFlags, TcpInfo, TransportInfo};
+use crate::solidtcp::packet::{
+    build_ipv4_tcp, build_ipv4_udp, parse_packet, ParsedPacket, TcpFlags, TcpInfo, TransportInfo,
+};
 use crate::solidtcp::stats::StackStats;
 use crate::solidtcp::tcp::{TcpAction, TcpConfig, TcpConnection, TcpManager};
 use crate::solidtcp::udp::{UdpConfig, UdpManager};
@@ -24,7 +26,8 @@ use tracing::{debug, info, warn};
 use std::os::unix::io::AsRawFd;
 
 #[cfg(target_os = "android")]
-static PROTECT_CALLBACK: parking_lot::RwLock<Option<Box<dyn Fn(i32) -> bool + Send + Sync>>> = parking_lot::RwLock::new(None);
+static PROTECT_CALLBACK: parking_lot::RwLock<Option<Box<dyn Fn(i32) -> bool + Send + Sync>>> =
+    parking_lot::RwLock::new(None);
 
 #[cfg(target_os = "android")]
 pub fn set_protect_callback<F>(callback: F)
@@ -57,7 +60,10 @@ pub fn protect_socket(fd: i32) -> bool {
         }
         result
     } else {
-        warn!("No protect callback set for socket fd={} - this will cause routing loop!", fd);
+        warn!(
+            "No protect callback set for socket fd={} - this will cause routing loop!",
+            fd
+        );
         false
     }
 }
@@ -67,7 +73,6 @@ pub fn has_protect_callback() -> bool {
     PROTECT_CALLBACK.read().is_some()
 }
 
-
 #[derive(Debug, Clone)]
 pub struct StackConfig {
     pub device: DeviceConfig,
@@ -75,7 +80,7 @@ pub struct StackConfig {
     pub udp: UdpConfig,
     pub nat: NatConfig,
     pub fake_ip: FakeIpConfig,
-    pub proxy_port: u16,
+    pub proxy_addr: SocketAddr,
     pub dns_intercept: bool,
     pub cleanup_interval: Duration,
 }
@@ -88,7 +93,7 @@ impl Default for StackConfig {
             udp: UdpConfig::default(),
             nat: NatConfig::default(),
             fake_ip: FakeIpConfig::default(),
-            proxy_port: 7890,
+            proxy_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7890),
             dns_intercept: true,
             cleanup_interval: Duration::from_secs(30),
         }
@@ -101,11 +106,18 @@ pub struct StackBuilder {
 
 impl StackBuilder {
     pub fn new() -> Self {
-        Self { config: StackConfig::default() }
+        Self {
+            config: StackConfig::default(),
+        }
     }
 
     pub fn proxy_port(mut self, port: u16) -> Self {
-        self.config.proxy_port = port;
+        self.config.proxy_addr.set_port(port);
+        self
+    }
+
+    pub fn proxy_addr(mut self, addr: SocketAddr) -> Self {
+        self.config.proxy_addr = addr;
         self
     }
 
@@ -141,7 +153,9 @@ impl StackBuilder {
 }
 
 impl Default for StackBuilder {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Main TCP/IP stack
@@ -175,11 +189,19 @@ impl SolidStack {
         }
     }
 
-    pub fn with_defaults() -> Self { Self::new(StackConfig::default()) }
-    pub fn builder() -> StackBuilder { StackBuilder::new() }
+    pub fn with_defaults() -> Self {
+        Self::new(StackConfig::default())
+    }
+    pub fn builder() -> StackBuilder {
+        StackBuilder::new()
+    }
 
-    pub fn set_tun_tx(&mut self, tx: mpsc::Sender<BytesMut>) { self.tun_tx = Some(tx); }
-    pub fn tun_tx(&self) -> Option<&mpsc::Sender<BytesMut>> { self.tun_tx.as_ref() }
+    pub fn set_tun_tx(&mut self, tx: mpsc::Sender<BytesMut>) {
+        self.tun_tx = Some(tx);
+    }
+    pub fn tun_tx(&self) -> Option<&mpsc::Sender<BytesMut>> {
+        self.tun_tx.as_ref()
+    }
 
     pub fn start(&self) {
         self.running.store(true, Ordering::Relaxed);
@@ -194,21 +216,42 @@ impl SolidStack {
         info!("SolidStack stopped");
     }
 
-    pub fn is_running(&self) -> bool { self.running.load(Ordering::Relaxed) }
-    pub fn stats(&self) -> &Arc<StackStats> { &self.stats }
-    pub fn tcp_manager(&self) -> &Arc<TcpManager> { &self.tcp_manager }
-    pub fn udp_manager(&self) -> &Arc<UdpManager> { &self.udp_manager }
-    pub fn nat_table(&self) -> &Arc<NatTable> { &self.nat_table }
-    pub fn fake_ip_pool(&self) -> &Arc<FakeIpPool> { &self.fake_ip_pool }
-    pub fn dns_handler(&self) -> &Arc<DnsHandler> { &self.dns_handler }
-    pub fn proxy_port(&self) -> u16 { self.config.proxy_port }
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+    pub fn stats(&self) -> &Arc<StackStats> {
+        &self.stats
+    }
+    pub fn tcp_manager(&self) -> &Arc<TcpManager> {
+        &self.tcp_manager
+    }
+    pub fn udp_manager(&self) -> &Arc<UdpManager> {
+        &self.udp_manager
+    }
+    pub fn nat_table(&self) -> &Arc<NatTable> {
+        &self.nat_table
+    }
+    pub fn fake_ip_pool(&self) -> &Arc<FakeIpPool> {
+        &self.fake_ip_pool
+    }
+    pub fn dns_handler(&self) -> &Arc<DnsHandler> {
+        &self.dns_handler
+    }
+    pub fn proxy_port(&self) -> u16 {
+        self.config.proxy_addr.port()
+    }
+    pub fn proxy_addr(&self) -> SocketAddr {
+        self.config.proxy_addr
+    }
 
     pub fn connection_count(&self) -> usize {
         self.tcp_manager.connection_count() + self.udp_manager.session_count()
     }
 
     pub async fn process_packet(&self, packet: &[u8]) -> Result<()> {
-        if !self.is_running() { return Ok(()); }
+        if !self.is_running() {
+            return Ok(());
+        }
 
         self.stats.record_received(packet.len());
 
@@ -246,16 +289,15 @@ impl SolidStack {
         }
     }
 
-
     async fn handle_tcp_packet(&self, parsed: &ParsedPacket, raw: &[u8]) -> Result<()> {
         let tcp_info = match &parsed.transport {
             TransportInfo::Tcp(info) => info,
             _ => return Ok(()),
         };
 
-        let src_addr = parsed.src_socket().ok_or_else(|| {
-            SolidTcpError::InvalidPacket("Missing source address".to_string())
-        })?;
+        let src_addr = parsed
+            .src_socket()
+            .ok_or_else(|| SolidTcpError::InvalidPacket("Missing source address".to_string()))?;
         let dst_addr = parsed.dst_socket().ok_or_else(|| {
             SolidTcpError::InvalidPacket("Missing destination address".to_string())
         })?;
@@ -266,14 +308,14 @@ impl SolidStack {
         } else {
             20
         };
-        
+
         let payload_start = ip_header_len + tcp_data_offset;
         let ip_total_len = if raw.len() >= 4 {
             u16::from_be_bytes([raw[2], raw[3]]) as usize
         } else {
             raw.len()
         };
-        
+
         let payload_end = ip_total_len.min(raw.len());
         let payload = if payload_start < payload_end {
             &raw[payload_start..payload_end]
@@ -283,11 +325,18 @@ impl SolidStack {
 
         debug!(
             "TCP: {} -> {} flags={:?} seq={} ack={} payload_len={}",
-            src_addr, dst_addr, tcp_info.flags, tcp_info.seq, tcp_info.ack, payload.len()
+            src_addr,
+            dst_addr,
+            tcp_info.flags,
+            tcp_info.seq,
+            tcp_info.ack,
+            payload.len()
         );
 
         if tcp_info.flags.syn && !tcp_info.flags.ack {
-            return self.handle_tcp_syn(src_addr, dst_addr, tcp_info, parsed).await;
+            return self
+                .handle_tcp_syn(src_addr, dst_addr, tcp_info, parsed)
+                .await;
         }
 
         if let Some(conn) = self.tcp_manager.get_connection(src_addr, dst_addr) {
@@ -296,14 +345,23 @@ impl SolidStack {
                 conn.process(tcp_info, payload)?
             };
 
-            self.execute_tcp_action(src_addr, dst_addr, &conn, action).await?;
+            self.execute_tcp_action(src_addr, dst_addr, &conn, action)
+                .await?;
         } else if !tcp_info.flags.rst {
-            debug!("No connection for packet, sending RST: {} -> {}", src_addr, dst_addr);
+            debug!(
+                "No connection for packet, sending RST: {} -> {}",
+                src_addr, dst_addr
+            );
             self.send_tcp_packet(
-                dst_addr, src_addr,
-                tcp_info.ack, tcp_info.seq.wrapping_add(1),
-                TcpFlags::rst_ack(), &[], None,
-            ).await?;
+                dst_addr,
+                src_addr,
+                tcp_info.ack,
+                tcp_info.seq.wrapping_add(1),
+                TcpFlags::rst_ack(),
+                &[],
+                None,
+            )
+            .await?;
         }
 
         Ok(())
@@ -328,25 +386,41 @@ impl SolidStack {
 
         info!(
             "=== TCP SYN received: {} -> {} (domain: {:?}, is_fake_ip: {}) ===",
-            src_addr, dst_addr, domain, 
-            if let IpAddr::V4(ip) = dst_addr.ip() { self.fake_ip_pool.is_fake_ip(ip) } else { false }
+            src_addr,
+            dst_addr,
+            domain,
+            if let IpAddr::V4(ip) = dst_addr.ip() {
+                self.fake_ip_pool.is_fake_ip(ip)
+            } else {
+                false
+            }
         );
 
         if domain.is_none() {
             if let IpAddr::V4(ip) = dst_addr.ip() {
                 if self.fake_ip_pool.is_fake_ip(ip) {
-                    warn!("Cannot proxy connection to Fake-IP {} without domain mapping", ip);
+                    warn!(
+                        "Cannot proxy connection to Fake-IP {} without domain mapping",
+                        ip
+                    );
                     self.send_tcp_packet(
-                        dst_addr, src_addr,
-                        0, tcp_info.seq.wrapping_add(1),
-                        TcpFlags::rst_ack(), &[], None,
-                    ).await?;
+                        dst_addr,
+                        src_addr,
+                        0,
+                        tcp_info.seq.wrapping_add(1),
+                        TcpFlags::rst_ack(),
+                        &[],
+                        None,
+                    )
+                    .await?;
                     return Ok(());
                 }
             }
         }
 
-        let conn = self.tcp_manager.handle_syn(src_addr, dst_addr, tcp_info, domain.clone())?;
+        let conn = self
+            .tcp_manager
+            .handle_syn(src_addr, dst_addr, tcp_info, domain.clone())?;
         self.stats.record_tcp_connection();
 
         let (our_seq, their_seq, mss) = {
@@ -354,21 +428,35 @@ impl SolidStack {
             (conn.snd_nxt().wrapping_sub(1), conn.rcv_nxt(), conn.mss())
         };
 
-        info!("Sending SYN-ACK to {} for connection to {:?}", src_addr, domain.as_ref().unwrap_or(&dst_addr.to_string()));
+        info!(
+            "Sending SYN-ACK to {} for connection to {:?}",
+            src_addr,
+            domain.as_ref().unwrap_or(&dst_addr.to_string())
+        );
 
         self.send_tcp_packet(
-            dst_addr, src_addr, our_seq, their_seq,
-            TcpFlags::syn_ack(), &[], Some(mss),
-        ).await?;
+            dst_addr,
+            src_addr,
+            our_seq,
+            their_seq,
+            TcpFlags::syn_ack(),
+            &[],
+            Some(mss),
+        )
+        .await?;
 
         let stack = self.clone_for_proxy();
         let conn_clone = conn.clone();
-        
+
         tokio::spawn(async move {
-            if let Err(e) = stack.establish_proxy_connection(
-                src_addr, dst_addr, domain, conn_clone,
-            ).await {
-                warn!("Proxy connection failed: {} -> {}: {}", src_addr, dst_addr, e);
+            if let Err(e) = stack
+                .establish_proxy_connection(src_addr, dst_addr, domain, conn_clone)
+                .await
+            {
+                warn!(
+                    "Proxy connection failed: {} -> {}: {}",
+                    src_addr, dst_addr, e
+                );
             }
         });
 
@@ -377,7 +465,7 @@ impl SolidStack {
 
     fn clone_for_proxy(&self) -> StackProxy {
         StackProxy {
-            proxy_port: self.config.proxy_port,
+            proxy_addr: self.config.proxy_addr,
             tun_tx: self.tun_tx.clone(),
             tcp_manager: self.tcp_manager.clone(),
             nat_table: self.nat_table.clone(),
@@ -385,7 +473,6 @@ impl SolidStack {
             running: self.running.clone(),
         }
     }
-
 
     async fn execute_tcp_action(
         &self,
@@ -400,27 +487,39 @@ impl SolidStack {
                     let conn = conn.read();
                     (conn.snd_nxt(), conn.rcv_nxt())
                 };
-                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::ack_only(), &[], None).await?;
+                self.send_tcp_packet(
+                    dst_addr,
+                    src_addr,
+                    seq,
+                    ack,
+                    TcpFlags::ack_only(),
+                    &[],
+                    None,
+                )
+                .await?;
             }
             TcpAction::SendFinAck => {
                 let (seq, ack) = {
                     let conn = conn.read();
                     (conn.snd_nxt(), conn.rcv_nxt())
                 };
-                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::fin_ack(), &[], None).await?;
+                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::fin_ack(), &[], None)
+                    .await?;
                 let close_action = conn.write().close();
-                if close_action == TcpAction::SendFin { }
+                if close_action == TcpAction::SendFin {}
             }
             TcpAction::SendFin => {
                 let (seq, ack) = {
                     let conn = conn.read();
                     (conn.snd_nxt(), conn.rcv_nxt())
                 };
-                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::fin_ack(), &[], None).await?;
+                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::fin_ack(), &[], None)
+                    .await?;
             }
             TcpAction::SendRst => {
                 let seq = conn.read().snd_nxt();
-                self.send_tcp_packet(dst_addr, src_addr, seq, 0, TcpFlags::rst_only(), &[], None).await?;
+                self.send_tcp_packet(dst_addr, src_addr, seq, 0, TcpFlags::rst_only(), &[], None)
+                    .await?;
             }
             TcpAction::Established => {
                 debug!("TCP connection established: {} -> {}", src_addr, dst_addr);
@@ -438,7 +537,16 @@ impl SolidStack {
                     conn.advance_snd_nxt(data.len() as u32);
                     (seq, ack)
                 };
-                self.send_tcp_packet(dst_addr, src_addr, seq, ack, TcpFlags::psh_ack(), &data, None).await?;
+                self.send_tcp_packet(
+                    dst_addr,
+                    src_addr,
+                    seq,
+                    ack,
+                    TcpFlags::psh_ack(),
+                    &data,
+                    None,
+                )
+                .await?;
             }
             TcpAction::None => {}
         }
@@ -451,9 +559,9 @@ impl SolidStack {
             _ => return Ok(()),
         };
 
-        let src_addr = parsed.src_socket().ok_or_else(|| {
-            SolidTcpError::InvalidPacket("Missing source address".to_string())
-        })?;
+        let src_addr = parsed
+            .src_socket()
+            .ok_or_else(|| SolidTcpError::InvalidPacket("Missing source address".to_string()))?;
         let dst_addr = parsed.dst_socket().ok_or_else(|| {
             SolidTcpError::InvalidPacket("Missing destination address".to_string())
         })?;
@@ -465,10 +573,20 @@ impl SolidStack {
             return Ok(());
         };
 
-        info!("UDP packet: {} -> {} ({} bytes payload)", src_addr, dst_addr, payload.len());
+        info!(
+            "UDP packet: {} -> {} ({} bytes payload)",
+            src_addr,
+            dst_addr,
+            payload.len()
+        );
 
         if dst_addr.port() == 53 && self.config.dns_intercept {
-            info!("=== DNS query intercepted: {} -> {} ({} bytes) ===", src_addr, dst_addr, payload.len());
+            info!(
+                "=== DNS query intercepted: {} -> {} ({} bytes) ===",
+                src_addr,
+                dst_addr,
+                payload.len()
+            );
             return self.handle_dns_query(src_addr, dst_addr, payload).await;
         }
 
@@ -482,7 +600,12 @@ impl SolidStack {
         payload: &[u8],
     ) -> Result<()> {
         self.stats.record_dns_query();
-        info!("=== Processing DNS query: {} -> {} ({} bytes) ===", src_addr, dst_addr, payload.len());
+        info!(
+            "=== Processing DNS query: {} -> {} ({} bytes) ===",
+            src_addr,
+            dst_addr,
+            payload.len()
+        );
 
         match self.dns_handler.handle_query(payload) {
             Ok((response, domain)) => {
@@ -491,7 +614,12 @@ impl SolidStack {
                     self.stats.record_fake_ip();
                 }
                 self.stats.record_dns_response();
-                info!("DNS response ready: {} bytes, sending back to {} from {}", response.len(), src_addr, dst_addr);
+                info!(
+                    "DNS response ready: {} bytes, sending back to {} from {}",
+                    response.len(),
+                    src_addr,
+                    dst_addr
+                );
 
                 match self.send_udp_packet(dst_addr, src_addr, &response).await {
                     Ok(()) => {
@@ -526,17 +654,26 @@ impl SolidStack {
 
         debug!(
             "UDP data: {} -> {} ({} bytes, domain: {:?})",
-            src_addr, dst_addr, payload.len(), domain
+            src_addr,
+            dst_addr,
+            payload.len(),
+            domain
         );
 
-        let _session = self.udp_manager.get_or_create_session(src_addr, dst_addr, domain.clone())?;
-        self.udp_manager.record_sent(src_addr, dst_addr, payload.len());
+        let _session =
+            self.udp_manager
+                .get_or_create_session(src_addr, dst_addr, domain.clone())?;
+        self.udp_manager
+            .record_sent(src_addr, dst_addr, payload.len());
 
         let stack = self.clone_for_proxy();
         let payload_vec = payload.to_vec();
-        
+
         tokio::spawn(async move {
-            if let Err(e) = stack.forward_udp(src_addr, dst_addr, domain, &payload_vec).await {
+            if let Err(e) = stack
+                .forward_udp(src_addr, dst_addr, domain, &payload_vec)
+                .await
+            {
                 debug!("UDP forward error: {} -> {}: {}", src_addr, dst_addr, e);
             }
         });
@@ -563,12 +700,21 @@ impl SolidStack {
         };
 
         let packet = build_ipv4_tcp(
-            src_ip, dst_ip, src_addr.port(), dst_addr.port(),
-            seq, ack, flags, 65535, payload, mss,
+            src_ip,
+            dst_ip,
+            src_addr.port(),
+            dst_addr.port(),
+            seq,
+            ack,
+            flags,
+            65535,
+            payload,
+            mss,
         );
 
         self.stats.record_sent(packet.len());
-        tun_tx.send(BytesMut::from(&packet[..]))
+        tun_tx
+            .send(BytesMut::from(&packet[..]))
             .await
             .map_err(|_| SolidTcpError::ChannelClosed)?;
 
@@ -591,14 +737,20 @@ impl SolidStack {
             _ => return Err(SolidTcpError::Unsupported("IPv6 not supported".to_string())),
         };
 
-        info!("Building UDP packet: {}:{} -> {}:{} ({} bytes payload)", 
-            src_ip, src_addr.port(), dst_ip, dst_addr.port(), payload.len());
+        info!(
+            "Building UDP packet: {}:{} -> {}:{} ({} bytes payload)",
+            src_ip,
+            src_addr.port(),
+            dst_ip,
+            dst_addr.port(),
+            payload.len()
+        );
 
         let packet = build_ipv4_udp(src_ip, dst_ip, src_addr.port(), dst_addr.port(), payload);
 
         info!("Sending UDP packet to TUN: {} bytes total", packet.len());
         self.stats.record_sent(packet.len());
-        
+
         match tun_tx.send(BytesMut::from(&packet[..])).await {
             Ok(()) => {
                 info!("UDP packet sent to TUN successfully");
@@ -633,12 +785,14 @@ impl SolidStack {
         conn: Arc<RwLock<TcpConnection>>,
     ) -> Result<()> {
         let proxy = self.clone_for_proxy();
-        proxy.establish_proxy_connection(src_addr, dst_addr, domain, conn).await
+        proxy
+            .establish_proxy_connection(src_addr, dst_addr, domain, conn)
+            .await
     }
 }
 
 struct StackProxy {
-    proxy_port: u16,
+    proxy_addr: SocketAddr,
     tun_tx: Option<mpsc::Sender<BytesMut>>,
     tcp_manager: Arc<TcpManager>,
     #[allow(dead_code)]
@@ -646,7 +800,6 @@ struct StackProxy {
     stats: Arc<StackStats>,
     running: Arc<AtomicBool>,
 }
-
 
 impl StackProxy {
     async fn forward_udp(
@@ -657,14 +810,15 @@ impl StackProxy {
         payload: &[u8],
     ) -> Result<()> {
         use tokio::net::UdpSocket;
-        
-        let proxy_addr: SocketAddr = format!("127.0.0.1:{}", self.proxy_port)
-            .parse()
-            .map_err(|e| SolidTcpError::ProxyError(format!("Invalid proxy address: {}", e)))?;
-        
-        let tcp_socket = tokio::net::TcpSocket::new_v4()
-            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to create TCP socket: {}", e)))?;
-        
+
+        let proxy_addr = self.proxy_addr;
+        let tcp_socket = if proxy_addr.is_ipv6() {
+            tokio::net::TcpSocket::new_v6()
+        } else {
+            tokio::net::TcpSocket::new_v4()
+        }
+        .map_err(|e| SolidTcpError::ProxyError(format!("Failed to create TCP socket: {}", e)))?;
+
         #[cfg(target_os = "android")]
         {
             let fd = tcp_socket.as_raw_fd();
@@ -674,33 +828,38 @@ impl StackProxy {
                 debug!("Protected UDP associate TCP socket fd={}", fd);
             }
         }
-        
-        let mut tcp_stream = tcp_socket.connect(proxy_addr).await
-            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate connect failed: {}", e)))?;
 
-        tcp_stream.write_all(&[0x05, 0x01, 0x00]).await
+        let mut tcp_stream = tcp_socket.connect(proxy_addr).await.map_err(|e| {
+            SolidTcpError::ProxyError(format!("UDP associate connect failed: {}", e))
+        })?;
+
+        tcp_stream
+            .write_all(&[0x05, 0x01, 0x00])
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("UDP greeting failed: {}", e)))?;
 
         let mut response = [0u8; 2];
-        tcp_stream.read_exact(&mut response).await
+        tcp_stream
+            .read_exact(&mut response)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("UDP response failed: {}", e)))?;
 
         if response[0] != 0x05 || response[1] != 0x00 {
             return Err(SolidTcpError::ProxyAuthFailed);
         }
 
-        let request = [
-            0x05, 0x03, 0x00,
-            0x01,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00,
-        ];
-        tcp_stream.write_all(&request).await
-            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate request failed: {}", e)))?;
+        let request = [0x05, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        tcp_stream.write_all(&request).await.map_err(|e| {
+            SolidTcpError::ProxyError(format!("UDP associate request failed: {}", e))
+        })?;
 
         let mut assoc_response = [0u8; 10];
-        tcp_stream.read_exact(&mut assoc_response).await
-            .map_err(|e| SolidTcpError::ProxyError(format!("UDP associate response failed: {}", e)))?;
+        tcp_stream
+            .read_exact(&mut assoc_response)
+            .await
+            .map_err(|e| {
+                SolidTcpError::ProxyError(format!("UDP associate response failed: {}", e))
+            })?;
 
         if assoc_response[1] != 0x00 {
             return Err(SolidTcpError::ProxyError(format!(
@@ -712,15 +871,23 @@ impl StackProxy {
         let relay_addr = match assoc_response[3] {
             0x01 => {
                 let ip = Ipv4Addr::new(
-                    assoc_response[4], assoc_response[5],
-                    assoc_response[6], assoc_response[7],
+                    assoc_response[4],
+                    assoc_response[5],
+                    assoc_response[6],
+                    assoc_response[7],
                 );
                 let port = u16::from_be_bytes([assoc_response[8], assoc_response[9]]);
-                let ip = if ip.is_unspecified() { Ipv4Addr::new(127, 0, 0, 1) } else { ip };
+                let ip = if ip.is_unspecified() {
+                    Ipv4Addr::new(127, 0, 0, 1)
+                } else {
+                    ip
+                };
                 SocketAddr::new(IpAddr::V4(ip), port)
             }
             _ => {
-                return Err(SolidTcpError::ProxyError("Unsupported relay address type".to_string()));
+                return Err(SolidTcpError::ProxyError(
+                    "Unsupported relay address type".to_string(),
+                ));
             }
         };
 
@@ -728,7 +895,7 @@ impl StackProxy {
 
         let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")
             .map_err(|e| SolidTcpError::ProxyError(format!("UDP socket bind failed: {}", e)))?;
-        
+
         #[cfg(target_os = "android")]
         {
             use std::os::unix::io::AsRawFd;
@@ -739,11 +906,13 @@ impl StackProxy {
                 debug!("Protected UDP relay socket fd={}", fd);
             }
         }
-        
-        std_socket.set_nonblocking(true)
+
+        std_socket
+            .set_nonblocking(true)
             .map_err(|e| SolidTcpError::ProxyError(format!("Failed to set nonblocking: {}", e)))?;
-        let udp_socket = UdpSocket::from_std(std_socket)
-            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to convert UDP socket: {}", e)))?;
+        let udp_socket = UdpSocket::from_std(std_socket).map_err(|e| {
+            SolidTcpError::ProxyError(format!("Failed to convert UDP socket: {}", e))
+        })?;
 
         let mut udp_request = Vec::with_capacity(payload.len() + 262);
         udp_request.extend_from_slice(&[0x00, 0x00, 0x00]);
@@ -767,10 +936,17 @@ impl StackProxy {
         udp_request.extend_from_slice(&dst_addr.port().to_be_bytes());
         udp_request.extend_from_slice(payload);
 
-        udp_socket.send_to(&udp_request, relay_addr).await
+        udp_socket
+            .send_to(&udp_request, relay_addr)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("UDP send failed: {}", e)))?;
 
-        debug!("UDP forwarded: {} -> {} ({} bytes)", src_addr, dst_addr, payload.len());
+        debug!(
+            "UDP forwarded: {} -> {} ({} bytes)",
+            src_addr,
+            dst_addr,
+            payload.len()
+        );
 
         let tun_tx = self.tun_tx.clone();
         let stats = self.stats.clone();
@@ -778,10 +954,10 @@ impl StackProxy {
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65535];
-            
+
             let timeout = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
-                udp_socket.recv_from(&mut buf)
+                udp_socket.recv_from(&mut buf),
             );
 
             match timeout.await {
@@ -797,7 +973,7 @@ impl StackProxy {
 
                         if n > header_len {
                             let response_payload = &buf[header_len..n];
-                            
+
                             if let Some(ref tx) = tun_tx {
                                 let (src_ip, dst_ip) = match (dst_addr.ip(), src_addr.ip()) {
                                     (IpAddr::V4(s), IpAddr::V4(d)) => (s, d),
@@ -805,8 +981,10 @@ impl StackProxy {
                                 };
 
                                 let packet = build_ipv4_udp(
-                                    src_ip, dst_ip,
-                                    dst_addr.port(), src_addr.port(),
+                                    src_ip,
+                                    dst_ip,
+                                    dst_addr.port(),
+                                    src_addr.port(),
                                     response_payload,
                                 );
 
@@ -816,8 +994,12 @@ impl StackProxy {
                         }
                     }
                 }
-                Ok(Err(e)) => { debug!("UDP recv error: {}", e); }
-                Err(_) => { debug!("UDP recv timeout"); }
+                Ok(Err(e)) => {
+                    debug!("UDP recv error: {}", e);
+                }
+                Err(_) => {
+                    debug!("UDP recv timeout");
+                }
             }
 
             drop(tcp_stream);
@@ -826,7 +1008,6 @@ impl StackProxy {
         Ok(())
     }
 
-
     async fn establish_proxy_connection(
         &self,
         src_addr: SocketAddr,
@@ -834,15 +1015,19 @@ impl StackProxy {
         domain: Option<String>,
         conn: Arc<RwLock<TcpConnection>>,
     ) -> Result<()> {
-        info!("=== Establishing proxy connection: {} -> {} (domain: {:?}) ===", src_addr, dst_addr, domain);
-        
-        let proxy_addr: SocketAddr = format!("127.0.0.1:{}", self.proxy_port)
-            .parse()
-            .map_err(|e| SolidTcpError::ProxyError(format!("Invalid proxy address: {}", e)))?;
-        
-        let tcp_socket = tokio::net::TcpSocket::new_v4()
-            .map_err(|e| SolidTcpError::ProxyError(format!("Failed to create TCP socket: {}", e)))?;
-        
+        info!(
+            "=== Establishing proxy connection: {} -> {} (domain: {:?}) ===",
+            src_addr, dst_addr, domain
+        );
+
+        let proxy_addr = self.proxy_addr;
+        let tcp_socket = if proxy_addr.is_ipv6() {
+            tokio::net::TcpSocket::new_v6()
+        } else {
+            tokio::net::TcpSocket::new_v4()
+        }
+        .map_err(|e| SolidTcpError::ProxyError(format!("Failed to create TCP socket: {}", e)))?;
+
         #[cfg(target_os = "android")]
         {
             let fd = tcp_socket.as_raw_fd();
@@ -850,13 +1035,16 @@ impl StackProxy {
                 warn!("Failed to protect proxy TCP socket fd={}", fd);
             }
         }
-        
-        let mut stream = tcp_socket.connect(proxy_addr).await
+
+        let mut stream = tcp_socket
+            .connect(proxy_addr)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("Connect failed: {}", e)))?;
 
         let _ = stream.set_nodelay(true);
 
-        self.socks5_handshake(&mut stream, dst_addr, domain.as_deref()).await?;
+        self.socks5_handshake(&mut stream, dst_addr, domain.as_deref())
+            .await?;
 
         info!("SOCKS5 handshake complete: {} -> {}", src_addr, dst_addr);
 
@@ -872,7 +1060,7 @@ impl StackProxy {
         tokio::spawn(async move {
             let mut first_data = true;
             let mut write_buffer = Vec::with_capacity(65536);
-            
+
             while running.load(Ordering::Relaxed) {
                 match rx.recv().await {
                     Some(data) => {
@@ -880,23 +1068,33 @@ impl StackProxy {
                             first_data = false;
                             if let Ok(text) = std::str::from_utf8(&data[..data.len().min(512)]) {
                                 let text_lower = text.to_lowercase();
-                                if text_lower.contains("upgrade: websocket") || 
-                                   text_lower.contains("connection: upgrade") {
-                                    info!("WebSocket upgrade detected for {} -> {}", src_clone, dst_clone);
+                                if text_lower.contains("upgrade: websocket")
+                                    || text_lower.contains("connection: upgrade")
+                                {
+                                    info!(
+                                        "WebSocket upgrade detected for {} -> {}",
+                                        src_clone, dst_clone
+                                    );
                                     conn_for_ws.write().set_websocket(true);
                                 }
                             }
                         }
-                        
+
                         write_buffer.extend_from_slice(&data);
-                        
+
                         if write_buffer.len() >= 16384 || rx.is_empty() {
                             if let Err(e) = write_half.write_all(&write_buffer).await {
-                                warn!("App->Proxy write error: {} for {} -> {}", e, src_clone, dst_clone);
+                                warn!(
+                                    "App->Proxy write error: {} for {} -> {}",
+                                    e, src_clone, dst_clone
+                                );
                                 break;
                             }
                             if let Err(e) = write_half.flush().await {
-                                warn!("App->Proxy flush error: {} for {} -> {}", e, src_clone, dst_clone);
+                                warn!(
+                                    "App->Proxy flush error: {} for {} -> {}",
+                                    e, src_clone, dst_clone
+                                );
                                 break;
                             }
                             write_buffer.clear();
@@ -905,7 +1103,7 @@ impl StackProxy {
                     None => break,
                 }
             }
-            
+
             if !write_buffer.is_empty() {
                 let _ = write_half.write_all(&write_buffer).await;
                 let _ = write_half.flush().await;
@@ -920,7 +1118,7 @@ impl StackProxy {
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65536];
-            
+
             while running.load(Ordering::Relaxed) {
                 match read_half.read(&mut buf).await {
                     Ok(0) => {
@@ -933,12 +1131,12 @@ impl StackProxy {
                             let base_seq = conn_guard.snd_nxt();
                             let ack = conn_guard.rcv_nxt();
                             let mss = conn_guard.mss() as usize;
-                            
+
                             let ips = match (dst_addr.ip(), src_addr.ip()) {
                                 (IpAddr::V4(s), IpAddr::V4(d)) => Some((s, d)),
                                 _ => None,
                             };
-                            
+
                             if let Some((src_ip, dst_ip)) = ips {
                                 conn_guard.advance_snd_nxt(n as u32);
                                 Some((base_seq, ack, mss, src_ip, dst_ip))
@@ -947,45 +1145,48 @@ impl StackProxy {
                                 None
                             }
                         };
-                        
+
                         let (base_seq, ack, mss, src_ip, dst_ip) = match send_info {
                             Some(info) => info,
                             None => break,
                         };
-                        
+
                         let effective_mss = mss.min(1360);
                         let data = &buf[..n];
                         let mut offset = 0;
                         let mut seq = base_seq;
                         let mut packets_to_send = Vec::new();
-                        
+
                         while offset < data.len() {
                             let chunk_end = (offset + effective_mss).min(data.len());
                             let chunk = &data[offset..chunk_end];
                             let is_last = chunk_end == data.len();
-                            
+
                             let flags = if is_last || data.len() <= effective_mss {
                                 TcpFlags::psh_ack()
                             } else {
                                 TcpFlags::ack_only()
                             };
-                            
+
                             let packet = build_ipv4_tcp(
-                                src_ip, dst_ip,
-                                dst_addr.port(), src_addr.port(),
-                                seq, ack,
+                                src_ip,
+                                dst_ip,
+                                dst_addr.port(),
+                                src_addr.port(),
+                                seq,
+                                ack,
                                 flags,
                                 65535,
                                 chunk,
                                 None,
                             );
-                            
+
                             packets_to_send.push(packet);
-                            
+
                             seq = seq.wrapping_add(chunk.len() as u32);
                             offset = chunk_end;
                         }
-                        
+
                         if let Some(ref tx) = tun_tx {
                             for packet in packets_to_send {
                                 stats.record_sent(packet.len());
@@ -1009,15 +1210,20 @@ impl StackProxy {
                     (IpAddr::V4(s), IpAddr::V4(d)) => Some((s, d)),
                     _ => None,
                 };
-                ips.map(|(src_ip, dst_ip)| (conn_guard.snd_nxt(), conn_guard.rcv_nxt(), src_ip, dst_ip))
+                ips.map(|(src_ip, dst_ip)| {
+                    (conn_guard.snd_nxt(), conn_guard.rcv_nxt(), src_ip, dst_ip)
+                })
             };
-            
+
             if let Some((seq, ack, src_ip, dst_ip)) = fin_info {
                 if let Some(ref tx) = tun_tx {
                     let packet = build_ipv4_tcp(
-                        src_ip, dst_ip,
-                        dst_addr.port(), src_addr.port(),
-                        seq, ack,
+                        src_ip,
+                        dst_ip,
+                        dst_addr.port(),
+                        src_addr.port(),
+                        seq,
+                        ack,
                         TcpFlags::fin_ack(),
                         65535,
                         &[],
@@ -1026,13 +1232,12 @@ impl StackProxy {
                     let _ = tx.send(BytesMut::from(&packet[..])).await;
                 }
             }
-            
+
             tcp_manager.remove_connection(src_addr, dst_addr);
         });
 
         Ok(())
     }
-
 
     async fn socks5_handshake(
         &self,
@@ -1040,11 +1245,15 @@ impl StackProxy {
         target: SocketAddr,
         domain: Option<&str>,
     ) -> Result<()> {
-        stream.write_all(&[0x05, 0x01, 0x00]).await
+        stream
+            .write_all(&[0x05, 0x01, 0x00])
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("Greeting failed: {}", e)))?;
 
         let mut response = [0u8; 2];
-        stream.read_exact(&mut response).await
+        stream
+            .read_exact(&mut response)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("Response failed: {}", e)))?;
 
         if response[0] != 0x05 || response[1] != 0x00 {
@@ -1071,11 +1280,15 @@ impl StackProxy {
         }
         request.extend_from_slice(&target.port().to_be_bytes());
 
-        stream.write_all(&request).await
+        stream
+            .write_all(&request)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("Connect request failed: {}", e)))?;
 
         let mut connect_response = [0u8; 10];
-        stream.read_exact(&mut connect_response).await
+        stream
+            .read_exact(&mut connect_response)
+            .await
             .map_err(|e| SolidTcpError::ProxyError(format!("Connect response failed: {}", e)))?;
 
         if connect_response[1] != 0x00 {

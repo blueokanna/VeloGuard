@@ -12,26 +12,16 @@ class LocaleProvider extends ChangeNotifier {
   static const List<LocaleInfo> supportedLocales = [
     LocaleInfo(null, 'System Default', 'System Default', '🌐'),
     LocaleInfo(Locale('en'), 'English', 'English', '🇺🇸'),
-    LocaleInfo(
-      Locale('zh', 'CN'),
-      'Simplified Chinese',
-      'Simplified Chinese',
-      '🇨🇳',
-    ),
-    LocaleInfo(
-      Locale('zh', 'TW'),
-      'Traditional Chinese',
-      'Traditional Chinese',
-      '🇹🇼',
-    ),
+    LocaleInfo(Locale('zh', 'CN'), '中文（简体）', 'Simplified Chinese', '🇨🇳'),
+    LocaleInfo(Locale('zh', 'TW'), '中文（繁體）', 'Traditional Chinese', '🇹🇼'),
     LocaleInfo(Locale('de'), 'Deutsch', 'German', '🇩🇪'),
-    LocaleInfo(Locale('es'), 'Espanol', 'Spanish', '🇪🇸'),
-    LocaleInfo(Locale('fr'), 'Francais', 'French', '🇫🇷'),
+    LocaleInfo(Locale('es'), 'Español', 'Spanish', '🇪🇸'),
+    LocaleInfo(Locale('fr'), 'Français', 'French', '🇫🇷'),
     LocaleInfo(Locale('it'), 'Italiano', 'Italian', '🇮🇹'),
-    LocaleInfo(Locale('ja'), 'Japanese', 'Japanese', '🇯🇵'),
-    LocaleInfo(Locale('ko'), 'Korean', 'Korean', '🇰🇷'),
-    LocaleInfo(Locale('pt'), 'Portugues', 'Portuguese', '🇧🇷'),
-    LocaleInfo(Locale('ru'), 'Russian', 'Russian', '🇷🇺'),
+    LocaleInfo(Locale('ja'), '日本語', 'Japanese', '🇯🇵'),
+    LocaleInfo(Locale('ko'), '한국어', 'Korean', '🇰🇷'),
+    LocaleInfo(Locale('pt'), 'Português', 'Portuguese', '🇧🇷'),
+    LocaleInfo(Locale('ru'), 'Русский', 'Russian', '🇷🇺'),
   ];
 
   LocaleProvider() {
@@ -75,8 +65,8 @@ class LocaleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  String getLocaleName(Locale? locale) {
-    if (locale == null) return 'System Default';
+  String getLocaleName(Locale? locale, {required String systemDefaultName}) {
+    if (locale == null) return systemDefaultName;
 
     for (final info in supportedLocales) {
       if (info.locale?.languageCode == locale.languageCode &&

@@ -19,7 +19,7 @@ export class CatClashPlugin implements FlutterPlugin {
 
   onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding): void {
     this.context = binding.getApplicationContext() as common.UIAbilityContext;
-    this.channel = new MethodChannel(binding.getBinaryMessenger(), 'com.catclash/ohos_proxy');
+    this.channel = new MethodChannel(binding.getBinaryMessenger(), 'com.veloguard/ohos_proxy');
     
     this.channel.setMethodCallHandler({
       onMethodCall: (call: MethodCall, result: MethodResult) => {
@@ -73,7 +73,7 @@ export class CatClashPlugin implements FlutterPlugin {
       
       // Start VPN extension
       const want: Want = {
-        bundleName: 'com.blueokanna.catclash',
+        bundleName: 'com.blueokanna.veloguard',
         abilityName: 'CatClashVpnExtension',
         parameters: {
           action: 'start',
@@ -96,7 +96,7 @@ export class CatClashPlugin implements FlutterPlugin {
       
       // Stop VPN extension
       const want: Want = {
-        bundleName: 'com.blueokanna.catclash',
+        bundleName: 'com.blueokanna.veloguard',
         abilityName: 'CatClashVpnExtension',
         parameters: {
           action: 'stop'

@@ -1,43 +1,42 @@
 #[macro_use]
 pub mod macros;
-pub mod config;
-pub mod proxy;
-pub mod routing;
-pub mod inbound;
-pub mod outbound;
-pub mod dns;
-pub mod netstack;
-pub mod error;
-pub mod logging;
-pub mod jaeger_tracing;
-pub mod tls;
-pub mod connection_pool;
-pub mod health_check;
-pub mod traffic_stats;
-pub mod connection_tracker;
 pub mod api;
+pub mod config;
+pub mod connection_pool;
+pub mod connection_tracker;
+pub mod dns;
+pub mod error;
 pub mod geoip;
-pub mod rule_provider;
-pub mod proxy_provider;
-pub mod provider_updater;
+pub mod health_check;
+pub mod inbound;
+pub mod jaeger_tracing;
+pub mod logging;
+pub mod outbound;
 pub mod process;
+pub mod provider_updater;
+pub mod proxy;
+pub mod proxy_provider;
+pub mod routing;
+pub mod rule_provider;
+pub mod tls;
+pub mod traffic_stats;
 
 #[cfg(test)]
 mod tests;
 
 pub use config::*;
-pub use proxy::*;
-pub use error::*;
 pub use connection_pool::*;
+pub use connection_tracker::global_tracker;
+pub use connection_tracker::ConnectionHandle;
+pub use connection_tracker::ConnectionTracker;
+pub use connection_tracker::TrackedConnection;
+pub use error::*;
 pub use health_check::*;
+pub use proxy::*;
+pub use routing::{get_runtime_proxy_mode, set_runtime_proxy_mode, set_runtime_rule_providers};
 pub use traffic_stats::TrafficStats;
 pub use traffic_stats::TrafficStatsManager;
 pub use traffic_stats::TrafficSummary;
-pub use connection_tracker::ConnectionTracker;
-pub use connection_tracker::TrackedConnection;
-pub use connection_tracker::ConnectionHandle;
-pub use connection_tracker::global_tracker;
-pub use routing::{set_runtime_proxy_mode, get_runtime_proxy_mode};
 
 use std::time::Instant;
 
@@ -69,7 +68,6 @@ impl VeloGuard {
         })
     }
 
-
     /// Start the proxy server
     pub async fn start(&self) -> Result<()> {
         let _perf = logging::time_operation("VeloGuard startup");
@@ -81,7 +79,8 @@ impl VeloGuard {
         self.proxy_manager.start_outbounds().await?;
 
         // Mark as running and record start time
-        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Ok(mut start_time) = self.start_time.write() {
             *start_time = Some(Instant::now());
         }
@@ -97,7 +96,8 @@ impl VeloGuard {
         match self.proxy_manager.stop().await {
             Ok(()) => {
                 // Mark as not running and clear start time
-                self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 if let Ok(mut start_time) = self.start_time.write() {
                     *start_time = None;
                 }
@@ -106,7 +106,8 @@ impl VeloGuard {
             }
             Err(e) => {
                 // Mark as not running even on error
-                self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+                self.running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 if let Ok(mut start_time) = self.start_time.write() {
                     *start_time = None;
                 }

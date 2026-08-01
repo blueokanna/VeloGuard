@@ -8,7 +8,7 @@ use crate::RecordType;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use bytes::Bytes;
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::{RData, Record};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use http::{Method, Request, Response, StatusCode};
@@ -69,7 +69,10 @@ impl DohServer {
     /// Create a new DoH server
     pub fn new(config: DohServerConfig, resolver: Arc<DnsResolver>) -> Result<Self> {
         let tls_acceptor = if !config.cert_path.is_empty() && !config.key_path.is_empty() {
-            Some(Self::create_tls_acceptor(&config.cert_path, &config.key_path)?)
+            Some(Self::create_tls_acceptor(
+                &config.cert_path,
+                &config.key_path,
+            )?)
         } else {
             None
         };
@@ -102,13 +105,15 @@ impl DohServer {
         let file = File::open(path)
             .map_err(|e| DnsError::Config(format!("Failed to open cert file: {}", e)))?;
         let mut reader = BufReader::new(file);
-        
+
         let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
             .filter_map(|r| r.ok())
             .collect();
 
         if certs.is_empty() {
-            return Err(DnsError::Config("No certificates found in file".to_string()));
+            return Err(DnsError::Config(
+                "No certificates found in file".to_string(),
+            ));
         }
 
         Ok(certs)
@@ -239,7 +244,7 @@ impl DohServer {
         expected_path: String,
     ) -> std::result::Result<Response<Full<Bytes>>, hyper::Error> {
         let path = req.uri().path();
-        
+
         if path != expected_path {
             return Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -260,9 +265,7 @@ impl DohServer {
 
         match result {
             Ok(dns_response) => {
-                let response_bytes = dns_response
-                    .to_bytes()
-                    .unwrap_or_else(|_| vec![]);
+                let response_bytes = dns_response.to_bytes().unwrap_or_else(|_| vec![]);
 
                 Ok(Response::builder()
                     .status(StatusCode::OK)
@@ -287,13 +290,12 @@ impl DohServer {
         resolver: &DnsResolver,
     ) -> Result<Message> {
         let query_string = req.uri().query().unwrap_or("");
-        
+
         let dns_param = query_string
             .split('&')
             .find_map(|param| {
                 let (key, value) = param.split_once('=')?;
-                
-                
+
                 if key == "dns" {
                     Some(value)
                 } else {
@@ -341,18 +343,15 @@ impl DohServer {
         let request = Message::from_bytes(query_bytes)
             .map_err(|e| DnsError::Protocol(format!("Invalid DNS message: {}", e)))?;
 
-        let mut response = Message::new();
-        response.set_id(request.id());
-        response.set_message_type(MessageType::Response);
-        response.set_op_code(OpCode::Query);
-        response.set_recursion_desired(request.recursion_desired());
-        response.set_recursion_available(true);
+        let mut response = Message::response(request.metadata.id, request.metadata.op_code);
+        response.metadata.recursion_desired = request.metadata.recursion_desired;
+        response.metadata.recursion_available = true;
 
-        for query in request.queries() {
+        for query in &request.queries {
             response.add_query(query.clone());
         }
 
-        for query in request.queries() {
+        for query in &request.queries {
             let name = query.name().to_string();
             let record_type = RecordType::from(query.query_type());
 
@@ -370,15 +369,15 @@ impl DohServer {
                         response.add_answer(record);
                     }
 
-                    if response.answers().is_empty() {
-                        response.set_response_code(ResponseCode::NXDomain);
+                    if response.answers.is_empty() {
+                        response.metadata.response_code = ResponseCode::NXDomain;
                     } else {
-                        response.set_response_code(ResponseCode::NoError);
+                        response.metadata.response_code = ResponseCode::NoError;
                     }
                 }
                 Err(e) => {
                     warn!("DoH resolution failed for {}: {}", name, e);
-                    response.set_response_code(ResponseCode::ServFail);
+                    response.metadata.response_code = ResponseCode::ServFail;
                 }
             }
         }

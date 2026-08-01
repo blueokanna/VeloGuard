@@ -21,14 +21,12 @@ const HY2_ADDR_TYPE_IPV4: u8 = 0x01;
 const HY2_ADDR_TYPE_DOMAIN: u8 = 0x03;
 const HY2_ADDR_TYPE_IPV6: u8 = 0x04;
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ObfsType {
     #[default]
     None,
     Salamander(String),
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Hysteria2Config {
@@ -76,7 +74,12 @@ pub struct Hysteria2Connection {
 }
 
 impl Hysteria2Connection {
-    pub fn new(connection: Connection, password: String, up_mbps: Option<u32>, down_mbps: Option<u32>) -> Self {
+    pub fn new(
+        connection: Connection,
+        password: String,
+        up_mbps: Option<u32>,
+        down_mbps: Option<u32>,
+    ) -> Self {
         Self {
             connection,
             password,
@@ -91,20 +94,23 @@ impl Hysteria2Connection {
             return Ok(());
         }
 
-        let (mut send, mut recv) = self.connection.open_bi().await.map_err(|e| {
-            Error::network(format!("Failed to open auth stream: {}", e))
-        })?;
+        let (mut send, mut recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| Error::network(format!("Failed to open auth stream: {}", e)))?;
 
         let auth_request = self.build_auth_request();
-        send.write_all(&auth_request).await.map_err(|e| {
-            Error::network(format!("Failed to send auth request: {}", e))
-        })?;
-        send.finish().map_err(|e| {
-            Error::network(format!("Failed to finish auth stream: {}", e))
-        })?;
+        send.write_all(&auth_request)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send auth request: {}", e)))?;
+        send.finish()
+            .map_err(|e| Error::network(format!("Failed to finish auth stream: {}", e)))?;
 
         let mut response = vec![0u8; 256];
-        let n = recv.read(&mut response).await
+        let n = recv
+            .read(&mut response)
+            .await
             .map_err(|e| Error::network(format!("Failed to read auth response: {}", e)))?
             .ok_or_else(|| Error::network("Empty auth response"))?;
 
@@ -149,23 +155,30 @@ impl Hysteria2Connection {
     pub async fn open_tcp_stream(&self, target: &TargetAddr) -> Result<(SendStream, RecvStream)> {
         self.authenticate().await?;
 
-        let (mut send, recv) = self.connection.open_bi().await.map_err(|e| {
-            Error::network(format!("Failed to open bi stream: {}", e))
-        })?;
+        let (mut send, recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| Error::network(format!("Failed to open bi stream: {}", e)))?;
 
         let mut buf = BytesMut::with_capacity(128);
         buf.put_u8(HY2_FRAME_TYPE_TCP);
         encode_address(&mut buf, target)?;
 
-        send.write_all(&buf).await.map_err(|e| {
-            Error::network(format!("Failed to send connect request: {}", e))
-        })?;
+        send.write_all(&buf)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send connect request: {}", e)))?;
 
         debug!("Hysteria2 TCP stream opened for target: {}", target);
         Ok((send, recv))
     }
 
-    pub async fn send_udp_packet(&self, session_id: u32, target: &TargetAddr, data: &[u8]) -> Result<()> {
+    pub async fn send_udp_packet(
+        &self,
+        session_id: u32,
+        target: &TargetAddr,
+        data: &[u8],
+    ) -> Result<()> {
         self.authenticate().await?;
 
         let mut buf = BytesMut::with_capacity(data.len() + 64);
@@ -175,18 +188,24 @@ impl Hysteria2Connection {
         encode_address(&mut buf, target)?;
         buf.put_slice(data);
 
-        self.connection.send_datagram(buf.freeze()).map_err(|e| {
-            Error::network(format!("Failed to send UDP datagram: {}", e))
-        })?;
+        self.connection
+            .send_datagram(buf.freeze())
+            .map_err(|e| Error::network(format!("Failed to send UDP datagram: {}", e)))?;
 
-        debug!("Hysteria2 UDP packet sent to {} ({} bytes)", target, data.len());
+        debug!(
+            "Hysteria2 UDP packet sent to {} ({} bytes)",
+            target,
+            data.len()
+        );
         Ok(())
     }
 
     pub async fn recv_udp_packet(&self) -> Result<(u32, TargetAddr, Vec<u8>)> {
-        let datagram = self.connection.read_datagram().await.map_err(|e| {
-            Error::network(format!("Failed to receive UDP datagram: {}", e))
-        })?;
+        let datagram = self
+            .connection
+            .read_datagram()
+            .await
+            .map_err(|e| Error::network(format!("Failed to receive UDP datagram: {}", e)))?;
         parse_udp_packet(&datagram)
     }
 
@@ -239,7 +258,10 @@ fn parse_udp_packet(data: &[u8]) -> Result<(u32, TargetAddr, Vec<u8>)> {
     let mut buf = data;
     let frame_type = buf.get_u8();
     if frame_type != HY2_FRAME_TYPE_UDP {
-        return Err(Error::protocol(format!("Invalid UDP frame type: {}", frame_type)));
+        return Err(Error::protocol(format!(
+            "Invalid UDP frame type: {}",
+            frame_type
+        )));
     }
 
     let session_id = buf.get_u32();
@@ -268,7 +290,8 @@ fn parse_address(data: &[u8]) -> Result<(TargetAddr, &[u8])> {
             if remaining.len() < 6 {
                 return Err(Error::protocol("IPv4 address too short"));
             }
-            let ip = std::net::Ipv4Addr::new(remaining[0], remaining[1], remaining[2], remaining[3]);
+            let ip =
+                std::net::Ipv4Addr::new(remaining[0], remaining[1], remaining[2], remaining[3]);
             let port = u16::from_be_bytes([remaining[4], remaining[5]]);
             let addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(ip, port));
             Ok((TargetAddr::Ip(addr), &remaining[6..]))
@@ -297,7 +320,10 @@ fn parse_address(data: &[u8]) -> Result<(TargetAddr, &[u8])> {
             let addr = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0));
             Ok((TargetAddr::Ip(addr), &remaining[18..]))
         }
-        _ => Err(Error::protocol(format!("Unknown address type: {}", addr_type))),
+        _ => Err(Error::protocol(format!(
+            "Unknown address type: {}",
+            addr_type
+        ))),
     }
 }
 
@@ -458,7 +484,11 @@ impl Hysteria2Outbound {
 
         debug!(
             "Creating Hysteria2 outbound: server={}:{}, obfs={:?}, up={:?}Mbps, down={:?}Mbps",
-            hy2_config.server, hy2_config.port, hy2_config.obfs, hy2_config.up_mbps, hy2_config.down_mbps
+            hy2_config.server,
+            hy2_config.port,
+            hy2_config.obfs,
+            hy2_config.up_mbps,
+            hy2_config.down_mbps
         );
 
         Ok(Self {
@@ -492,7 +522,12 @@ impl Hysteria2Outbound {
             builder.with_no_client_auth()
         };
 
-        tls_config.alpn_protocols = self.hy2_config.alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
+        tls_config.alpn_protocols = self
+            .hy2_config
+            .alpn
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect();
 
         let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)
             .map_err(|e| Error::config(format!("Failed to create QUIC config: {}", e)))?;
@@ -525,9 +560,16 @@ impl Hysteria2Outbound {
         let addr = format!("{}:{}", self.hy2_config.server, self.hy2_config.port);
         let socket_addr: SocketAddr = tokio::net::lookup_host(&addr)
             .await
-            .map_err(|e| Error::network(format!("Failed to resolve Hysteria2 server {}: {}", addr, e)))?
+            .map_err(|e| {
+                Error::network(format!(
+                    "Failed to resolve Hysteria2 server {}: {}",
+                    addr, e
+                ))
+            })?
             .next()
-            .ok_or_else(|| Error::network(format!("No addresses found for Hysteria2 server {}", addr)))?;
+            .ok_or_else(|| {
+                Error::network(format!("No addresses found for Hysteria2 server {}", addr))
+            })?;
 
         let mut endpoint_guard = self.endpoint.lock().await;
         let endpoint = match endpoint_guard.take() {
@@ -538,21 +580,25 @@ impl Hysteria2Outbound {
                 } else {
                     "0.0.0.0:0".parse().unwrap()
                 };
-                Endpoint::client(bind_addr).map_err(|e| {
-                    Error::network(format!("Failed to create QUIC endpoint: {}", e))
-                })?
+                Endpoint::client(bind_addr)
+                    .map_err(|e| Error::network(format!("Failed to create QUIC endpoint: {}", e)))?
             }
         };
 
         let client_config = self.create_client_config()?;
-        let server_name = self.hy2_config.sni.as_deref().unwrap_or(&self.hy2_config.server);
+        let server_name = self
+            .hy2_config
+            .sni
+            .as_deref()
+            .unwrap_or(&self.hy2_config.server);
 
-        let connecting = endpoint.connect_with(client_config, socket_addr, server_name)
+        let connecting = endpoint
+            .connect_with(client_config, socket_addr, server_name)
             .map_err(|e| Error::network(format!("Failed to connect to Hysteria2 server: {}", e)))?;
 
-        let connection = connecting.await.map_err(|e| {
-            Error::network(format!("QUIC connection failed: {}", e))
-        })?;
+        let connection = connecting
+            .await
+            .map_err(|e| Error::network(format!("QUIC connection failed: {}", e)))?;
 
         debug!("Hysteria2 QUIC connection established to {}", socket_addr);
 
@@ -578,7 +624,8 @@ impl Hysteria2Outbound {
         conn.send_udp_packet(session_id, target, data).await?;
 
         let timeout = Duration::from_secs(30);
-        let result = tokio::time::timeout(timeout, conn.recv_udp_packet()).await
+        let result = tokio::time::timeout(timeout, conn.recv_udp_packet())
+            .await
             .map_err(|_| Error::network("UDP receive timeout"))?;
 
         let (_recv_session_id, _recv_target, payload) = result?;
@@ -616,16 +663,12 @@ impl OutboundProxy for Hysteria2Outbound {
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.hy2_config.server.clone(), self.hy2_config.port))
     }
-    
+
     fn supports_udp(&self) -> bool {
         true // Hysteria2 always supports UDP
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         self.relay_udp(target, data).await
     }
 
@@ -635,11 +678,18 @@ impl OutboundProxy for Hysteria2Outbound {
         let url = url::Url::parse(test_url)
             .map_err(|e| Error::config(format!("Invalid test URL: {}", e)))?;
 
-        let host = url.host_str()
+        let host = url
+            .host_str()
             .ok_or_else(|| Error::config("Test URL has no host"))?
             .to_string();
-        let url_port = url.port().unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
+        let url_port = url
+            .port()
+            .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
 
         let start = Instant::now();
 
@@ -655,13 +705,15 @@ impl OutboundProxy for Hysteria2Outbound {
             path, host
         );
 
-        send.write_all(http_request.as_bytes()).await.map_err(|e| {
-            Error::network(format!("Failed to send HTTP request: {}", e))
-        })?;
+        send.write_all(http_request.as_bytes())
+            .await
+            .map_err(|e| Error::network(format!("Failed to send HTTP request: {}", e)))?;
 
         let result = tokio::time::timeout(timeout, async {
             let mut response = vec![0u8; 1024];
-            let n = recv.read(&mut response).await
+            let n = recv
+                .read(&mut response)
+                .await
                 .map_err(|e| Error::network(format!("Failed to read response: {}", e)))?
                 .ok_or_else(|| Error::network("Empty response"))?;
 
@@ -671,7 +723,8 @@ impl OutboundProxy for Hysteria2Outbound {
             } else {
                 Err(Error::network("Invalid HTTP response"))
             }
-        }).await;
+        })
+        .await;
 
         match result {
             Ok(Ok(())) => {
@@ -717,15 +770,16 @@ impl OutboundProxy for Hysteria2Outbound {
         let client_to_remote = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ri.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from inbound: {}", e))
-                })?;
+                let n = ri
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
                 if n == 0 {
                     break;
                 }
-                send.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to Hysteria2: {}", e))
-                })?;
+                send.write_all(&buf[..n])
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to Hysteria2: {}", e)))?;
 
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -756,7 +810,10 @@ impl OutboundProxy for Hysteria2Outbound {
                         if err_str.contains("reset") || err_str.contains("closed") {
                             break;
                         }
-                        return Err(Error::network(format!("Failed to read from Hysteria2: {}", e)));
+                        return Err(Error::network(format!(
+                            "Failed to read from Hysteria2: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -770,7 +827,10 @@ impl OutboundProxy for Hysteria2Outbound {
             Ok(_) => Ok(()),
             Err(e) => {
                 let err_str = e.to_string();
-                if err_str.contains("connection") || err_str.contains("reset") || err_str.contains("broken") {
+                if err_str.contains("connection")
+                    || err_str.contains("reset")
+                    || err_str.contains("broken")
+                {
                     Ok(())
                 } else {
                     Err(e)
@@ -779,7 +839,6 @@ impl OutboundProxy for Hysteria2Outbound {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -902,12 +961,24 @@ mod tests {
     #[test]
     fn test_hysteria2_outbound_new() {
         let mut options = std::collections::HashMap::new();
-        options.insert("password".to_string(), serde_yaml::Value::String("test_pass".to_string()));
-        options.insert("skip-cert-verify".to_string(), serde_yaml::Value::Bool(true));
+        options.insert(
+            "password".to_string(),
+            serde_yaml::Value::String("test_pass".to_string()),
+        );
+        options.insert(
+            "skip-cert-verify".to_string(),
+            serde_yaml::Value::Bool(true),
+        );
         options.insert("up".to_string(), serde_yaml::Value::Number(100.into()));
         options.insert("down".to_string(), serde_yaml::Value::Number(200.into()));
-        options.insert("obfs".to_string(), serde_yaml::Value::String("salamander".to_string()));
-        options.insert("obfs-password".to_string(), serde_yaml::Value::String("obfs_pass".to_string()));
+        options.insert(
+            "obfs".to_string(),
+            serde_yaml::Value::String("salamander".to_string()),
+        );
+        options.insert(
+            "obfs-password".to_string(),
+            serde_yaml::Value::String("obfs_pass".to_string()),
+        );
 
         let config = OutboundConfig {
             tag: "hy2-test".to_string(),
@@ -945,7 +1016,10 @@ mod tests {
     #[test]
     fn test_hysteria2_outbound_server_addr() {
         let mut options = std::collections::HashMap::new();
-        options.insert("password".to_string(), serde_yaml::Value::String("test_pass".to_string()));
+        options.insert(
+            "password".to_string(),
+            serde_yaml::Value::String("test_pass".to_string()),
+        );
 
         let config = OutboundConfig {
             tag: "hy2-test".to_string(),
@@ -967,7 +1041,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_address(&mut buf, &target).unwrap();
         let (parsed, _) = parse_address(&buf).unwrap();
-        
+
         match (target, parsed) {
             (TargetAddr::Domain(d1, p1), TargetAddr::Domain(d2, p2)) => {
                 assert_eq!(d1, d2);
@@ -987,7 +1061,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_address(&mut buf, &target).unwrap();
         let (parsed, _) = parse_address(&buf).unwrap();
-        
+
         match (target, parsed) {
             (TargetAddr::Ip(a1), TargetAddr::Ip(a2)) => {
                 assert_eq!(a1, a2);

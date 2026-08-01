@@ -233,7 +233,11 @@ impl ProviderUpdater {
         if let Some(ref manager) = self.proxy_provider_manager {
             for provider in manager.get_all_providers().await {
                 if let Err(e) = provider.update().await {
-                    tracing::warn!("Failed to force update proxy provider '{}': {}", provider.name(), e);
+                    tracing::warn!(
+                        "Failed to force update proxy provider '{}': {}",
+                        provider.name(),
+                        e
+                    );
                 }
             }
         }
@@ -241,7 +245,11 @@ impl ProviderUpdater {
         if let Some(ref manager) = self.rule_provider_manager {
             for provider in manager.get_all_providers().await {
                 if let Err(e) = provider.update().await {
-                    tracing::warn!("Failed to force update rule provider '{}': {}", provider.name(), e);
+                    tracing::warn!(
+                        "Failed to force update rule provider '{}': {}",
+                        provider.name(),
+                        e
+                    );
                 }
             }
         }
@@ -253,7 +261,11 @@ impl ProviderUpdater {
         if let Some(ref manager) = self.proxy_provider_manager {
             for provider in manager.get_all_providers().await {
                 if let Err(e) = provider.health_check().await {
-                    tracing::warn!("Failed to health check proxy provider '{}': {}", provider.name(), e);
+                    tracing::warn!(
+                        "Failed to health check proxy provider '{}': {}",
+                        provider.name(),
+                        e
+                    );
                 }
             }
         }
@@ -272,7 +284,6 @@ impl Clone for ProviderUpdaterConfig {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -318,14 +329,14 @@ mod tests {
         };
 
         let updater = ProviderUpdater::new(config);
-        
+
         updater.start().await.unwrap();
         assert!(updater.is_running().await);
-        
+
         tokio::time::sleep(Duration::from_millis(50)).await;
-        
+
         updater.stop().await.unwrap();
-        
+
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!updater.is_running().await);
     }

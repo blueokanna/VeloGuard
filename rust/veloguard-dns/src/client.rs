@@ -86,11 +86,8 @@ impl DnsClient {
         let name = Name::from_ascii(name)
             .map_err(|e| DnsError::NameError(format!("Invalid domain name: {}", e)))?;
 
-        let mut message = Message::new();
-        message.set_id(rand::random());
-        message.set_message_type(MessageType::Query);
-        message.set_op_code(OpCode::Query);
-        message.set_recursion_desired(true);
+        let mut message = Message::new(rand::random(), MessageType::Query, OpCode::Query);
+        message.metadata.recursion_desired = true;
 
         let query = Query::query(name, record_type);
         message.add_query(query);
@@ -341,6 +338,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires outbound UDP access to a public DNS resolver"]
     async fn test_udp_query() {
         let config = UpstreamConfig::parse("8.8.8.8").unwrap();
         let client = DnsClient::new(config, Duration::from_secs(5)).unwrap();
@@ -349,6 +347,6 @@ mod tests {
         assert!(result.is_ok());
 
         let response = result.unwrap();
-        assert!(!response.answers().is_empty());
+        assert!(!response.answers.is_empty());
     }
 }

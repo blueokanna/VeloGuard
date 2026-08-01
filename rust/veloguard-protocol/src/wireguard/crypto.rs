@@ -82,8 +82,8 @@ pub fn aead_encrypt(key: &[u8; 32], counter: u64, plaintext: &[u8], aad: &[u8]) 
     let mut nonce = [0u8; 12];
     nonce[4..].copy_from_slice(&counter.to_le_bytes());
     
-    let nonce = chacha20poly1305::Nonce::from_slice(&nonce);
-    cipher.encrypt(nonce, chacha20poly1305::aead::Payload { msg: plaintext, aad }).expect("Encryption failed")
+    let nonce = chacha20poly1305::Nonce::try_from(nonce.as_slice()).expect("fixed nonce length");
+    cipher.encrypt(&nonce, chacha20poly1305::aead::Payload { msg: plaintext, aad }).expect("Encryption failed")
 }
 
 pub fn aead_decrypt(key: &[u8; 32], counter: u64, ciphertext: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
@@ -91,8 +91,8 @@ pub fn aead_decrypt(key: &[u8; 32], counter: u64, ciphertext: &[u8], aad: &[u8])
     let mut nonce = [0u8; 12];
     nonce[4..].copy_from_slice(&counter.to_le_bytes());
     
-    let nonce = chacha20poly1305::Nonce::from_slice(&nonce);
-    cipher.decrypt(nonce, chacha20poly1305::aead::Payload { msg: ciphertext, aad }).ok()
+    let nonce = chacha20poly1305::Nonce::try_from(nonce.as_slice()).expect("fixed nonce length");
+    cipher.decrypt(&nonce, chacha20poly1305::aead::Payload { msg: ciphertext, aad }).ok()
 }
 
 pub fn generate_keypair() -> ([u8; 32], [u8; 32]) {

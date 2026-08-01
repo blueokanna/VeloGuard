@@ -19,16 +19,17 @@ impl ProxyManager {
     pub async fn new(config: Config) -> Result<Self> {
         let config_arc = Arc::new(RwLock::new(config));
         let router = Arc::new(Router::new(config_arc.clone()).await?);
-        
+
         // Create outbound manager first (wrapped in Arc for sharing)
         let outbound_manager = Arc::new(OutboundManager::new(config_arc.clone()).await?);
-        
+
         // Create inbound manager with reference to outbound manager
         let inbound_manager = InboundManager::new(
             config_arc.clone(),
             router.clone(),
             Arc::clone(&outbound_manager),
-        ).await?;
+        )
+        .await?;
 
         Ok(Self {
             config: config_arc,

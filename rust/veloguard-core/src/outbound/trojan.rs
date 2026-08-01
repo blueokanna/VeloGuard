@@ -140,7 +140,10 @@ impl TrojanOutbound {
     async fn connect_tls(&self) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
         let addr = format!("{}:{}", self.server, self.port);
         let stream = TcpStream::connect(&addr).await.map_err(|e| {
-            Error::network(format!("Failed to connect to Trojan server {}: {}", addr, e))
+            Error::network(format!(
+                "Failed to connect to Trojan server {}: {}",
+                addr, e
+            ))
         })?;
 
         stream.set_nodelay(true).ok();
@@ -149,9 +152,10 @@ impl TrojanOutbound {
         let server_name = ServerName::try_from(self.sni.clone())
             .map_err(|_| Error::config(format!("Invalid SNI: {}", self.sni)))?;
 
-        let tls_stream = connector.connect(server_name, stream).await.map_err(|e| {
-            Error::network(format!("TLS handshake failed: {}", e))
-        })?;
+        let tls_stream = connector
+            .connect(server_name, stream)
+            .await
+            .map_err(|e| Error::network(format!("TLS handshake failed: {}", e)))?;
 
         tracing::debug!(
             "Trojan TLS connection established to {} (SNI: {})",
@@ -178,13 +182,15 @@ impl TrojanOutbound {
 
         buf.extend_from_slice(CRLF);
 
-        stream.write_all(&buf).await.map_err(|e| {
-            Error::network(format!("Failed to send Trojan handshake: {}", e))
-        })?;
+        stream
+            .write_all(&buf)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send Trojan handshake: {}", e)))?;
 
-        stream.flush().await.map_err(|e| {
-            Error::network(format!("Failed to flush Trojan handshake: {}", e))
-        })?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| Error::network(format!("Failed to flush Trojan handshake: {}", e)))?;
 
         tracing::debug!("Trojan handshake sent for target: {}", target);
 
@@ -213,9 +219,10 @@ impl TrojanOutbound {
             .await?;
 
         let udp_packet = build_udp_packet(target, data)?;
-        tls_stream.write_all(&udp_packet).await.map_err(|e| {
-            Error::network(format!("Failed to send UDP packet: {}", e))
-        })?;
+        tls_stream
+            .write_all(&udp_packet)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
         tls_stream.flush().await.ok();
 
         tracing::debug!(
@@ -262,21 +269,20 @@ impl OutboundProxy for TrojanOutbound {
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.server.clone(), self.port))
     }
-    
+
     fn supports_udp(&self) -> bool {
         self.udp_enabled
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         if !self.udp_enabled {
-            return Err(Error::config("UDP relay is not enabled for this Trojan proxy"));
+            return Err(Error::config(
+                "UDP relay is not enabled for this Trojan proxy",
+            ));
         }
         // Create a dummy socket for the relay_udp call
-        let dummy_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await
+        let dummy_socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
         self.relay_udp(&dummy_socket, target, data).await
     }
@@ -298,7 +304,11 @@ impl OutboundProxy for TrojanOutbound {
         let url_port = url
             .port()
             .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
 
         let start = Instant::now();
 
@@ -390,15 +400,16 @@ impl OutboundProxy for TrojanOutbound {
         let client_to_remote = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ri.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from inbound: {}", e))
-                })?;
+                let n = ri
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
                 if n == 0 {
                     break;
                 }
-                wo.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to Trojan: {}", e))
-                })?;
+                wo.write_all(&buf[..n])
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to Trojan: {}", e)))?;
 
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -412,15 +423,16 @@ impl OutboundProxy for TrojanOutbound {
         let remote_to_client = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ro.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from Trojan: {}", e))
-                })?;
+                let n = ro
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from Trojan: {}", e)))?;
                 if n == 0 {
                     break;
                 }
-                wi.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
+                wi.write_all(&buf[..n])
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to inbound: {}", e)))?;
 
                 tracker.add_global_download(n as u64);
                 if let Some(ref conn) = conn_download {
@@ -503,63 +515,76 @@ fn build_udp_packet(target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
 }
 
 async fn read_udp_packet<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Vec<u8>> {
-    let atype = stream.read_u8().await.map_err(|e| {
-        Error::network(format!("Failed to read address type: {}", e))
-    })?;
+    let atype = stream
+        .read_u8()
+        .await
+        .map_err(|e| Error::network(format!("Failed to read address type: {}", e)))?;
 
     match atype {
         0x01 => {
             let mut addr = [0u8; 4];
-            stream.read_exact(&mut addr).await.map_err(|e| {
-                Error::network(format!("Failed to read IPv4 address: {}", e))
-            })?;
-            let _port = stream.read_u16().await.map_err(|e| {
-                Error::network(format!("Failed to read port: {}", e))
-            })?;
+            stream
+                .read_exact(&mut addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read IPv4 address: {}", e)))?;
+            let _port = stream
+                .read_u16()
+                .await
+                .map_err(|e| Error::network(format!("Failed to read port: {}", e)))?;
         }
         0x03 => {
-            let len = stream.read_u8().await.map_err(|e| {
-                Error::network(format!("Failed to read domain length: {}", e))
-            })? as usize;
+            let len = stream
+                .read_u8()
+                .await
+                .map_err(|e| Error::network(format!("Failed to read domain length: {}", e)))?
+                as usize;
             let mut domain = vec![0u8; len];
-            stream.read_exact(&mut domain).await.map_err(|e| {
-                Error::network(format!("Failed to read domain: {}", e))
-            })?;
-            let _port = stream.read_u16().await.map_err(|e| {
-                Error::network(format!("Failed to read port: {}", e))
-            })?;
+            stream
+                .read_exact(&mut domain)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read domain: {}", e)))?;
+            let _port = stream
+                .read_u16()
+                .await
+                .map_err(|e| Error::network(format!("Failed to read port: {}", e)))?;
         }
         0x04 => {
             let mut addr = [0u8; 16];
-            stream.read_exact(&mut addr).await.map_err(|e| {
-                Error::network(format!("Failed to read IPv6 address: {}", e))
-            })?;
-            let _port = stream.read_u16().await.map_err(|e| {
-                Error::network(format!("Failed to read port: {}", e))
-            })?;
+            stream
+                .read_exact(&mut addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read IPv6 address: {}", e)))?;
+            let _port = stream
+                .read_u16()
+                .await
+                .map_err(|e| Error::network(format!("Failed to read port: {}", e)))?;
         }
         _ => {
             return Err(Error::protocol(format!("Unknown address type: {}", atype)));
         }
     }
 
-    let length = stream.read_u16().await.map_err(|e| {
-        Error::network(format!("Failed to read length: {}", e))
-    })? as usize;
+    let length = stream
+        .read_u16()
+        .await
+        .map_err(|e| Error::network(format!("Failed to read length: {}", e)))?
+        as usize;
 
     let mut crlf = [0u8; 2];
-    stream.read_exact(&mut crlf).await.map_err(|e| {
-        Error::network(format!("Failed to read CRLF: {}", e))
-    })?;
+    stream
+        .read_exact(&mut crlf)
+        .await
+        .map_err(|e| Error::network(format!("Failed to read CRLF: {}", e)))?;
 
     if crlf != CRLF {
         return Err(Error::protocol("Invalid CRLF in UDP packet"));
     }
 
     let mut data = vec![0u8; length];
-    stream.read_exact(&mut data).await.map_err(|e| {
-        Error::network(format!("Failed to read UDP data: {}", e))
-    })?;
+    stream
+        .read_exact(&mut data)
+        .await
+        .map_err(|e| Error::network(format!("Failed to read UDP data: {}", e)))?;
 
     Ok(data)
 }

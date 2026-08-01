@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
-import 'package:veloguard/src/rust/frb_generated.dart';
 import 'package:veloguard/src/theme/app_theme.dart';
 import 'package:veloguard/src/providers/app_state_provider.dart';
 import 'package:veloguard/src/providers/theme_provider.dart';
@@ -12,7 +11,9 @@ import 'package:veloguard/src/providers/locale_provider.dart';
 import 'package:veloguard/src/providers/proxies_provider.dart';
 import 'package:veloguard/src/providers/dns_settings_provider.dart';
 import 'package:veloguard/src/providers/general_settings_provider.dart';
+import 'package:veloguard/src/providers/update_provider.dart';
 import 'package:veloguard/src/services/storage_service.dart';
+import 'package:veloguard/src/services/native_core_service.dart';
 import 'package:veloguard/src/screens/home_screen.dart';
 import 'package:veloguard/src/screens/settings_screen.dart';
 import 'package:veloguard/src/screens/connections_screen.dart';
@@ -24,6 +25,7 @@ import 'package:veloguard/src/screens/advanced_config_screen.dart';
 import 'package:veloguard/src/screens/proxies_screen.dart';
 import 'package:veloguard/src/widgets/adaptive_scaffold.dart';
 import 'package:veloguard/src/widgets/rust_init_error_dialog.dart';
+import 'package:veloguard/src/widgets/update_prompt.dart';
 import 'package:veloguard/src/utils/platform_utils.dart';
 import 'package:veloguard/src/utils/device_info_utils.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
@@ -31,178 +33,185 @@ import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/screens/profiles_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'dart:ffi' as ffi;
-import 'dart:io' show Platform;
 
-bool isRustLibInitialized = false;
 bool _errorDialogShown = false;
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-String? lastInitError;
-
-Future<bool> _tryDirectLibraryLoad() async {
-  if (!Platform.isAndroid && !Platform.isIOS) {
-    return false;
-  }
-
-  try {
-    debugPrint('Attempting direct library load via ffi.DynamicLibrary.open...');
-    final lib = ffi.DynamicLibrary.open('librust_lib_veloguard.so');
-    debugPrint('Direct library load SUCCESS: $lib');
-    return true;
-  } catch (e) {
-    debugPrint('Direct library load FAILED: $e');
-    return false;
-  }
-}
-
-Future<bool> _initRustLibWithRetry({int maxRetries = 3}) async {
-  if (Platform.isAndroid) {
-    final directLoadSuccess = await _tryDirectLibraryLoad();
-    debugPrint('Direct library load result: $directLoadSuccess');
-  }
-
-  for (int i = 0; i < maxRetries; i++) {
-    try {
-      await RustLib.init();
-      isRustLibInitialized = true;
-      lastInitError = null;
-      debugPrint('RustLib initialized successfully on attempt ${i + 1}');
-      return true;
-    } catch (e, stackTrace) {
-      lastInitError = e.toString();
-      debugPrint('========================================');
-      debugPrint('RustLib.init() FAILURE - Attempt ${i + 1}/$maxRetries');
-      debugPrint('========================================');
-      debugPrint('Error type: ${e.runtimeType}');
-      debugPrint('Error message: $e');
-      debugPrint('----------------------------------------');
-      debugPrint('Full stack trace:');
-      debugPrint('$stackTrace');
-      debugPrint('========================================');
-      if (i < maxRetries - 1) {
-        debugPrint('Retrying in 500ms...');
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-    }
-  }
-  isRustLibInitialized = false;
-  debugPrint('========================================');
-  debugPrint('RustLib initialization FAILED after $maxRetries attempts');
-  debugPrint('Some features requiring Rust library will not work');
-  debugPrint('========================================');
-  return false;
-}
-
-Future<bool> retryRustLibInit() async {
-  final success = await _initRustLibWithRetry(maxRetries: 3);
-  return success;
-}
-
-/// Check native library status via method channel (Android only)
-Future<Map<String, dynamic>?> _checkNativeLibraryStatus() async {
-  if (!Platform.isAndroid) return null;
-
-  try {
-    const channel = MethodChannel('com.veloguard/proxy');
-    final result = await channel.invokeMethod('getNativeLibraryInfo');
-    if (result is Map) {
-      debugPrint('========================================');
-      debugPrint('Native Library Info from Android:');
-      result.forEach((key, value) {
-        debugPrint('  $key: $value');
-      });
-      debugPrint('========================================');
-      return Map<String, dynamic>.from(result);
-    }
-  } catch (e) {
-    debugPrint('Failed to get native library info: $e');
-  }
-  return null;
-}
-
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const VeloGuardBootstrap());
+}
 
-  // On Android, first check if the native library was loaded by Kotlin
-  if (Platform.isAndroid) {
-    final libInfo = await _checkNativeLibraryStatus();
-    if (libInfo != null) {
-      final loaded = libInfo['loaded'] as bool? ?? false;
-      final error = libInfo['error'] as String? ?? '';
-      if (!loaded) {
-        debugPrint('========================================');
-        debugPrint('CRITICAL: Native library NOT loaded by Android!');
-        debugPrint('Error: $error');
-        debugPrint('========================================');
-        lastInitError = 'Native library not loaded: $error';
-      }
-    }
+class VeloGuardBootstrap extends StatefulWidget {
+  const VeloGuardBootstrap({super.key});
+
+  @override
+  State<VeloGuardBootstrap> createState() => _VeloGuardBootstrapState();
+}
+
+class _VeloGuardBootstrapState extends State<VeloGuardBootstrap> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
   }
 
-  try {
-    final success = await _initRustLibWithRetry(maxRetries: 3);
-    if (!success) {
-      debugPrint(
-        'WARNING: RustLib failed to initialize - some features may not work',
-      );
-    }
-  } catch (e, stackTrace) {
-    debugPrint('Unexpected error during RustLib initialization: $e');
-    debugPrint('Stack trace: $stackTrace');
-    isRustLibInitialized = false;
-  }
-
-  try {
-    await StorageService.instance.init();
-    debugPrint('StorageService initialized successfully');
-
-    final generalSettings = await StorageService.instance.getGeneralSettings();
-    AnimationUtils.setHapticEnabled(generalSettings.hapticFeedbackEnabled);
-    debugPrint(
-      'Haptic feedback initialized: ${generalSettings.hapticFeedbackEnabled}',
-    );
-  } catch (e) {
-    debugPrint('Failed to initialize StorageService: $e');
-  }
-
-  try {
-    await DeviceInfoUtils.initialize();
-    debugPrint('DeviceInfoUtils initialized successfully');
-  } catch (e) {
-    debugPrint('Failed to initialize DeviceInfoUtils: $e');
-  }
-
-  try {
-    await PlatformUtils.checkHarmonyOS().timeout(
-      const Duration(seconds: 3),
-      onTimeout: () {
-        debugPrint('HarmonyOS check timed out');
-        return false;
-      },
-    );
-  } catch (e) {
-    debugPrint('Failed to check HarmonyOS: $e');
-  }
-
-  if (PlatformUtils.isDesktop) {
-    try {
-      await PlatformUtils.initDesktopWindow();
-    } catch (e) {
-      debugPrint('Failed to initialize desktop window: $e');
-    }
-  }
-
-  // Set preferred orientations for mobile (including HarmonyOS)
-  if (PlatformUtils.isMobile) {
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
+  Future<void> _initialize() async {
+    await Future.wait<void>([
+      _guarded('native core', () async {
+        await NativeCoreService.instance.initialize();
+      }),
+      _guarded('storage', () async {
+        await StorageService.instance.init();
+        final settings = await StorageService.instance.getGeneralSettings();
+        AnimationUtils.setHapticEnabled(settings.hapticFeedbackEnabled);
+      }),
+      _guarded('device info', DeviceInfoUtils.initialize),
+      _guarded('platform detection', () async {
+        await PlatformUtils.checkHarmonyOS().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => false,
+        );
+      }),
     ]);
+
+    await Future.wait<void>([
+      if (PlatformUtils.isDesktop)
+        _guarded('desktop window', PlatformUtils.initDesktopWindow),
+      if (PlatformUtils.isMobile)
+        _guarded('orientation', () async {
+          await SystemChrome.setPreferredOrientations(const [
+            DeviceOrientation.portraitUp,
+            DeviceOrientation.portraitDown,
+          ]);
+        }),
+    ]);
+
+    if (mounted) {
+      setState(() => _ready = true);
+    }
   }
 
-  runApp(const VeloGuardApp());
+  Future<void> _guarded(
+    String component,
+    Future<void> Function() operation,
+  ) async {
+    try {
+      await operation();
+      debugPrint('$component initialized');
+    } catch (error, stackTrace) {
+      debugPrint('Failed to initialize $component: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) {
+      return const VeloGuardApp();
+    }
+
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: _StartupScreen(),
+    );
+  }
+}
+
+class _StartupScreen extends StatefulWidget {
+  const _StartupScreen();
+
+  @override
+  State<_StartupScreen> createState() => _StartupScreenState();
+}
+
+class _StartupScreenState extends State<_StartupScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 0.96, end: 1.04).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.stop();
+      _controller.value = 0.5;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF00143D),
+      body: Center(
+        child: RepaintBoundary(
+          child: ScaleTransition(
+            scale: _scale,
+            child: SizedBox.square(
+              dimension: 132,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset(
+                    'assets/veloguard.png',
+                    filterQuality: FilterQuality.medium,
+                  ),
+                  AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) {
+                      final position = (_controller.value * 4) - 2;
+                      return ShaderMask(
+                        blendMode: BlendMode.srcIn,
+                        shaderCallback: (bounds) => LinearGradient(
+                          begin: Alignment(position - 0.8, -1),
+                          end: Alignment(position + 0.8, 1),
+                          colors: const [
+                            Colors.transparent,
+                            Color(0x99FFFFFF),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.35, 0.5, 0.65],
+                        ).createShader(bounds),
+                        child: child,
+                      );
+                    },
+                    child: Image.asset(
+                      'assets/veloguard.png',
+                      color: Colors.white,
+                      filterQuality: FilterQuality.medium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class VeloGuardApp extends StatefulWidget {
@@ -222,21 +231,23 @@ class _VeloGuardAppState extends State<VeloGuardApp> {
   }
 
   Future<void> _showErrorDialogIfNeeded() async {
-    if (!isRustLibInitialized && !_errorDialogShown) {
+    final nativeCore = NativeCoreService.instance;
+    if (!nativeCore.isReady && !_errorDialogShown) {
       _errorDialogShown = true;
       final context = navigatorKey.currentContext;
       if (context != null) {
-        final shouldRetry = await RustInitErrorDialog.show(context);
-        if (shouldRetry) {
-          final success = await retryRustLibInit();
-          if (success) {
-            if (mounted) {
-              setState(() {});
-            }
-          } else {
-            _errorDialogShown = false;
-            _showErrorDialogIfNeeded();
+        await RustInitErrorDialog.show(
+          context,
+          errorDetails: nativeCore.lastError,
+        );
+        final success = await nativeCore.initialize();
+        if (success) {
+          if (mounted) {
+            setState(() {});
           }
+        } else {
+          _errorDialogShown = false;
+          await _showErrorDialogIfNeeded();
         }
       }
     }
@@ -254,6 +265,7 @@ class _VeloGuardAppState extends State<VeloGuardApp> {
         ChangeNotifierProvider(create: (_) => ProxiesProvider()),
         ChangeNotifierProvider(create: (_) => DnsSettingsProvider()),
         ChangeNotifierProvider(create: (_) => GeneralSettingsProvider()),
+        ChangeNotifierProvider(create: (_) => UpdateProvider()),
       ],
       child: DynamicColorBuilder(
         builder: (lightColorScheme, darkColorScheme) {
@@ -310,7 +322,7 @@ final GoRouter _router = GoRouter(
   routes: [
     ShellRoute(
       builder: (context, state, child) {
-        return AdaptiveScaffold(body: child);
+        return UpdatePromptHost(child: AdaptiveScaffold(body: child));
       },
       routes: [
         GoRoute(
@@ -378,6 +390,10 @@ CustomTransitionPage<void> _buildExpressivePage(
     transitionDuration: AnimationUtils.pageTransitionDuration,
     reverseTransitionDuration: const Duration(milliseconds: 300),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        return child;
+      }
+
       final curvedAnimation = CurvedAnimation(
         parent: animation,
         curve: AnimationUtils.curveEmphasizedDecelerate,

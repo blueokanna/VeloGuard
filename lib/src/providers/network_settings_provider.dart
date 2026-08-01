@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 
@@ -118,9 +117,14 @@ class NetworkSettingsProvider extends ChangeNotifier {
   // Platform-specific implementations
   Future<void> _enableSystemProxy() async {
     try {
-      final proxyHost = '127.0.0.1';
-      final proxyPort = await _resolveProxyPort() ?? '7890';
-      final httpProxy = '$proxyHost:$proxyPort';
+      final generalSettings = await StorageService.instance
+          .getGeneralSettings();
+      final proxyHost = generalSettings.bindAddress.contains(':')
+          ? '::1'
+          : '127.0.0.1';
+      final proxyPort = generalSettings.mixedPort.toString();
+      final endpointHost = proxyHost.contains(':') ? '[$proxyHost]' : proxyHost;
+      final httpProxy = '$endpointHost:$proxyPort';
       if (Platform.isWindows) {
         final bypass = _settings.bypassDomains.join(';');
         final overrideValue = bypass.isNotEmpty ? '$bypass;<local>' : '<local>';
@@ -160,12 +164,7 @@ class NetworkSettingsProvider extends ChangeNotifier {
         ]);
 
         // Also configure WinHTTP to ensure system components use the proxy
-        await Process.run('netsh', [
-          'winhttp',
-          'set',
-          'proxy',
-          httpProxy,
-        ]);
+        await Process.run('netsh', ['winhttp', 'set', 'proxy', httpProxy]);
       } else if (Platform.isMacOS) {
         // macOS: Use networksetup
         await Process.run('networksetup', [
@@ -209,35 +208,6 @@ class NetworkSettingsProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Failed to enable system proxy: $e');
-    }
-  }
-
-  /// Resolve proxy port from active profile config (prefer mixed_port/http port), fallback to 7890
-  Future<String?> _resolveProxyPort() async {
-    try {
-      final activeProfileId = await StorageService.instance.getActiveProfileId();
-      if (activeProfileId == null) return null;
-      final configContent = await StorageService.instance.getProfileConfig(activeProfileId);
-      if (configContent == null) return null;
-
-      // Config content is stored as YAML originally; but our conversion pipeline saves JSON for runtime use.
-      // Try JSON parse first; if YAML, this will fail gracefully and return null.
-      final decoded = jsonDecode(configContent);
-      if (decoded is! Map) return null;
-      final general = decoded['general'] as Map<dynamic, dynamic>?;
-      if (general == null) return null;
-
-      // Priority: mixed_port -> port (http) -> socks_port
-      final mixed = general['mixed-port'] ?? general['mixed_port'];
-      final http = general['port'];
-      final socks = general['socks-port'] ?? general['socks_port'];
-
-      final port = mixed ?? http ?? socks;
-      if (port == null) return null;
-      return port.toString();
-    } catch (e) {
-      debugPrint('Failed to resolve proxy port from profile: $e');
-      return null;
     }
   }
 

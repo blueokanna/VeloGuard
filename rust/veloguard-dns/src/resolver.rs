@@ -100,7 +100,10 @@ impl DnsResolver {
 
         // 3. Check cache
         if let Some(entry) = self.cache.get(name, record_type) {
-            debug!("Cache hit: {} {:?} -> {:?}", name, record_type, entry.addresses);
+            debug!(
+                "Cache hit: {} {:?} -> {:?}",
+                name, record_type, entry.addresses
+            );
             return Ok(entry.addresses);
         }
 
@@ -166,17 +169,15 @@ impl DnsResolver {
     fn extract_ips(&self, response: &Message, record_type: RecordType) -> Vec<IpAddr> {
         let mut ips = Vec::new();
 
-        for answer in response.answers() {
-            match answer.data() {
+        for answer in &response.answers {
+            match &answer.data {
                 RData::A(a) => {
                     if record_type == RecordType::A {
                         ips.push(IpAddr::V4(a.0));
                     }
                 }
-                RData::AAAA(aaaa) => {
-                    if record_type == RecordType::AAAA {
-                        ips.push(IpAddr::V6(aaaa.0));
-                    }
+                RData::AAAA(aaaa) if record_type == RecordType::AAAA => {
+                    ips.push(IpAddr::V6(aaaa.0));
                 }
                 _ => {}
             }

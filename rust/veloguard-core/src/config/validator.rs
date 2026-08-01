@@ -25,25 +25,33 @@ impl ConfigValidator {
 
         if let Some(socks_port) = general.socks_port {
             if socks_port == 0 {
-                return Err(Error::config("Invalid socks_port: must be between 1 and 65535"));
+                return Err(Error::config(
+                    "Invalid socks_port: must be between 1 and 65535",
+                ));
             }
         }
 
         if let Some(redir_port) = general.redir_port {
             if redir_port == 0 {
-                return Err(Error::config("Invalid redir_port: must be between 1 and 65535"));
+                return Err(Error::config(
+                    "Invalid redir_port: must be between 1 and 65535",
+                ));
             }
         }
 
         if let Some(tproxy_port) = general.tproxy_port {
             if tproxy_port == 0 {
-                return Err(Error::config("Invalid tproxy_port: must be between 1 and 65535"));
+                return Err(Error::config(
+                    "Invalid tproxy_port: must be between 1 and 65535",
+                ));
             }
         }
 
         if let Some(mixed_port) = general.mixed_port {
             if mixed_port == 0 {
-                return Err(Error::config("Invalid mixed_port: must be between 1 and 65535"));
+                return Err(Error::config(
+                    "Invalid mixed_port: must be between 1 and 65535",
+                ));
             }
         }
 
@@ -53,8 +61,13 @@ impl ConfigValidator {
         }
 
         // Validate IPv6 setting doesn't conflict with bind address
-        if !general.ipv6 && general.bind_address.contains(':') && !general.bind_address.starts_with('[') {
-            return Err(Error::config("IPv6 bind address requires ipv6 to be enabled"));
+        if !general.ipv6
+            && general.bind_address.contains(':')
+            && !general.bind_address.starts_with('[')
+        {
+            return Err(Error::config(
+                "IPv6 bind address requires ipv6 to be enabled",
+            ));
         }
 
         Ok(())
@@ -96,7 +109,10 @@ impl ConfigValidator {
         for inbound in inbounds {
             // Check for duplicate tags
             if !tags.insert(&inbound.tag) {
-                return Err(Error::config(format!("Duplicate inbound tag: {}", inbound.tag)));
+                return Err(Error::config(format!(
+                    "Duplicate inbound tag: {}",
+                    inbound.tag
+                )));
             }
 
             // Validate tag
@@ -106,12 +122,18 @@ impl ConfigValidator {
 
             // Validate listen address
             if inbound.listen.is_empty() {
-                return Err(Error::config(format!("Inbound {} listen address cannot be empty", inbound.tag)));
+                return Err(Error::config(format!(
+                    "Inbound {} listen address cannot be empty",
+                    inbound.tag
+                )));
             }
 
             // Validate port
             if inbound.port == 0 {
-                return Err(Error::config(format!("Inbound {} has invalid port", inbound.tag)));
+                return Err(Error::config(format!(
+                    "Inbound {} has invalid port",
+                    inbound.tag
+                )));
             }
 
             // Type-specific validation
@@ -129,8 +151,7 @@ impl ConfigValidator {
                         )));
                     }
                 }
-                InboundType::Tun => {
-                }
+                InboundType::Tun => {}
             }
         }
 
@@ -149,7 +170,10 @@ impl ConfigValidator {
         for outbound in outbounds {
             // Check for duplicate tags
             if !tags.insert(&outbound.tag) {
-                return Err(Error::config(format!("Duplicate outbound tag: {}", outbound.tag)));
+                return Err(Error::config(format!(
+                    "Duplicate outbound tag: {}",
+                    outbound.tag
+                )));
             }
 
             // Validate tag
@@ -181,7 +205,13 @@ impl ConfigValidator {
                         )));
                     }
                 }
-                OutboundType::Shadowsocks | OutboundType::Vmess | OutboundType::Vless | OutboundType::Trojan | OutboundType::Wireguard | OutboundType::Tuic | OutboundType::Hysteria2 | OutboundType::Quic => {
+                OutboundType::Shadowsocks
+                | OutboundType::Vmess
+                | OutboundType::Vless
+                | OutboundType::Trojan
+                | OutboundType::Wireguard
+                | OutboundType::Tuic
+                | OutboundType::Hysteria2 => {
                     if outbound.server.is_none() {
                         return Err(Error::config(format!(
                             "Outbound {} requires server address",
@@ -195,9 +225,18 @@ impl ConfigValidator {
                         )));
                     }
                 }
+                OutboundType::Quic => {
+                    return Err(Error::config(format!(
+                        "QUIC outbound '{}' is not implemented",
+                        outbound.tag
+                    )));
+                }
                 // Proxy group types don't need server/port
-                OutboundType::Selector | OutboundType::Urltest | 
-                OutboundType::Fallback | OutboundType::Loadbalance | OutboundType::Relay => {
+                OutboundType::Selector
+                | OutboundType::Urltest
+                | OutboundType::Fallback
+                | OutboundType::Loadbalance
+                | OutboundType::Relay => {
                     // Proxy groups reference other outbounds, no server needed
                 }
             }
@@ -205,7 +244,9 @@ impl ConfigValidator {
 
         // Ensure there's at least one direct outbound
         if !has_direct {
-            return Err(Error::config("At least one direct outbound must be configured"));
+            return Err(Error::config(
+                "At least one direct outbound must be configured",
+            ));
         }
 
         Ok(())
@@ -216,7 +257,10 @@ impl ConfigValidator {
         for rule in rules {
             // Validate rule type
             match rule.rule_type {
-                RuleType::Domain | RuleType::DomainSuffix | RuleType::DomainKeyword | RuleType::DomainRegex => {
+                RuleType::Domain
+                | RuleType::DomainSuffix
+                | RuleType::DomainKeyword
+                | RuleType::DomainRegex => {
                     if rule.payload.is_empty() {
                         return Err(Error::config("Domain rule payload cannot be empty"));
                     }
@@ -242,7 +286,9 @@ impl ConfigValidator {
                     }
                     // Process name rules should have process_name set
                     if rule.process_name.is_none() {
-                        return Err(Error::config("Process name rule requires process_name field"));
+                        return Err(Error::config(
+                            "Process name rule requires process_name field",
+                        ));
                     }
                 }
                 RuleType::RuleSet => {
@@ -268,9 +314,8 @@ impl ConfigValidator {
     /// Validate cross-references between configuration sections
     fn validate_cross_references(config: &Config) -> Result<()> {
         // Collect all outbound tags
-        let outbound_tags: std::collections::HashSet<_> = config.outbounds.iter()
-            .map(|o| o.tag.as_str())
-            .collect();
+        let outbound_tags: std::collections::HashSet<_> =
+            config.outbounds.iter().map(|o| o.tag.as_str()).collect();
 
         // Check that all rule outbound references exist
         for rule in &config.rules {

@@ -1,4 +1,6 @@
-# CatClash HarmonyOS NEXT 构建指南
+# VeloGuard HarmonyOS NEXT 构建指南
+
+> 当前工程可以用于 UI/HAP 构建调试，但 VPN Extension 尚未完成文件描述符回传、Rust OHOS 网络栈接入和端到端生命周期管理，不能作为可用 VPN 发布。
 
 ## 环境要求
 
@@ -88,7 +90,7 @@ flutter build har --release
 
 ## VPN 权限说明
 
-CatClash 需要以下权限：
+VeloGuard 需要以下权限：
 
 | 权限 | 说明 |
 |------|------|
@@ -109,8 +111,8 @@ CatClash 需要以下权限：
 ### Q: HAR 文件找不到？
 A: 确保先执行 `flutter build har` 生成 HAR 文件
 
-### Q: VPN 无法启动？
-A: 检查是否已申请 VPN 权限，并在设备上授权
+### Q: VPN 无法转发流量？
+A: 当前 VPN 数据路径尚未完成。权限和设备授权只是前置条件，不能解决尚缺失的 FD 回传与 Rust OHOS 处理逻辑。
 
 ### Q: 编译错误？
 A: 确保 DevEco Studio 和 SDK 版本匹配

@@ -1,11 +1,12 @@
 use crate::error::{NetStackError, Result};
 use bytes::BytesMut;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "android")]
 use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 /// Global Android VPN file descriptor
@@ -82,14 +83,18 @@ pub struct TunDevice {
     tx: Option<mpsc::Sender<BytesMut>>,
     rx: Option<mpsc::Receiver<BytesMut>>,
     running: Arc<AtomicBool>,
-    shutdown_tx: Option<mpsc::Sender<()>>,
+    shutdown: Option<CancellationToken>,
+    #[cfg(windows)]
+    windows_session: Option<Arc<wintun_bindings::Session>>,
 }
 
 impl TunDevice {
     pub async fn new(name: &str, addr: &str, netmask: &str) -> Result<Self> {
-        let address: Ipv4Addr = addr.parse()
+        let address: Ipv4Addr = addr
+            .parse()
             .map_err(|e| NetStackError::Parse(format!("Invalid address: {}", e)))?;
-        let netmask: Ipv4Addr = netmask.parse()
+        let netmask: Ipv4Addr = netmask
+            .parse()
             .map_err(|e| NetStackError::Parse(format!("Invalid netmask: {}", e)))?;
 
         Ok(Self {
@@ -102,7 +107,9 @@ impl TunDevice {
             tx: None,
             rx: None,
             running: Arc::new(AtomicBool::new(false)),
-            shutdown_tx: None,
+            shutdown: None,
+            #[cfg(windows)]
+            windows_session: None,
         })
     }
 
@@ -112,50 +119,66 @@ impl TunDevice {
             tx: None,
             rx: None,
             running: Arc::new(AtomicBool::new(false)),
-            shutdown_tx: None,
+            shutdown: None,
+            #[cfg(windows)]
+            windows_session: None,
         })
     }
 
-    pub fn config(&self) -> &TunConfig { &self.config }
-    pub fn is_running(&self) -> bool { self.running.load(Ordering::Relaxed) }
+    pub fn config(&self) -> &TunConfig {
+        &self.config
+    }
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
 
     pub async fn start(&mut self) -> Result<()> {
-        if self.is_running() { return Ok(()); }
+        if self.is_running() {
+            return Ok(());
+        }
         info!("Starting TUN device: {}", self.config.name);
+        self.running.store(true, Ordering::Release);
 
         #[cfg(windows)]
-        self.start_windows().await?;
+        if let Err(error) = self.start_windows().await {
+            self.running.store(false, Ordering::Release);
+            return Err(error);
+        }
 
         #[cfg(all(unix, not(target_os = "android")))]
-        self.start_unix().await?;
+        if let Err(error) = self.start_unix().await {
+            self.running.store(false, Ordering::Release);
+            return Err(error);
+        }
 
         #[cfg(target_os = "android")]
-        self.start_android().await?;
+        if let Err(error) = self.start_android().await {
+            self.running.store(false, Ordering::Release);
+            return Err(error);
+        }
 
-        self.running.store(true, Ordering::Relaxed);
         info!("TUN device {} started successfully", self.config.name);
         Ok(())
     }
-
 
     #[cfg(windows)]
     async fn start_windows(&mut self) -> Result<()> {
         use crate::wintun_embed;
         use wintun_bindings::{Adapter, MAX_RING_CAPACITY};
-        
+
         // Ensure wintun.dll is available and load it
         let dll_path = match wintun_embed::ensure_wintun_available() {
             Ok(path) => path,
-            Err(_) => wintun_embed::download_wintun_dll().await?
+            Err(_) => wintun_embed::download_wintun_dll().await?,
         };
-        
+
         info!("Loading wintun.dll from {:?}", dll_path);
-        
+
         let wintun = unsafe {
             wintun_bindings::load_from_path(&dll_path)
                 .map_err(|e| NetStackError::TunError(format!("Failed to load wintun.dll: {}", e)))?
         };
-        
+
         // Try to open existing adapter or create new one
         let adapter = match Adapter::open(&wintun, &self.config.name) {
             Ok(adapter) => {
@@ -164,47 +187,54 @@ impl TunDevice {
             }
             Err(_) => {
                 info!("Creating new adapter: {}", self.config.name);
-                Adapter::create(&wintun, &self.config.name, "VeloGuard", None)
-                    .map_err(|e| NetStackError::TunError(format!("Failed to create adapter: {}", e)))?
+                Adapter::create(&wintun, &self.config.name, "VeloGuard", None).map_err(|e| {
+                    NetStackError::TunError(format!("Failed to create adapter: {}", e))
+                })?
             }
         };
-        
+
         // Configure IP address
         let prefix_len = netmask_to_prefix(self.config.netmask);
         self.configure_windows_adapter(prefix_len)?;
-        
+
         // Start session - returns Arc<Session>
-        let session = adapter.start_session(MAX_RING_CAPACITY)
+        let session = adapter
+            .start_session(MAX_RING_CAPACITY)
             .map_err(|e| NetStackError::TunError(format!("Failed to start session: {}", e)))?;
-        
-        info!("Wintun session started with ring capacity: {} bytes", MAX_RING_CAPACITY);
-        
+
+        info!(
+            "Wintun session started with ring capacity: {} bytes",
+            MAX_RING_CAPACITY
+        );
+
         // Create channels
         let (tx_to_tun, mut rx_from_stack) = mpsc::channel::<BytesMut>(4096);
         let (tx_to_stack, rx_from_tun) = mpsc::channel::<BytesMut>(4096);
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
-        
+        let shutdown = CancellationToken::new();
+
         self.tx = Some(tx_to_tun);
         self.rx = Some(rx_from_tun);
-        self.shutdown_tx = Some(shutdown_tx);
-        
+        self.shutdown = Some(shutdown.clone());
+        self.windows_session = Some(session.clone());
+
         let running = self.running.clone();
         let session_read = session.clone();
         let session_write = session.clone();
-        
+
         // Read task using blocking operations in spawn_blocking
         let running_read = running.clone();
         tokio::spawn(async move {
             info!("TUN read task started");
-            
+
             loop {
-                if !running_read.load(Ordering::Relaxed) { break; }
-                
+                if !running_read.load(Ordering::Relaxed) {
+                    break;
+                }
+
                 let session_clone = session_read.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    session_clone.receive_blocking()
-                }).await;
-                
+                let result =
+                    tokio::task::spawn_blocking(move || session_clone.receive_blocking()).await;
+
                 match result {
                     Ok(Ok(packet)) => {
                         let data = BytesMut::from(packet.bytes());
@@ -231,12 +261,12 @@ impl TunDevice {
             }
             info!("TUN read task stopped");
         });
-        
+
         // Write task
         let running_write = running.clone();
         tokio::spawn(async move {
             info!("TUN write task started");
-            
+
             loop {
                 tokio::select! {
                     Some(packet) = rx_from_stack.recv() => {
@@ -256,7 +286,7 @@ impl TunDevice {
                             }
                         }).await;
                     }
-                    _ = shutdown_rx.recv() => {
+                    _ = shutdown.cancelled() => {
                         debug!("TUN shutdown requested");
                         break;
                     }
@@ -265,43 +295,50 @@ impl TunDevice {
             running_write.store(false, Ordering::Relaxed);
             info!("TUN write task stopped");
         });
-        
+
         Ok(())
     }
-    
+
     #[cfg(windows)]
     fn configure_windows_adapter(&self, prefix_len: u8) -> Result<()> {
         use std::process::Command;
-        
+
         let ip_str = self.config.address.to_string();
         info!("Configuring adapter with IP: {}/{}", ip_str, prefix_len);
-        
+
         // Set IP address using netsh
         let _ = Command::new("netsh")
             .args([
-                "interface", "ip", "set", "address",
+                "interface",
+                "ip",
+                "set",
+                "address",
                 &format!("name=\"{}\"", self.config.name),
                 "source=static",
                 &format!("addr={}", ip_str),
                 &format!("mask={}", self.config.netmask),
             ])
             .output();
-        
+
         // Set MTU
         let _ = Command::new("netsh")
             .args([
-                "interface", "ipv4", "set", "subinterface",
+                "interface",
+                "ipv4",
+                "set",
+                "subinterface",
                 &format!("\"{}\"", self.config.name),
                 &format!("mtu={}", self.config.mtu),
                 "store=active",
             ])
             .output();
-        
+
         // Configure DNS
         for (i, dns) in self.config.dns.iter().enumerate() {
             let _ = Command::new("netsh")
                 .args([
-                    "interface", "ip",
+                    "interface",
+                    "ip",
                     if i == 0 { "set" } else { "add" },
                     "dns",
                     &format!("name=\"{}\"", self.config.name),
@@ -309,7 +346,7 @@ impl TunDevice {
                 ])
                 .output();
         }
-        
+
         // Set interface metric to 1 (highest priority) to ensure DNS queries use this interface
         let _ = Command::new("powershell")
             .args([
@@ -320,20 +357,22 @@ impl TunDevice {
                 ),
             ])
             .output();
-        
+
         // Also set IPv4 interface metric via netsh for compatibility
         let _ = Command::new("netsh")
             .args([
-                "interface", "ipv4", "set", "interface",
+                "interface",
+                "ipv4",
+                "set",
+                "interface",
                 &format!("\"{}\"", self.config.name),
                 "metric=1",
             ])
             .output();
-        
+
         info!("Adapter configured successfully with high priority DNS");
         Ok(())
     }
-
 
     #[cfg(all(unix, not(target_os = "android")))]
     async fn start_unix(&mut self) -> Result<()> {
@@ -348,15 +387,18 @@ impl TunDevice {
             .build_async()
             .map_err(|e| NetStackError::TunError(format!("Failed to create TUN: {}", e)))?;
 
-        info!("TUN device created: {} with address {}/{}", self.config.name, self.config.address, prefix_len);
+        info!(
+            "TUN device created: {} with address {}/{}",
+            self.config.name, self.config.address, prefix_len
+        );
 
         let (tx_to_tun, mut rx_from_stack) = mpsc::channel::<BytesMut>(4096);
         let (tx_to_stack, rx_from_tun) = mpsc::channel::<BytesMut>(4096);
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+        let shutdown = CancellationToken::new();
 
         self.tx = Some(tx_to_tun);
         self.rx = Some(rx_from_tun);
-        self.shutdown_tx = Some(shutdown_tx);
+        self.shutdown = Some(shutdown.clone());
 
         let running = self.running.clone();
 
@@ -381,12 +423,12 @@ impl TunDevice {
                         }
                     }
                     Some(packet) = rx_from_stack.recv() => {
-                        if let Err(e) = device.send(&packet) {
+                        if let Err(e) = device.send(&packet).await {
                             error!("TUN write error: {}", e);
                             break;
                         }
                     }
-                    _ = shutdown_rx.recv() => {
+                    _ = shutdown.cancelled() => {
                         debug!("TUN shutdown requested");
                         break;
                     }
@@ -405,77 +447,75 @@ impl TunDevice {
     #[cfg(target_os = "android")]
     async fn start_android(&mut self) -> Result<()> {
         use std::os::unix::io::FromRawFd;
-        
+
         // Check if we have a VPN file descriptor from the Android layer
         let fd = ANDROID_VPN_FD.load(std::sync::atomic::Ordering::Relaxed);
-        
-        if fd < 0 {
-            warn!("Android VPN file descriptor not set - VPN service may not be running");
-            // Create placeholder channels for now
-            let (tx_to_tun, _rx_from_stack) = mpsc::channel::<BytesMut>(4096);
-            let (_tx_to_stack, rx_from_tun) = mpsc::channel::<BytesMut>(4096);
-            let (shutdown_tx, _shutdown_rx) = mpsc::channel::<()>(1);
 
-            self.tx = Some(tx_to_tun);
-            self.rx = Some(rx_from_tun);
-            self.shutdown_tx = Some(shutdown_tx);
-            return Ok(());
+        if fd < 0 {
+            return Err(NetStackError::TunError(
+                "Android VPN file descriptor is not set".to_string(),
+            ));
         }
-        
+
         info!("Starting Android TUN with VPN fd={}", fd);
-        
+
         // Duplicate the file descriptor so we don't take ownership of the original
         // The original fd is owned by VpnService and must remain valid
         let dup_fd = unsafe { libc::dup(fd) };
         if dup_fd < 0 {
             return Err(NetStackError::TunError(format!(
-                "Failed to duplicate VPN fd: {}", 
+                "Failed to duplicate VPN fd: {}",
                 std::io::Error::last_os_error()
             )));
         }
-        
+
         info!("Duplicated VPN fd: {} -> {}", fd, dup_fd);
-        
+
         // Create async file from the duplicated VPN file descriptor
         // SAFETY: dup_fd is a valid duplicated fd that we own
         let file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
         let async_fd = tokio::io::unix::AsyncFd::new(file)
             .map_err(|e| NetStackError::TunError(format!("Failed to create AsyncFd: {}", e)))?;
-        
+
         // Create channels for packet communication
         let (tx_to_tun, mut rx_from_stack) = mpsc::channel::<BytesMut>(4096);
         let (tx_to_stack, rx_from_tun) = mpsc::channel::<BytesMut>(4096);
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+        let shutdown = CancellationToken::new();
 
         self.tx = Some(tx_to_tun);
         self.rx = Some(rx_from_tun);
-        self.shutdown_tx = Some(shutdown_tx);
+        self.shutdown = Some(shutdown.clone());
 
         let running = self.running.clone();
         let async_fd = Arc::new(async_fd);
         let async_fd_read = async_fd.clone();
         let async_fd_write = async_fd.clone();
-        
+        let read_shutdown = shutdown.clone();
+        let write_shutdown = shutdown;
+
         // Read task - read packets from TUN and send to stack
         let running_read = running.clone();
         tokio::spawn(async move {
             info!("Android TUN read task started");
             let mut read_buf = vec![0u8; 65535];
-            
+
             loop {
                 if !running_read.load(Ordering::Relaxed) {
                     break;
                 }
-                
-                // Wait for the fd to be readable
-                let mut guard = match async_fd_read.readable().await {
+
+                let readiness = tokio::select! {
+                    _ = read_shutdown.cancelled() => break,
+                    readiness = async_fd_read.readable() => readiness,
+                };
+                let mut guard = match readiness {
                     Ok(g) => g,
                     Err(e) => {
                         error!("AsyncFd readable error: {}", e);
                         break;
                     }
                 };
-                
+
                 // Try to read from the TUN device
                 match guard.try_io(|inner| {
                     use std::io::Read;
@@ -505,52 +545,54 @@ impl TunDevice {
                     }
                 }
             }
-            
+
             running_read.store(false, Ordering::Relaxed);
             info!("Android TUN read task stopped");
         });
-        
+
         // Write task - write packets from stack to TUN
         let running_write = running.clone();
         tokio::spawn(async move {
             info!("Android TUN write task started");
-            
+
             loop {
                 tokio::select! {
                     Some(packet) = rx_from_stack.recv() => {
-                        // Wait for the fd to be writable
-                        let mut guard = match async_fd_write.writable().await {
-                            Ok(g) => g,
-                            Err(e) => {
-                                error!("AsyncFd writable error: {}", e);
-                                break;
-                            }
-                        };
-                        
-                        // Try to write to the TUN device
-                        match guard.try_io(|inner| {
-                            use std::io::Write;
-                            inner.get_ref().write(&packet)
-                        }) {
-                            Ok(Ok(_)) => {}
-                            Ok(Err(e)) => {
-                                if e.kind() != std::io::ErrorKind::WouldBlock {
-                                    error!("TUN write error: {}", e);
+                        let mut written = 0;
+                        while written < packet.len() {
+                            let readiness = tokio::select! {
+                                _ = write_shutdown.cancelled() => break,
+                                readiness = async_fd_write.writable() => readiness,
+                            };
+                            let mut guard = match readiness {
+                                Ok(guard) => guard,
+                                Err(error) => {
+                                    error!("AsyncFd writable error: {}", error);
+                                    break;
                                 }
-                            }
-                            Err(_would_block) => {
-                                // WouldBlock, packet dropped
-                                warn!("TUN write would block, packet dropped");
+                            };
+                            match guard.try_io(|inner| {
+                                use std::io::Write;
+                                inner.get_ref().write(&packet[written..])
+                            }) {
+                                Ok(Ok(0)) => break,
+                                Ok(Ok(count)) => written += count,
+                                Ok(Err(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                                Ok(Err(error)) => {
+                                    error!("TUN write error: {}", error);
+                                    break;
+                                }
+                                Err(_) => {}
                             }
                         }
                     }
-                    _ = shutdown_rx.recv() => {
+                    _ = write_shutdown.cancelled() => {
                         debug!("TUN shutdown requested");
                         break;
                     }
                 }
             }
-            
+
             running_write.store(false, Ordering::Relaxed);
             info!("Android TUN write task stopped");
         });
@@ -560,23 +602,32 @@ impl TunDevice {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        if !self.is_running() { return Ok(()); }
+        if !self.is_running() {
+            return Ok(());
+        }
         info!("Stopping TUN device: {}", self.config.name);
 
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(()).await;
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.cancel();
+        }
+
+        #[cfg(windows)]
+        if let Some(session) = self.windows_session.take() {
+            let _ = session.shutdown();
         }
 
         self.tx = None;
         self.rx = None;
-        self.running.store(false, Ordering::Relaxed);
+        self.running.store(false, Ordering::Release);
         info!("TUN device {} stopped", self.config.name);
         Ok(())
     }
 
     pub async fn send(&self, packet: BytesMut) -> Result<()> {
         if let Some(tx) = &self.tx {
-            tx.send(packet).await.map_err(|_| NetStackError::ChannelClosed)?;
+            tx.send(packet)
+                .await
+                .map_err(|_| NetStackError::ChannelClosed)?;
             Ok(())
         } else {
             Err(NetStackError::NotRunning)
@@ -591,8 +642,12 @@ impl TunDevice {
         }
     }
 
-    pub fn get_sender(&self) -> Option<mpsc::Sender<BytesMut>> { self.tx.clone() }
-    pub fn take_receiver(&mut self) -> Option<mpsc::Receiver<BytesMut>> { self.rx.take() }
+    pub fn get_sender(&self) -> Option<mpsc::Sender<BytesMut>> {
+        self.tx.clone()
+    }
+    pub fn take_receiver(&mut self) -> Option<mpsc::Receiver<BytesMut>> {
+        self.rx.take()
+    }
 }
 
 impl Drop for TunDevice {
@@ -600,6 +655,19 @@ impl Drop for TunDevice {
         if self.is_running() {
             warn!("TUN device dropped while still running");
         }
+
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.cancel();
+        }
+
+        #[cfg(windows)]
+        if let Some(session) = self.windows_session.take() {
+            let _ = session.shutdown();
+        }
+
+        self.tx = None;
+        self.rx = None;
+        self.running.store(false, Ordering::Release);
     }
 }
 
@@ -626,5 +694,41 @@ mod tests {
         assert_eq!(config.name, "VeloGuard");
         assert_eq!(config.address, Ipv4Addr::new(198, 18, 0, 1));
         assert_eq!(config.mtu, 1500);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "requires Linux CAP_NET_ADMIN and /dev/net/tun"]
+    async fn linux_tun_lifecycle() {
+        use std::path::Path;
+        use tokio::time::{sleep, Duration, Instant};
+
+        let name = format!("vgtest{}", std::process::id() % 100_000);
+        let mut device = TunDevice::with_config(TunConfig {
+            name: name.clone(),
+            address: Ipv4Addr::new(198, 18, 255, 1),
+            netmask: Ipv4Addr::new(255, 255, 255, 252),
+            mtu: 1_400,
+            ..TunConfig::default()
+        })
+        .await
+        .expect("TUN configuration should be valid");
+
+        device.start().await.expect("Linux TUN should start");
+        assert!(device.is_running());
+        assert!(Path::new(&format!("/sys/class/net/{name}")).exists());
+
+        device.stop().await.expect("Linux TUN should stop");
+        assert!(!device.is_running());
+
+        let interface_path = format!("/sys/class/net/{name}");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Path::new(&interface_path).exists() && Instant::now() < deadline {
+            sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            !Path::new(&interface_path).exists(),
+            "Linux TUN interface was not released after stop"
+        );
     }
 }

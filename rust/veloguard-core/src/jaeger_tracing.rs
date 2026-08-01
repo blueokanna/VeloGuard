@@ -1,6 +1,6 @@
-use crate::error::Result;
 #[cfg(feature = "jaeger")]
 use crate::error::Error;
+use crate::error::Result;
 use std::sync::Once;
 
 static INIT: Once = Once::new();
@@ -51,7 +51,8 @@ impl TracingConfig {
 }
 
 #[cfg(feature = "jaeger")]
-static TRACER_PROVIDER: once_cell::sync::OnceCell<SdkTracerProvider> = once_cell::sync::OnceCell::new();
+static TRACER_PROVIDER: once_cell::sync::OnceCell<SdkTracerProvider> =
+    once_cell::sync::OnceCell::new();
 
 pub fn init_tracing(config: TracingConfig) -> Result<()> {
     let mut result = Ok(());
@@ -69,7 +70,9 @@ fn init_tracing_inner(config: TracingConfig) -> Result<()> {
         return Ok(());
     }
 
-    let endpoint = config.jaeger_endpoint.unwrap_or_else(|| "http://localhost:4317".to_string());
+    let endpoint = config
+        .jaeger_endpoint
+        .unwrap_or_else(|| "http://localhost:4317".to_string());
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
@@ -79,16 +82,18 @@ fn init_tracing_inner(config: TracingConfig) -> Result<()> {
 
     let tracer_provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
-        .with_resource(opentelemetry_sdk::Resource::builder()
-            .with_service_name(config.service_name.clone())
-            .build())
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(config.service_name.clone())
+                .build(),
+        )
         .build();
 
     let tracer = tracer_provider.tracer(config.service_name);
 
-    TRACER_PROVIDER.set(tracer_provider).map_err(|_| {
-        Error::config("Tracer provider already initialized".to_string())
-    })?;
+    TRACER_PROVIDER
+        .set(tracer_provider)
+        .map_err(|_| Error::config("Tracer provider already initialized".to_string()))?;
 
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
@@ -441,9 +446,12 @@ mod tests {
         let config = TracingConfig::new()
             .with_jaeger("http://localhost:4317")
             .with_service_name("test-service");
-        
+
         assert!(config.enabled);
-        assert_eq!(config.jaeger_endpoint, Some("http://localhost:4317".to_string()));
+        assert_eq!(
+            config.jaeger_endpoint,
+            Some("http://localhost:4317".to_string())
+        );
         assert_eq!(config.service_name, "test-service");
     }
 

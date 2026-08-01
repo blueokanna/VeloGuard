@@ -9,7 +9,10 @@ pub enum HealthStatus {
     /// Service is healthy
     Healthy,
     /// Service is unhealthy
-    Unhealthy { reason: String, last_error: Option<String> },
+    Unhealthy {
+        reason: String,
+        last_error: Option<String>,
+    },
     /// Health status is unknown
     Unknown,
 }
@@ -225,7 +228,11 @@ impl HealthChecker {
                 let targets = self.monitor.targets_needing_check();
 
                 for target_tag in targets {
-                    if let Some(checkable) = self.checkables.iter().find(|c| c.health_target().tag == target_tag) {
+                    if let Some(checkable) = self
+                        .checkables
+                        .iter()
+                        .find(|c| c.health_target().tag == target_tag)
+                    {
                         match checkable.health_check().await {
                             Ok(status) => {
                                 self.monitor.update_health(&target_tag, status);
@@ -266,11 +273,17 @@ mod tests {
         monitor.register_target(target);
 
         // Initially unknown
-        assert!(matches!(monitor.get_health("test-proxy"), Some(HealthStatus::Unknown)));
+        assert!(matches!(
+            monitor.get_health("test-proxy"),
+            Some(HealthStatus::Unknown)
+        ));
 
         // Update to healthy
         monitor.update_health("test-proxy", HealthStatus::Healthy);
-        assert!(matches!(monitor.get_health("test-proxy"), Some(HealthStatus::Healthy)));
+        assert!(matches!(
+            monitor.get_health("test-proxy"),
+            Some(HealthStatus::Healthy)
+        ));
 
         // Update to unhealthy
         let unhealthy_status = HealthStatus::Unhealthy {
@@ -280,12 +293,18 @@ mod tests {
         monitor.update_health("test-proxy", unhealthy_status.clone());
 
         // Should still be healthy (need 3 failures)
-        assert!(matches!(monitor.get_health("test-proxy"), Some(HealthStatus::Healthy)));
+        assert!(matches!(
+            monitor.get_health("test-proxy"),
+            Some(HealthStatus::Healthy)
+        ));
 
         // 3 failures should mark as unhealthy
         for _ in 0..2 {
             monitor.update_health("test-proxy", unhealthy_status.clone());
         }
-        assert!(matches!(monitor.get_health("test-proxy"), Some(HealthStatus::Unhealthy { .. })));
+        assert!(matches!(
+            monitor.get_health("test-proxy"),
+            Some(HealthStatus::Unhealthy { .. })
+        ));
     }
 }

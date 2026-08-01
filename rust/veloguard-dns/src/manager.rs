@@ -148,7 +148,11 @@ impl DnsManager {
     }
 
     /// Resolve with specific record type
-    pub async fn resolve_with_type(&self, domain: &str, record_type: RecordType) -> Result<Vec<IpAddr>> {
+    pub async fn resolve_with_type(
+        &self,
+        domain: &str,
+        record_type: RecordType,
+    ) -> Result<Vec<IpAddr>> {
         let domain = domain.trim_end_matches('.');
 
         // Try DoH first if available
@@ -207,13 +211,13 @@ impl DnsManager {
     /// Start DNS server
     pub async fn start_server(&self) -> Result<()> {
         let config = self.config.read().await;
-        
+
         if !config.enable {
             return Ok(());
         }
 
         let server = DnsServer::new(config.clone())?;
-        
+
         // Store server reference
         {
             let mut server_lock = self.server.write().await;
@@ -265,7 +269,6 @@ impl DnsManager {
     pub fn has_dot(&self) -> bool {
         self.dot_resolver.is_some()
     }
-
 
     /// Lookup domain from Fake-IP
     pub async fn lookup_fake_ip(&self, ip: std::net::Ipv4Addr) -> Option<String> {

@@ -2,6 +2,7 @@
 /// Details: https://fzyzcjy.github.io/flutter_rust_bridge/manual/integrate/builtin
 
 import java.nio.file.Paths
+import java.util.Properties
 import org.apache.tools.ant.taskdefs.condition.Os
 
 CargoKitPlugin.file = buildscript.sourceFile
@@ -21,7 +22,7 @@ abstract class CargoKitBuildTask extends DefaultTask {
     @Input
     String buildDir
 
-    @Input
+    @OutputDirectory
     String outputDir
 
     @Input
@@ -58,6 +59,20 @@ abstract class CargoKitBuildTask extends DefaultTask {
         def manifestDir = Paths.get(project.buildscript.sourceFile.parent, project.cargokit.manifestDir)
 
         def rootProjectDir = project.rootProject.projectDir
+        def flutterRoot = System.getenv("FLUTTER_ROOT")
+        if (flutterRoot == null || flutterRoot.trim().isEmpty()) {
+            def localPropertiesFile = new File(rootProjectDir, "local.properties")
+            if (localPropertiesFile.isFile()) {
+                def localProperties = new Properties()
+                localPropertiesFile.withInputStream { localProperties.load(it) }
+                flutterRoot = localProperties.getProperty("flutter.sdk")
+            }
+        }
+        if (flutterRoot == null || !new File(flutterRoot, "bin/cache/dart-sdk/bin/dart.exe").isFile()) {
+            throw new GradleException(
+                "Unable to locate Flutter SDK. Set FLUTTER_ROOT or flutter.sdk in android/local.properties."
+            )
+        }
 
         if (!Os.isFamily(Os.FAMILY_WINDOWS)) {
             project.exec {
@@ -80,6 +95,24 @@ abstract class CargoKitBuildTask extends DefaultTask {
             environment "CARGOKIT_MIN_SDK_VERSION", minSdkVersion
             environment "CARGOKIT_TARGET_PLATFORMS", targetPlatforms.join(",")
             environment "CARGOKIT_JAVA_HOME", System.properties['java.home']
+            environment "FLUTTER_ROOT", flutterRoot
+        }
+
+        def flutterAbiNames = [
+            "android-arm": "armeabi-v7a",
+            "android-arm64": "arm64-v8a",
+            "android-x86": "x86",
+            "android-x64": "x86_64",
+        ]
+        targetPlatforms.toSet().each { platform ->
+            def abi = flutterAbiNames[platform]
+            if (abi == null) {
+                throw new GradleException("Unsupported Cargokit Android target: ${platform}")
+            }
+            def library = new File(outputDir, "${abi}/lib${project.cargokit.libname}.so")
+            if (!library.isFile() || library.length() == 0) {
+                throw new GradleException("Cargokit did not produce native library: ${library}")
+            }
         }
     }
 }
@@ -109,70 +142,67 @@ class CargoKitPlugin implements Plugin<Project> {
 
     @Override
     void apply(Project project) {
-        def plugin = findFlutterPlugin(project.rootProject);
-
         project.extensions.create("cargokit", CargoKitExtension)
 
-        if (plugin == null) {
-            print("Flutter plugin not found, CargoKit plugin will not be applied.")
-            return;
-        }
-
-        def cargoBuildDir = "${project.buildDir}/build"
-
-        // Determine if the project is an application or library
-        def isApplication = plugin.project.plugins.hasPlugin('com.android.application')
-        def variants = isApplication ? plugin.project.android.applicationVariants : plugin.project.android.libraryVariants
-
-        variants.all { variant ->
-
-            final buildType = variant.buildType.name
-
-            def cargoOutputDir = "${project.buildDir}/jniLibs/${buildType}";
-            def jniLibs = project.android.sourceSets.maybeCreate(buildType).jniLibs;
-            jniLibs.srcDir(new File(cargoOutputDir))
-
-            def platforms = com.flutter.gradle.FlutterPluginUtils.getTargetPlatforms(project).collect()
-
-            // Same thing addFlutterDependencies does in flutter.gradle
-            if (buildType == "debug") {
-                platforms.add("android-x86")
-                platforms.add("android-x64")
+        project.gradle.projectsEvaluated {
+            def plugin = findFlutterPlugin(project.rootProject)
+            if (plugin == null) {
+                throw new GradleException(
+                    "Flutter Gradle plugin was not found; refusing to build without the Rust library."
+                )
             }
 
-            // The task name depends on plugin properties, which are not available
-            // at this point
-            project.getGradle().afterProject {
-                def taskName = "cargokitCargoBuild${project.cargokit.libname.capitalize()}${buildType.capitalize()}";
+            def cargoBuildDir = "${project.buildDir}/build"
+            def isApplication = plugin.project.plugins.hasPlugin('com.android.application')
+            def variants = isApplication ? plugin.project.android.applicationVariants : plugin.project.android.libraryVariants
 
-                if (project.tasks.findByName(taskName)) {
-                    return
+            variants.all { variant ->
+                final buildType = variant.buildType.name
+                def cargoOutputDir = "${project.buildDir}/jniLibs/${buildType}";
+                def jniLibs = project.android.sourceSets.maybeCreate(buildType).jniLibs;
+                jniLibs.srcDir(new File(cargoOutputDir))
+
+                def platforms = com.flutter.gradle.FlutterPluginUtils.getTargetPlatforms(project).collect()
+                if (buildType == "debug") {
+                    platforms.add("android-x86")
+                    platforms.add("android-x64")
                 }
+
+                def taskName = "cargokitCargoBuild${project.cargokit.libname.capitalize()}${buildType.capitalize()}";
 
                 if (plugin.project.android.ndkVersion == null) {
                     throw new GradleException("Please set 'android.ndkVersion' in 'app/build.gradle'.")
                 }
 
-                def task = project.tasks.create(taskName, CargoKitBuildTask.class) {
-                    buildMode = variant.buildType.name
-                    buildDir = cargoBuildDir
-                    outputDir = cargoOutputDir
-                    ndkVersion = plugin.project.android.ndkVersion
-                    sdkDirectory = plugin.project.android.sdkDirectory
-                    minSdkVersion = plugin.project.android.defaultConfig.minSdkVersion.apiLevel as int
-                    compileSdkVersion = plugin.project.android.compileSdkVersion.substring(8) as int
-                    targetPlatforms = platforms
-                    pluginFile = CargoKitPlugin.file
-                }
-                def onTask = { newTask ->
-                    if (newTask.name == "merge${buildType.capitalize()}NativeLibs") {
-                        newTask.dependsOn task
-                        // Fix gradle 7.4.2 not picking up JNI library changes
-                        newTask.outputs.upToDateWhen { false }
+                def task = project.tasks.findByName(taskName)
+                if (task == null) {
+                    task = project.tasks.create(taskName, CargoKitBuildTask.class) {
+                        buildMode = variant.buildType.name
+                        buildDir = cargoBuildDir
+                        outputDir = cargoOutputDir
+                        ndkVersion = plugin.project.android.ndkVersion
+                        sdkDirectory = plugin.project.android.sdkDirectory
+                        minSdkVersion = plugin.project.android.defaultConfig.minSdkVersion.apiLevel as int
+                        compileSdkVersion = plugin.project.android.compileSdkVersion.substring(8) as int
+                        targetPlatforms = platforms
+                        pluginFile = CargoKitPlugin.file
+                        outputs.upToDateWhen { false }
                     }
                 }
-                project.tasks.each onTask
-                project.tasks.whenTaskAdded onTask
+                def nativeMergeTaskNames = [
+                    "merge${buildType.capitalize()}NativeLibs",
+                    "merge${buildType.capitalize()}JniLibFolders",
+                ] as Set
+                nativeMergeTaskNames.each { nativeTaskName ->
+                    def nativeTask = project.tasks.findByName(nativeTaskName)
+                    if (nativeTask == null) {
+                        throw new GradleException(
+                            "Required Android native merge task was not found: ${nativeTaskName}"
+                        )
+                    }
+                    nativeTask.dependsOn task
+                    nativeTask.outputs.upToDateWhen { false }
+                }
             }
         }
     }

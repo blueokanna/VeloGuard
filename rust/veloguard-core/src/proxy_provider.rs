@@ -153,19 +153,23 @@ impl ProxyProvider {
     }
 
     async fn load_from_file(&self) -> Result<String> {
-        let path = self.config.path.as_ref().ok_or_else(|| {
-            Error::config("File proxy provider requires 'path' field")
-        })?;
+        let path = self
+            .config
+            .path
+            .as_ref()
+            .ok_or_else(|| Error::config("File proxy provider requires 'path' field"))?;
 
-        tokio::fs::read_to_string(path).await.map_err(|e| {
-            Error::config(format!("Failed to read proxy file '{}': {}", path, e))
-        })
+        tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| Error::config(format!("Failed to read proxy file '{}': {}", path, e)))
     }
 
     async fn load_from_http(&self) -> Result<String> {
-        let url = self.config.url.as_ref().ok_or_else(|| {
-            Error::config("HTTP proxy provider requires 'url' field")
-        })?;
+        let url = self
+            .config
+            .url
+            .as_ref()
+            .ok_or_else(|| Error::config("HTTP proxy provider requires 'url' field"))?;
 
         if let Some(path) = &self.config.path {
             if Path::new(path).exists() {
@@ -180,11 +184,9 @@ impl ProxyProvider {
             .build()
             .map_err(|e| Error::network(format!("Failed to create HTTP client: {}", e)))?;
 
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| Error::network(format!("Failed to fetch proxies from '{}': {}", url, e)))?;
+        let response = client.get(url).send().await.map_err(|e| {
+            Error::network(format!("Failed to fetch proxies from '{}': {}", url, e))
+        })?;
 
         if !response.status().is_success() {
             return Err(Error::network(format!(
@@ -238,87 +240,73 @@ impl ProxyProvider {
             let proxy: Option<Arc<dyn OutboundProxy>> = match config.outbound_type {
                 OutboundType::Direct => Some(Arc::new(DirectOutbound::new(config.clone()))),
                 OutboundType::Reject => Some(Arc::new(RejectOutbound::new(config.clone()))),
-                OutboundType::Socks5 => {
-                    match Socks5Outbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create SOCKS5 proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                OutboundType::Socks5 => match Socks5Outbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create SOCKS5 proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Http => {
-                    match HttpOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create HTTP proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Http => match HttpOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create HTTP proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Shadowsocks => {
-                    match ShadowsocksOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create Shadowsocks proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Shadowsocks => match ShadowsocksOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to create Shadowsocks proxy '{}': {}",
+                            config.tag,
+                            e
+                        );
+                        None
                     }
-                }
-                OutboundType::Vmess => {
-                    match VmessOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create VMess proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Vmess => match VmessOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create VMess proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Vless => {
-                    match VlessOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create VLess proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Vless => match VlessOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create VLess proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Trojan => {
-                    match TrojanOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create Trojan proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Trojan => match TrojanOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create Trojan proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Wireguard => {
-                    match WireguardOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create WireGuard proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Wireguard => match WireguardOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create WireGuard proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Tuic => {
-                    match TuicOutbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create TUIC proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Tuic => match TuicOutbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create TUIC proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
-                OutboundType::Hysteria2 => {
-                    match Hysteria2Outbound::new(config.clone()) {
-                        Ok(p) => Some(Arc::new(p)),
-                        Err(e) => {
-                            tracing::warn!("Failed to create Hysteria2 proxy '{}': {}", config.tag, e);
-                            None
-                        }
+                },
+                OutboundType::Hysteria2 => match Hysteria2Outbound::new(config.clone()) {
+                    Ok(p) => Some(Arc::new(p)),
+                    Err(e) => {
+                        tracing::warn!("Failed to create Hysteria2 proxy '{}': {}", config.tag, e);
+                        None
                     }
-                }
+                },
                 _ => {
                     tracing::warn!(
                         "Unsupported proxy type '{:?}' in provider",
@@ -411,9 +399,7 @@ impl ProxyProvider {
 
         let last_check = self.last_health_check.read().await;
         match *last_check {
-            Some(time) => {
-                time.elapsed() > Duration::from_secs(self.config.health_check.interval)
-            }
+            Some(time) => time.elapsed() > Duration::from_secs(self.config.health_check.interval),
             None => !self.config.health_check.lazy,
         }
     }
@@ -450,7 +436,9 @@ impl ProxyProvider {
 
             info_list.push(ProxyInfo {
                 tag: tag.clone(),
-                proxy_type: config.map(|c| c.outbound_type).unwrap_or(OutboundType::Direct),
+                proxy_type: config
+                    .map(|c| c.outbound_type)
+                    .unwrap_or(OutboundType::Direct),
                 server: config.and_then(|c| c.server.clone()),
                 port: config.and_then(|c| c.port),
                 latency_ms: health.and_then(|h| h.latency_ms),
@@ -467,12 +455,7 @@ impl ProxyProvider {
 
         proxies
             .iter()
-            .filter(|p| {
-                health_results
-                    .get(p.tag())
-                    .map(|h| h.alive)
-                    .unwrap_or(true)
-            })
+            .filter(|p| health_results.get(p.tag()).map(|h| h.alive).unwrap_or(true))
             .cloned()
             .collect()
     }
@@ -519,7 +502,11 @@ impl ProxyProviderManager {
         providers.values().cloned().collect()
     }
 
-    pub async fn get_proxy(&self, provider_name: &str, proxy_tag: &str) -> Option<Arc<dyn OutboundProxy>> {
+    pub async fn get_proxy(
+        &self,
+        provider_name: &str,
+        proxy_tag: &str,
+    ) -> Option<Arc<dyn OutboundProxy>> {
         let providers = self.providers.read().await;
         if let Some(provider) = providers.get(provider_name) {
             provider.get_proxy(proxy_tag).await
@@ -567,7 +554,10 @@ impl ProxyProviderManager {
         if let Some(provider) = providers.get(name) {
             provider.load().await
         } else {
-            Err(Error::config(format!("Proxy provider '{}' not found", name)))
+            Err(Error::config(format!(
+                "Proxy provider '{}' not found",
+                name
+            )))
         }
     }
 
@@ -589,7 +579,6 @@ impl Clone for ProxyProviderManager {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -4,7 +4,7 @@ use blake2::{Blake2b512, Digest};
 use bytes::{BufMut, Bytes, BytesMut};
 use chacha20poly1305::ChaCha20Poly1305;
 use hkdf::Hkdf;
-use rand::RngCore;
+use rand::Rng;
 use sha2::Sha256;
 
 use super::config::CipherKind;
@@ -34,21 +34,23 @@ impl Cipher {
     }
 
     pub fn encrypt(&self, nonce: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-        let nonce = aead::generic_array::GenericArray::from_slice(nonce);
+        let nonce = aes_gcm::Nonce::try_from(nonce)
+            .map_err(|_| QuicError::Crypto("Invalid nonce length".into()))?;
         let result = match self {
-            Self::Aes256Gcm(c) => c.encrypt(nonce, plaintext),
-            Self::Aes128Gcm(c) => c.encrypt(nonce, plaintext),
-            Self::ChaCha20Poly1305(c) => c.encrypt(nonce, plaintext),
+            Self::Aes256Gcm(c) => c.encrypt(&nonce, plaintext),
+            Self::Aes128Gcm(c) => c.encrypt(&nonce, plaintext),
+            Self::ChaCha20Poly1305(c) => c.encrypt(&nonce, plaintext),
         };
         result.map_err(|_| QuicError::EncryptionFailed)
     }
 
     pub fn decrypt(&self, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
-        let nonce = aead::generic_array::GenericArray::from_slice(nonce);
+        let nonce = aes_gcm::Nonce::try_from(nonce)
+            .map_err(|_| QuicError::Crypto("Invalid nonce length".into()))?;
         let result = match self {
-            Self::Aes256Gcm(c) => c.decrypt(nonce, ciphertext),
-            Self::Aes128Gcm(c) => c.decrypt(nonce, ciphertext),
-            Self::ChaCha20Poly1305(c) => c.decrypt(nonce, ciphertext),
+            Self::Aes256Gcm(c) => c.decrypt(&nonce, ciphertext),
+            Self::Aes128Gcm(c) => c.decrypt(&nonce, ciphertext),
+            Self::ChaCha20Poly1305(c) => c.decrypt(&nonce, ciphertext),
         };
         result.map_err(|_| QuicError::DecryptionFailed)
     }

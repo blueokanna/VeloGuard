@@ -5,7 +5,7 @@
 
 use std::net::Ipv4Addr;
 use std::process::Command;
-use tracing::{info, warn, error, debug};
+use tracing::{error, info, warn};
 
 /// Windows route manager for TUN mode
 pub struct WindowsRouteManager {
@@ -19,6 +19,15 @@ pub struct WindowsRouteManager {
     original_interface: Option<u32>,
     /// Whether routes are currently active
     routes_active: bool,
+    /// Routes owned by this manager, in creation order.
+    added_routes: Vec<WindowsRouteEntry>,
+}
+
+struct WindowsRouteEntry {
+    destination: String,
+    mask: String,
+    gateway: String,
+    interface_index: u32,
 }
 
 impl WindowsRouteManager {
@@ -30,6 +39,7 @@ impl WindowsRouteManager {
             original_gateway: None,
             original_interface: None,
             routes_active: false,
+            added_routes: Vec::new(),
         }
     }
 
@@ -51,7 +61,7 @@ impl WindowsRouteManager {
     }
 
     /// Save the current default gateway for later restoration
-    fn save_original_gateway(&mut self) -> bool {
+    fn save_original_gateway(&mut self) -> Result<(), String> {
         let output = match Command::new("powershell")
             .args([
                 "-Command",
@@ -62,7 +72,7 @@ impl WindowsRouteManager {
             Ok(o) => o,
             Err(e) => {
                 error!("Failed to get original gateway: {}", e);
-                return false;
+                return Err(format!("Failed to get original gateway: {e}"));
             }
         };
 
@@ -76,15 +86,19 @@ impl WindowsRouteManager {
                 "Saved original gateway: {:?}, interface: {:?}",
                 self.original_gateway, self.original_interface
             );
-            true
+            if self.original_gateway.as_deref().is_some_and(str::is_empty)
+                || self.original_interface.is_none()
+            {
+                return Err("Default route contains an invalid gateway or interface".to_string());
+            }
+            Ok(())
         } else {
-            warn!("Could not parse original gateway info: {}", stdout);
-            false
+            Err(format!("Could not parse original gateway info: {stdout}"))
         }
     }
 
     /// Enable global mode by adding routes through TUN
-    pub fn enable_global_mode(&mut self) -> Result<(), String> {
+    pub fn enable_global_mode(&mut self, excluded_ips: &[Ipv4Addr]) -> Result<(), String> {
         if self.routes_active {
             info!("Routes already active, skipping");
             return Ok(());
@@ -99,7 +113,30 @@ impl WindowsRouteManager {
         info!("TUN interface index: {}", if_index);
 
         // Save original gateway
-        self.save_original_gateway();
+        self.save_original_gateway()?;
+        self.routes_active = true;
+
+        let original_gateway = self
+            .original_gateway
+            .clone()
+            .ok_or_else(|| "Original gateway not saved".to_string())?;
+        let original_interface = self
+            .original_interface
+            .ok_or_else(|| "Original interface not saved".to_string())?;
+        for address in excluded_ips {
+            if let Err(error) = self.add_managed_route(
+                &address.to_string(),
+                "255.255.255.255",
+                &original_gateway,
+                original_interface,
+            ) {
+                let rollback_error = self.disable_global_mode().err();
+                return Err(match rollback_error {
+                    Some(rollback) => format!("{error}; rollback failed: {rollback}"),
+                    None => error,
+                });
+            }
+        }
 
         // Add routes for 0.0.0.0/1 and 128.0.0.0/1 through TUN
         // This covers all IPv4 addresses without replacing the default route
@@ -109,56 +146,19 @@ impl WindowsRouteManager {
         ];
 
         for (dest, mask) in routes {
-            let result = Command::new("route")
-                .args([
-                    "add",
-                    dest,
-                    "mask",
-                    mask,
-                    &self.gateway.to_string(),
-                    "metric",
-                    "1",
-                    "if",
-                    &if_index.to_string(),
-                ])
-                .output();
-
-            match result {
-                Ok(output) => {
-                    if output.status.success() {
-                        info!("Added route: {} mask {} via {}", dest, mask, self.gateway);
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        warn!("Failed to add route {} mask {}: {}", dest, mask, stderr);
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to execute route command: {}", e);
-                    return Err(format!("Route command failed: {}", e));
-                }
+            if let Err(error) = self.add_managed_route(
+                dest,
+                mask,
+                &self.gateway.to_string(),
+                if_index,
+            ) {
+                let rollback_error = self.disable_global_mode().err();
+                return Err(match rollback_error {
+                    Some(rollback) => format!("{error}; rollback failed: {rollback}"),
+                    None => error,
+                });
             }
         }
-
-        // Add DNS routes to ensure DNS goes through TUN
-        // Route common DNS servers through TUN
-        let dns_servers = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"];
-        for dns in dns_servers {
-            let _ = Command::new("route")
-                .args([
-                    "add",
-                    dns,
-                    "mask",
-                    "255.255.255.255",
-                    &self.gateway.to_string(),
-                    "metric",
-                    "1",
-                    "if",
-                    &if_index.to_string(),
-                ])
-                .output();
-        }
-
-        self.routes_active = true;
         info!("Global mode routes enabled successfully");
         Ok(())
     }
@@ -172,40 +172,43 @@ impl WindowsRouteManager {
 
         info!("Disabling global mode routes");
 
-        // Remove the routes we added
-        let routes = [
-            ("0.0.0.0", "128.0.0.0"),
-            ("128.0.0.0", "128.0.0.0"),
-        ];
-
-        for (dest, mask) in routes {
-            let result = Command::new("route")
-                .args(["delete", dest, "mask", mask])
+        let mut failed = Vec::new();
+        for route in std::mem::take(&mut self.added_routes).into_iter().rev() {
+            let output = Command::new("route")
+                .args([
+                    "delete",
+                    &route.destination,
+                    "mask",
+                    &route.mask,
+                    &route.gateway,
+                    "if",
+                    &route.interface_index.to_string(),
+                ])
                 .output();
-
-            match result {
-                Ok(output) => {
-                    if output.status.success() {
-                        info!("Removed route: {} mask {}", dest, mask);
-                    } else {
-                        debug!("Route {} mask {} may not exist", dest, mask);
-                    }
+            match output {
+                Ok(output) if output.status.success() => {
+                    info!("Removed route: {} mask {}", route.destination, route.mask);
                 }
-                Err(e) => {
-                    warn!("Failed to remove route: {}", e);
+                Ok(output) => {
+                    let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    warn!("Failed to remove route {}: {}", route.destination, message);
+                    failed.push(route);
+                }
+                Err(error) => {
+                    warn!("Failed to remove route {}: {}", route.destination, error);
+                    failed.push(route);
                 }
             }
         }
-
-        // Remove DNS routes
-        let dns_servers = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"];
-        for dns in dns_servers {
-            let _ = Command::new("route")
-                .args(["delete", dns])
-                .output();
+        failed.reverse();
+        self.added_routes = failed;
+        self.routes_active = !self.added_routes.is_empty();
+        if self.routes_active {
+            return Err(format!(
+                "{} managed route(s) could not be removed",
+                self.added_routes.len()
+            ));
         }
-
-        self.routes_active = false;
         info!("Global mode routes disabled");
         Ok(())
     }
@@ -216,31 +219,11 @@ impl WindowsRouteManager {
     }
 
     /// Add a specific route through TUN
-    pub fn add_route(&self, destination: &str, mask: &str) -> Result<(), String> {
+    pub fn add_route(&mut self, destination: &str, mask: &str) -> Result<(), String> {
         let if_index = self.get_interface_index()
             .ok_or_else(|| format!("Could not find interface: {}", self.interface_name))?;
 
-        let result = Command::new("route")
-            .args([
-                "add",
-                destination,
-                "mask",
-                mask,
-                &self.gateway.to_string(),
-                "metric",
-                "1",
-                "if",
-                &if_index.to_string(),
-            ])
-            .output()
-            .map_err(|e| format!("Route command failed: {}", e))?;
-
-        if result.status.success() {
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            Err(format!("Failed to add route: {}", stderr))
-        }
+        self.add_managed_route(destination, mask, &self.gateway.to_string(), if_index)
     }
 
     /// Remove a specific route
@@ -259,35 +242,53 @@ impl WindowsRouteManager {
     }
 
     /// Exclude a specific IP from TUN routing (for proxy server)
-    pub fn exclude_ip(&self, ip: &str) -> Result<(), String> {
+    pub fn exclude_ip(&mut self, ip: &str) -> Result<(), String> {
         // Get the original gateway to route excluded IPs
-        let gateway = self.original_gateway.as_ref()
+        let gateway = self.original_gateway.clone()
             .ok_or_else(|| "Original gateway not saved".to_string())?;
         
         let if_index = self.original_interface
             .ok_or_else(|| "Original interface not saved".to_string())?;
 
+        self.add_managed_route(ip, "255.255.255.255", &gateway, if_index)
+    }
+
+    fn add_managed_route(
+        &mut self,
+        destination: &str,
+        mask: &str,
+        gateway: &str,
+        interface_index: u32,
+    ) -> Result<(), String> {
         let result = Command::new("route")
             .args([
                 "add",
-                ip,
+                destination,
                 "mask",
-                "255.255.255.255",
+                mask,
                 gateway,
                 "metric",
                 "1",
                 "if",
-                &if_index.to_string(),
+                &interface_index.to_string(),
             ])
             .output()
             .map_err(|e| format!("Route command failed: {}", e))?;
 
         if result.status.success() {
-            info!("Excluded IP {} from TUN routing", ip);
+            self.added_routes.push(WindowsRouteEntry {
+                destination: destination.to_string(),
+                mask: mask.to_string(),
+                gateway: gateway.to_string(),
+                interface_index,
+            });
+            info!("Added managed route: {} mask {}", destination, mask);
             Ok(())
         } else {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            Err(format!("Failed to exclude IP: {}", stderr))
+            let stderr = String::from_utf8_lossy(&result.stderr).trim().to_string();
+            Err(format!(
+                "Failed to add route {destination} mask {mask}: {stderr}"
+            ))
         }
     }
 }

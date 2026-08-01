@@ -22,12 +22,12 @@ impl OutboundProxy for RejectOutbound {
     fn tag(&self) -> &str {
         &self.config.tag
     }
-    
+
     fn server_addr(&self) -> Option<(String, u16)> {
         // Reject outbound has no server
         None
     }
-    
+
     async fn test_http_latency(
         &self,
         _test_url: &str,
@@ -36,12 +36,8 @@ impl OutboundProxy for RejectOutbound {
         // Reject outbound always fails
         Err(Error::network("Connection rejected by policy"))
     }
-    
-    async fn relay_tcp(
-        &self,
-        _inbound: Box<dyn AsyncReadWrite>,
-        target: TargetAddr,
-    ) -> Result<()> {
+
+    async fn relay_tcp(&self, _inbound: Box<dyn AsyncReadWrite>, target: TargetAddr) -> Result<()> {
         tracing::debug!("Rejecting connection to {}", target);
         // Simply drop the connection by returning an error
         Err(Error::network("Connection rejected by policy"))

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -20,42 +19,7 @@ class QuickActions extends StatefulWidget {
 class _QuickActionsState extends State<QuickActions> {
   bool _isProxyLoading = false;
   bool _isTunLoading = false;
-  Timer? _statusCheckTimer;
-
-  ProxyMode _currentProxyMode = ProxyMode.rule;
   bool _isUpdating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkProxyStatus();
-    _statusCheckTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _checkProxyStatus(),
-    );
-  }
-
-  @override
-  void dispose() {
-    _statusCheckTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _checkProxyStatus() async {
-    if (_isUpdating) return;
-
-    try {
-      if (Platform.isAndroid || PlatformUtils.isOHOS) {
-        if (mounted) {
-          setState(() {
-            _currentProxyMode = PlatformProxyService.instance.currentProxyMode;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Failed to check proxy status: $e');
-    }
-  }
 
   Future<void> _toggleSystemProxy(
     bool enable,
@@ -143,20 +107,14 @@ class _QuickActionsState extends State<QuickActions> {
 
     // 检查服务是否正在运行
     final appState = context.read<AppStateProvider>();
-    if (!appState.isServiceRunning) {
-      if (!mounted) return;
-      _showSnackBar('Please start the service first', isError: true);
-      return;
-    }
 
     setState(() {
       _isUpdating = true;
     });
 
     try {
-      final success = await PlatformProxyService.instance.setProxyMode(mode);
+      final success = await appState.setProxyMode(mode);
       if (success) {
-        setState(() => _currentProxyMode = mode);
         AnimationUtils.selectionHaptic();
         if (!mounted) return;
         final l10n = AppLocalizations.of(context);
@@ -211,12 +169,12 @@ class _QuickActionsState extends State<QuickActions> {
         _ServiceStatusCard(
           isRunning: isServiceRunning,
           isTunEnabled: tunEnabled,
-          currentMode: _currentProxyMode,
+          currentMode: appState.proxyMode,
         ),
         SizedBox(height: spacing * 2),
         _ProxyModeSelectorSimple(
-          currentMode: _currentProxyMode,
-          isEnabled: isServiceRunning && tunEnabled,
+          currentMode: appState.proxyMode,
+          isEnabled: !_isUpdating,
           isLoading: _isUpdating,
           onModeSelected: _switchProxyMode,
         ),
@@ -315,6 +273,7 @@ class _QuickActionsState extends State<QuickActions> {
     final borderRadius = ResponsiveUtils.getBorderRadius(context);
     final l10n = AppLocalizations.of(context);
     final tunEnabled = PlatformProxyService.instance.tunModeEnabled;
+    final currentProxyMode = context.watch<AppStateProvider>().proxyMode;
 
     return AnimatedContainer(
       duration: AnimationUtils.stateChangeDuration,
@@ -354,7 +313,7 @@ class _QuickActionsState extends State<QuickActions> {
             description:
                 l10n?.ruleModeDesc ??
                 'Route traffic based on rules, domestic direct, foreign proxy',
-            isActive: _currentProxyMode == ProxyMode.rule && tunEnabled,
+            isActive: currentProxyMode == ProxyMode.rule && tunEnabled,
           ),
           const SizedBox(height: 8),
           _buildModeExplanationItem(
@@ -364,7 +323,7 @@ class _QuickActionsState extends State<QuickActions> {
             title: l10n?.globalProxy ?? 'Global Proxy',
             description:
                 l10n?.globalModeDesc ?? 'All traffic goes through proxy server',
-            isActive: _currentProxyMode == ProxyMode.global && tunEnabled,
+            isActive: currentProxyMode == ProxyMode.global && tunEnabled,
           ),
         ],
       ),
@@ -491,7 +450,7 @@ class _ServiceStatusCard extends StatelessWidget {
             // 图标
             AnimatedContainer(
               duration: AnimationUtils.stateChangeDuration,
-              curve: AnimationUtils.curveSpring,
+              curve: AnimationUtils.stateChangeCurve,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: isActive
@@ -676,7 +635,7 @@ class _ModeButton extends StatelessWidget {
       pressedScale: 0.97,
       child: AnimatedContainer(
         duration: AnimationUtils.stateChangeDuration,
-        curve: AnimationUtils.curveSpring,
+        curve: AnimationUtils.stateChangeCurve,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(borderRadius),

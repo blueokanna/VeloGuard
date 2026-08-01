@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/rust/api.dart';
-import 'package:veloguard/main.dart' show isRustLibInitialized;
+import 'package:veloguard/src/services/native_core_service.dart';
 
 class ProfilesProvider extends ChangeNotifier {
   List<ProfileConfig> _profiles = [];
@@ -384,7 +384,7 @@ class ProfilesProvider extends ChangeNotifier {
       }
 
       // Check if RustLib is initialized
-      if (!isRustLibInitialized) {
+      if (!NativeCoreService.instance.isReady) {
         _error = 'Native library not loaded. Cannot start proxy.';
         notifyListeners();
         return false;

@@ -8,7 +8,7 @@ import 'package:veloguard/src/rust/types.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/services/platform_proxy_service.dart';
-import 'package:veloguard/main.dart' show isRustLibInitialized;
+import 'package:veloguard/src/services/native_core_service.dart';
 
 class AppStateProvider extends ChangeNotifier {
   // App state
@@ -24,6 +24,7 @@ class AppStateProvider extends ChangeNotifier {
   bool _isLoading = false;
   String _version = '';
   String _buildInfo = '';
+  ProxyMode _proxyMode = ProxyMode.rule;
 
   // Auto proxy settings
   bool _autoSystemProxy = true;
@@ -64,6 +65,7 @@ class AppStateProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get autoSystemProxy => _autoSystemProxy;
   bool get autoVpnClose => _autoVpnClose;
+  ProxyMode get proxyMode => _proxyMode;
 
   // Version info
   String get version => _version;
@@ -127,7 +129,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Initialize VeloGuard from active profile on startup
   Future<void> _initializeFromActiveProfile() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot initialize from profile: RustLib not initialized');
       _isInitialized = false;
       return;
@@ -191,7 +193,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Load version information
   Future<void> _loadVersionInfo() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Skipping version info load: RustLib not initialized');
       return;
     }
@@ -207,6 +209,7 @@ class AppStateProvider extends ChangeNotifier {
   // Load settings from SharedPreferences
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final generalSettings = await StorageService.instance.getGeneralSettings();
     final themeModeString = prefs.getString('themeMode') ?? 'system';
     _themeMode = ThemeMode.values.firstWhere(
       (mode) => mode.name == themeModeString,
@@ -215,6 +218,13 @@ class AppStateProvider extends ChangeNotifier {
     _logLevel = prefs.getString('logLevel') ?? 'info';
     _autoSystemProxy = prefs.getBool('autoSystemProxy') ?? true;
     _autoVpnClose = prefs.getBool('autoVpnClose') ?? true;
+    _proxyMode = ProxyMode.values.firstWhere(
+      (mode) => mode.name == generalSettings.mode,
+      orElse: () => ProxyMode.rule,
+    );
+    if (NativeCoreService.instance.isReady) {
+      await PlatformProxyService.instance.configureProxyMode(_proxyMode);
+    }
     notifyListeners();
   }
 
@@ -240,9 +250,38 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> setProxyMode(ProxyMode mode) async {
+    if (_proxyMode == mode) return true;
+
+    final previousMode = _proxyMode;
+    _proxyMode = mode;
+    notifyListeners();
+
+    try {
+      final settings = await StorageService.instance.getGeneralSettings();
+      await StorageService.instance.saveGeneralSettings(
+        settings.copyWith(mode: mode.name),
+      );
+      if (NativeCoreService.instance.isReady) {
+        final applied = await PlatformProxyService.instance.configureProxyMode(
+          mode,
+        );
+        if (!applied) {
+          throw StateError('Native router rejected ${mode.name} mode');
+        }
+      }
+      return true;
+    } catch (error) {
+      _proxyMode = previousMode;
+      notifyListeners();
+      debugPrint('Failed to set proxy mode: $error');
+      return false;
+    }
+  }
+
   // Load system information
   Future<void> _loadSystemInfo() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Skipping system info load: RustLib not initialized');
       return;
     }
@@ -263,7 +302,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Service management
   Future<bool> startService() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot start service: RustLib not initialized');
       return false;
     }
@@ -332,9 +371,12 @@ class AppStateProvider extends ChangeNotifier {
         final generalSettings = await StorageService.instance
             .getGeneralSettings();
         final port = generalSettings.mixedPort;
+        final proxyHost = generalSettings.bindAddress.contains(':')
+            ? '::1'
+            : '127.0.0.1';
         debugPrint('Auto enabling system proxy on port $port...');
         final success = await PlatformProxyService.instance.enableSystemProxy(
-          host: '127.0.0.1',
+          host: proxyHost,
           httpPort: port,
           socksPort: generalSettings.socksPort,
         );
@@ -390,7 +432,7 @@ class AppStateProvider extends ChangeNotifier {
         for (int attempt = 1; attempt <= 5; attempt++) {
           debugPrint('VPN enable attempt $attempt/5...');
           vpnSuccess = await PlatformProxyService.instance.enableTunMode(
-            mode: ProxyMode.rule,
+            mode: _proxyMode,
           );
           if (vpnSuccess) {
             debugPrint('VPN enabled successfully on attempt $attempt');
@@ -523,7 +565,7 @@ class AppStateProvider extends ChangeNotifier {
   bool _isRefreshing = false;
 
   Future<void> _refreshStatus() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Skipping status refresh: RustLib not initialized');
       return;
     }
@@ -605,7 +647,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Configuration management
   Future<bool> testConfiguration(String configJson) async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot test config: RustLib not initialized');
       return false;
     }
@@ -618,7 +660,7 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> loadConfiguration(String configJson) async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot load config: RustLib not initialized');
       return;
     }
@@ -638,7 +680,7 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> reloadConfiguration(String configJson) async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot reload config: RustLib not initialized');
       return;
     }
@@ -659,7 +701,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Connection management
   Future<void> closeConnectionById(String connectionId) async {
-    if (!isRustLibInitialized) return;
+    if (!NativeCoreService.instance.isReady) return;
     try {
       await closeConnection(connectionId: connectionId);
       await _refreshStatus();
@@ -670,7 +712,7 @@ class AppStateProvider extends ChangeNotifier {
 
   /// Close an active connection by ID (using connection tracker)
   Future<bool> closeActiveConnectionById(String connectionId) async {
-    if (!isRustLibInitialized) return false;
+    if (!NativeCoreService.instance.isReady) return false;
     try {
       final result = await closeActiveConnection(connectionId: connectionId);
       await _refreshStatus();
@@ -682,7 +724,7 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   Future<void> closeAllActiveConnections() async {
-    if (!isRustLibInitialized) return;
+    if (!NativeCoreService.instance.isReady) return;
     // Use the new Rust API to close all connections at once
     try {
       await closeAllConnections();
@@ -703,7 +745,7 @@ class AppStateProvider extends ChangeNotifier {
 
   // Log level management
   Future<void> updateLogLevel(String level) async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Cannot update log level: RustLib not initialized');
       return;
     }

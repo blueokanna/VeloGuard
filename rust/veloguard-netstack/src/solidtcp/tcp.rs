@@ -15,8 +15,17 @@ use tracing::{debug, info, trace, warn};
 /// TCP state (RFC 793)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcpState {
-    Closed, Listen, SynSent, SynReceived, Established,
-    FinWait1, FinWait2, CloseWait, Closing, LastAck, TimeWait,
+    Closed,
+    Listen,
+    SynSent,
+    SynReceived,
+    Established,
+    FinWait1,
+    FinWait2,
+    CloseWait,
+    Closing,
+    LastAck,
+    TimeWait,
 }
 
 impl std::fmt::Display for TcpState {
@@ -98,22 +107,34 @@ pub struct TcpConnection {
 }
 
 impl TcpConnection {
-    pub fn new_passive(key: NatKey, their_seq: u32, their_mss: Option<u16>, domain: Option<String>) -> Self {
+    pub fn new_passive(
+        key: NatKey,
+        their_seq: u32,
+        their_mss: Option<u16>,
+        domain: Option<String>,
+    ) -> Self {
         let config = TcpConfig::default();
         let iss: u32 = rand::random();
         let mss = their_mss.unwrap_or(DEFAULT_MSS_V4).min(config.mss);
         let is_websocket = matches!(key.dst.port(), 80 | 443 | 8080 | 8443 | 9000);
         let initial_cwnd = (10 * mss as u32).min(64 * 1024);
-        
+
         Self {
-            key, state: TcpState::SynReceived,
-            snd_nxt: iss.wrapping_add(1), snd_una: iss,
+            key,
+            state: TcpState::SynReceived,
+            snd_nxt: iss.wrapping_add(1),
+            snd_una: iss,
             rcv_nxt: their_seq.wrapping_add(1),
-            mss, config,
-            recv_buf: VecDeque::new(), send_buf: VecDeque::new(),
+            mss,
+            config,
+            recv_buf: VecDeque::new(),
+            send_buf: VecDeque::new(),
             last_active: Instant::now(),
-            bytes_tx: 0, bytes_rx: 0,
-            domain, proxy_tx: None, fin_recv: false,
+            bytes_tx: 0,
+            bytes_rx: 0,
+            domain,
+            proxy_tx: None,
+            fin_recv: false,
             pending_data: VecDeque::new(),
             ooo_segments: BTreeMap::new(),
             max_ooo_size: 512 * 1024,
@@ -126,7 +147,7 @@ impl TcpConnection {
             dup_ack_count: 0,
         }
     }
-    
+
     pub fn set_websocket(&mut self, is_ws: bool) {
         self.is_websocket = is_ws;
         if is_ws {
@@ -134,27 +155,37 @@ impl TcpConnection {
             info!("Connection marked as WebSocket: {:?}", self.key);
         }
     }
-    
-    pub fn is_websocket(&self) -> bool { self.is_websocket }
-    pub fn recv_window(&self) -> u32 { self.recv_window }
-    
+
+    pub fn is_websocket(&self) -> bool {
+        self.is_websocket
+    }
+    pub fn recv_window(&self) -> u32 {
+        self.recv_window
+    }
+
     fn update_recv_window(&mut self) {
         let buffer_used = self.recv_buf.len() + self.pending_data.len() + self.ooo_size;
         let max_buffer = self.config.max_recv_buffer;
         let available = max_buffer.saturating_sub(buffer_used);
         self.recv_window = (available as u32).min(65535 * 4);
-        
+
         let window_diff = self.recv_window.abs_diff(self.last_window_update);
-        
+
         if window_diff > 16384 {
             self.last_window_update = self.recv_window;
         }
     }
 
-    pub fn state(&self) -> TcpState { self.state }
-    pub fn is_established(&self) -> bool { self.state == TcpState::Established }
-    pub fn is_closed(&self) -> bool { matches!(self.state, TcpState::Closed | TcpState::TimeWait) }
-    
+    pub fn state(&self) -> TcpState {
+        self.state
+    }
+    pub fn is_established(&self) -> bool {
+        self.state == TcpState::Established
+    }
+    pub fn is_closed(&self) -> bool {
+        matches!(self.state, TcpState::Closed | TcpState::TimeWait)
+    }
+
     pub fn set_proxy_tx(&mut self, tx: mpsc::Sender<Vec<u8>>) {
         self.proxy_tx = Some(tx.clone());
         if !self.pending_data.is_empty() {
@@ -166,11 +197,17 @@ impl TcpConnection {
             });
         }
     }
-    
-    pub fn snd_nxt(&self) -> u32 { self.snd_nxt }
-    pub fn rcv_nxt(&self) -> u32 { self.rcv_nxt }
-    pub fn mss(&self) -> u16 { self.mss }
-    
+
+    pub fn snd_nxt(&self) -> u32 {
+        self.snd_nxt
+    }
+    pub fn rcv_nxt(&self) -> u32 {
+        self.rcv_nxt
+    }
+    pub fn mss(&self) -> u16 {
+        self.mss
+    }
+
     pub fn advance_snd_nxt(&mut self, len: u32) {
         self.snd_nxt = self.snd_nxt.wrapping_add(len);
         self.bytes_tx += len as u64;
@@ -207,9 +244,13 @@ impl TcpConnection {
     }
 
     fn on_established(&mut self, seg: &TcpInfo, payload: &[u8]) -> Result<TcpAction> {
-        if seg.flags.ack { self.process_ack(seg.ack); }
+        if seg.flags.ack {
+            self.process_ack(seg.ack);
+        }
         let mut action = TcpAction::None;
-        if !payload.is_empty() { action = self.process_data(seg.seq, payload)?; }
+        if !payload.is_empty() {
+            action = self.process_data(seg.seq, payload)?;
+        }
         if seg.flags.fin {
             self.fin_recv = true;
             self.rcv_nxt = self.rcv_nxt.wrapping_add(1);
@@ -248,12 +289,16 @@ impl TcpConnection {
     }
 
     fn on_close_wait(&mut self, seg: &TcpInfo) -> Result<TcpAction> {
-        if seg.flags.ack { self.process_ack(seg.ack); }
+        if seg.flags.ack {
+            self.process_ack(seg.ack);
+        }
         Ok(TcpAction::None)
     }
 
     fn on_closing(&mut self, seg: &TcpInfo) -> Result<TcpAction> {
-        if seg.flags.ack && self.valid_ack(seg.ack) { self.state = TcpState::TimeWait; }
+        if seg.flags.ack && self.valid_ack(seg.ack) {
+            self.state = TcpState::TimeWait;
+        }
         Ok(TcpAction::None)
     }
 
@@ -266,30 +311,45 @@ impl TcpConnection {
     }
 
     fn on_time_wait(&mut self, seg: &TcpInfo) -> Result<TcpAction> {
-        if seg.flags.fin { return Ok(TcpAction::SendAck); }
+        if seg.flags.fin {
+            return Ok(TcpAction::SendAck);
+        }
         Ok(TcpAction::None)
     }
 
     fn valid_ack(&self, ack: u32) -> bool {
         let (una, nxt) = (self.snd_una, self.snd_nxt);
-        if una <= nxt { ack > una && ack <= nxt } else { ack > una || ack <= nxt }
+        if una <= nxt {
+            ack > una && ack <= nxt
+        } else {
+            ack > una || ack <= nxt
+        }
     }
 
     fn process_ack(&mut self, ack: u32) {
-        if self.valid_ack(ack) { self.snd_una = ack; }
+        if self.valid_ack(ack) {
+            self.snd_una = ack;
+        }
     }
 
     fn process_data(&mut self, seq: u32, data: &[u8]) -> Result<TcpAction> {
-        if data.is_empty() { return Ok(TcpAction::None); }
-        
+        if data.is_empty() {
+            return Ok(TcpAction::None);
+        }
+
         self.update_recv_window();
         let seq_end = seq.wrapping_add(data.len() as u32);
-        
+
         if self.seq_before_or_eq(seq_end, self.rcv_nxt) {
-            trace!("Complete retransmission detected: seq={}, seq_end={}, rcv_nxt={}", seq, seq_end, self.rcv_nxt);
+            trace!(
+                "Complete retransmission detected: seq={}, seq_end={}, rcv_nxt={}",
+                seq,
+                seq_end,
+                self.rcv_nxt
+            );
             return Ok(TcpAction::SendAck);
         }
-        
+
         if seq == self.rcv_nxt {
             self.dup_ack_count = 0;
             self.recv_buf.extend(data);
@@ -297,49 +357,71 @@ impl TcpConnection {
             self.bytes_rx += data.len() as u64;
             self.try_deliver_ooo_segments();
             let d: Vec<u8> = self.recv_buf.drain(..).collect();
-            if !d.is_empty() { self.deliver_to_proxy(d); }
+            if !d.is_empty() {
+                self.deliver_to_proxy(d);
+            }
             self.update_recv_window();
             return Ok(TcpAction::SendAck);
         }
-        
+
         if self.seq_before(seq, self.rcv_nxt) && self.seq_after(seq_end, self.rcv_nxt) {
             let skip = self.rcv_nxt.wrapping_sub(seq) as usize;
             if skip < data.len() {
                 let new_data = &data[skip..];
-                trace!("Partial retransmission: seq={}, skip={}, new_len={}", seq, skip, new_data.len());
+                trace!(
+                    "Partial retransmission: seq={}, skip={}, new_len={}",
+                    seq,
+                    skip,
+                    new_data.len()
+                );
                 self.recv_buf.extend(new_data);
                 self.rcv_nxt = self.rcv_nxt.wrapping_add(new_data.len() as u32);
                 self.bytes_rx += new_data.len() as u64;
                 self.try_deliver_ooo_segments();
                 let d: Vec<u8> = self.recv_buf.drain(..).collect();
-                if !d.is_empty() { self.deliver_to_proxy(d); }
+                if !d.is_empty() {
+                    self.deliver_to_proxy(d);
+                }
             }
             return Ok(TcpAction::SendAck);
         }
-        
+
         if self.seq_after(seq, self.rcv_nxt) {
             self.dup_ack_count += 1;
             if self.ooo_size + data.len() <= self.max_ooo_size {
                 if !self.ooo_segments.contains_key(&seq) {
-                    debug!("Buffering out-of-order segment: seq={}, len={}, expected={}, gap={}", 
-                           seq, data.len(), self.rcv_nxt, seq.wrapping_sub(self.rcv_nxt));
+                    debug!(
+                        "Buffering out-of-order segment: seq={}, len={}, expected={}, gap={}",
+                        seq,
+                        data.len(),
+                        self.rcv_nxt,
+                        seq.wrapping_sub(self.rcv_nxt)
+                    );
                     self.ooo_segments.insert(seq, data.to_vec());
                     self.ooo_size += data.len();
                 }
             } else {
-                warn!("OOO buffer full ({} bytes), dropping segment: seq={}, len={}", 
-                      self.ooo_size, seq, data.len());
+                warn!(
+                    "OOO buffer full ({} bytes), dropping segment: seq={}, len={}",
+                    self.ooo_size,
+                    seq,
+                    data.len()
+                );
             }
         }
-        
+
         Ok(TcpAction::SendAck)
     }
-    
+
     fn try_deliver_ooo_segments(&mut self) {
         loop {
             let next_seq = self.rcv_nxt;
             if let Some(data) = self.ooo_segments.remove(&next_seq) {
-                debug!("Delivering OOO segment: seq={}, len={}", next_seq, data.len());
+                debug!(
+                    "Delivering OOO segment: seq={}, len={}",
+                    next_seq,
+                    data.len()
+                );
                 self.ooo_size -= data.len();
                 self.recv_buf.extend(&data);
                 self.rcv_nxt = self.rcv_nxt.wrapping_add(data.len() as u32);
@@ -348,7 +430,9 @@ impl TcpConnection {
                 let mut found = None;
                 for (&seg_seq, seg_data) in self.ooo_segments.iter() {
                     let seg_end = seg_seq.wrapping_add(seg_data.len() as u32);
-                    if self.seq_before_or_eq(seg_seq, self.rcv_nxt) && self.seq_after(seg_end, self.rcv_nxt) {
+                    if self.seq_before_or_eq(seg_seq, self.rcv_nxt)
+                        && self.seq_after(seg_end, self.rcv_nxt)
+                    {
                         let skip = self.rcv_nxt.wrapping_sub(seg_seq) as usize;
                         if skip < seg_data.len() {
                             found = Some((seg_seq, skip));
@@ -356,12 +440,16 @@ impl TcpConnection {
                         }
                     }
                 }
-                
+
                 if let Some((seg_seq, skip)) = found {
                     if let Some(data) = self.ooo_segments.remove(&seg_seq) {
                         let new_data = &data[skip..];
-                        debug!("Delivering partial OOO segment: seq={}, skip={}, len={}", 
-                               seg_seq, skip, new_data.len());
+                        debug!(
+                            "Delivering partial OOO segment: seq={}, skip={}, len={}",
+                            seg_seq,
+                            skip,
+                            new_data.len()
+                        );
                         self.ooo_size -= data.len();
                         self.recv_buf.extend(new_data);
                         self.rcv_nxt = self.rcv_nxt.wrapping_add(new_data.len() as u32);
@@ -375,26 +463,33 @@ impl TcpConnection {
     }
 
     fn deliver_to_proxy(&mut self, data: Vec<u8>) {
-        if data.is_empty() { return; }
-        
+        if data.is_empty() {
+            return;
+        }
+
         if let Some(ref tx) = self.proxy_tx {
             let data_len = data.len();
             let tx = tx.clone();
             trace!("Sending {} bytes to proxy", data_len);
-            
+
             if data_len > 16384 {
                 debug!("Large data transfer: {} bytes to proxy", data_len);
-                tokio::spawn(async move { 
+                tokio::spawn(async move {
                     if let Err(e) = tx.send(data).await {
                         warn!("Failed to send large data to proxy: {}", e);
                     }
                 });
             } else {
                 match tx.try_send(data) {
-                    Ok(()) => { trace!("Data sent to proxy via try_send"); }
+                    Ok(()) => {
+                        trace!("Data sent to proxy via try_send");
+                    }
                     Err(tokio::sync::mpsc::error::TrySendError::Full(data)) => {
-                        debug!("Proxy channel full, spawning send task for {} bytes", data.len());
-                        tokio::spawn(async move { 
+                        debug!(
+                            "Proxy channel full, spawning send task for {} bytes",
+                            data.len()
+                        );
+                        tokio::spawn(async move {
                             if let Err(e) = tx.send(data).await {
                                 warn!("Failed to send data to proxy: {}", e);
                             }
@@ -411,28 +506,35 @@ impl TcpConnection {
             if current_pending + data.len() <= self.config.max_recv_buffer {
                 self.pending_data.extend(data);
             } else {
-                warn!("Pending data buffer full ({} bytes), dropping {} bytes", 
-                      current_pending, data.len());
+                warn!(
+                    "Pending data buffer full ({} bytes), dropping {} bytes",
+                    current_pending,
+                    data.len()
+                );
             }
         }
     }
-    
+
     fn seq_before(&self, seq1: u32, seq2: u32) -> bool {
         (seq1.wrapping_sub(seq2) as i32) < 0
     }
-    
+
     fn seq_after(&self, seq1: u32, seq2: u32) -> bool {
         (seq1.wrapping_sub(seq2) as i32) > 0
     }
-    
+
     fn seq_before_or_eq(&self, seq1: u32, seq2: u32) -> bool {
         seq1 == seq2 || self.seq_before(seq1, seq2)
     }
 
-    pub fn send(&mut self, data: &[u8]) { self.send_buf.extend(data); }
+    pub fn send(&mut self, data: &[u8]) {
+        self.send_buf.extend(data);
+    }
 
     pub fn get_send_data(&mut self) -> Option<Vec<u8>> {
-        if self.send_buf.is_empty() { return None; }
+        if self.send_buf.is_empty() {
+            return None;
+        }
         let len = self.send_buf.len().min(self.mss as usize);
         let data: Vec<u8> = self.send_buf.drain(..len).collect();
         self.snd_nxt = self.snd_nxt.wrapping_add(data.len() as u32);
@@ -442,8 +544,14 @@ impl TcpConnection {
 
     pub fn close(&mut self) -> TcpAction {
         match self.state {
-            TcpState::Established => { self.state = TcpState::FinWait1; TcpAction::SendFin }
-            TcpState::CloseWait => { self.state = TcpState::LastAck; TcpAction::SendFin }
+            TcpState::Established => {
+                self.state = TcpState::FinWait1;
+                TcpAction::SendFin
+            }
+            TcpState::CloseWait => {
+                self.state = TcpState::LastAck;
+                TcpAction::SendFin
+            }
             _ => TcpAction::None,
         }
     }
@@ -451,7 +559,11 @@ impl TcpConnection {
     pub fn is_timed_out(&self) -> bool {
         let timeout = match self.state {
             TcpState::Established => {
-                if self.is_websocket { self.config.websocket_timeout } else { self.config.idle_timeout }
+                if self.is_websocket {
+                    self.config.websocket_timeout
+                } else {
+                    self.config.idle_timeout
+                }
             }
             TcpState::TimeWait => self.config.time_wait,
             _ => self.config.connect_timeout,
@@ -459,7 +571,9 @@ impl TcpConnection {
         self.last_active.elapsed() > timeout
     }
 
-    pub fn stats(&self) -> (u64, u64) { (self.bytes_tx, self.bytes_rx) }
+    pub fn stats(&self) -> (u64, u64) {
+        (self.bytes_tx, self.bytes_rx)
+    }
 }
 
 /// TCP connection manager
@@ -489,7 +603,7 @@ impl TcpManager {
         domain: Option<String>,
     ) -> Result<Arc<RwLock<TcpConnection>>> {
         let key = NatKey::new(src, dst);
-        
+
         if let Some(conn) = self.connections.get(&key) {
             return Ok(conn.clone());
         }
@@ -497,12 +611,16 @@ impl TcpManager {
         let conn = TcpConnection::new_passive(key, tcp_info.seq, tcp_info.mss, domain);
         let conn = Arc::new(RwLock::new(conn));
         self.connections.insert(key, conn.clone());
-        
+
         trace!("TCP connection created: {} -> {}", src, dst);
         Ok(conn)
     }
 
-    pub fn get_connection(&self, src: SocketAddr, dst: SocketAddr) -> Option<Arc<RwLock<TcpConnection>>> {
+    pub fn get_connection(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+    ) -> Option<Arc<RwLock<TcpConnection>>> {
         let key = NatKey::new(src, dst);
         self.connections.get(&key).map(|c| c.clone())
     }
@@ -518,7 +636,8 @@ impl TcpManager {
     }
 
     pub fn cleanup(&self) {
-        let to_remove: Vec<_> = self.connections
+        let to_remove: Vec<_> = self
+            .connections
             .iter()
             .filter(|entry| {
                 let conn = entry.read();

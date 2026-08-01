@@ -76,12 +76,6 @@ impl From<hickory_proto::ProtoError> for DnsError {
     }
 }
 
-impl From<hickory_resolver::ResolveError> for DnsError {
-    fn from(e: hickory_resolver::ResolveError) -> Self {
-        DnsError::QueryFailed(e.to_string())
-    }
-}
-
 impl From<rustls::Error> for DnsError {
     fn from(e: rustls::Error) -> Self {
         DnsError::Tls(e.to_string())

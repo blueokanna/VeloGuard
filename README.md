@@ -1,457 +1,138 @@
 # VeloGuard
 
 <p align="center">
-  <img src="assets/icon.png" width="128" height="128" alt="VeloGuard Logo">
+  <img src="assets/veloguard.png" width="128" height="128" alt="VeloGuard 图标" style="border-radius: 12px;">
 </p>
 
 <p align="center">
-  <strong>🛡️ 现代化跨平台网络代理客户端</strong>
+  Flutter + Rust 跨平台代理客户端<br>
+  <a href="README_EN.md">English</a>
 </p>
 
-<p align="center">
-  <em>基于 Flutter + Rust 构建的高性能、安全、易用的网络代理解决方案</em>
-</p>
+## 当前实现
 
-<p align="center">
-  <a href="#-项目简介">项目简介</a> •
-  <a href="#-核心特性">核心特性</a> •
-  <a href="#-支持平台">支持平台</a> •
-  <a href="#-系统架构">系统架构</a> •
-  <a href="#-快速开始">快速开始</a> •
-  <a href="#-开发指南">开发指南</a>
-</p>
+- Flutter Material Design 3 UI：明暗主题、动态颜色、Google Fonts、响应式导航和页面/组件动画。
+- Rust workspace：核心代理、DNS、网络栈、协议与 Flutter Rust Bridge 分层。
+- 配置转换采用失败关闭策略：未知入站、出站、规则类型和无效 options 会拒绝加载，绝不静默降级为 `DIRECT`。
+- Android、Windows、Linux 共用 Rust TUN 数据包处理器，各平台独立管理设备生命周期。
+- Windows、macOS、Linux、Android、iOS、HarmonyOS NEXT 的应用图标均由 `assets/veloguard.png` 统一生成。
 
----
+## 协议状态
 
-## 📖 项目简介
+| 协议 | 当前状态 | 说明 |
+| --- | --- | --- |
+| HTTP / SOCKS5 | 已实现 | TCP 出站；仍需发布环境端到端测试 |
+| Shadowsocks | 实验性 | 自研 TCP/UDP 加密路径和单元测试；未提供真实服务端互操作证据 |
+| VMess | 实验性 | 自研协议与传输层；未提供 Xray 互操作测试 |
+| VLESS | 实验性 | 自研 TCP/UDP/TLS 路径；未提供 Xray 互操作测试 |
+| Trojan | 实验性 | 自研 TCP/UDP/TLS 路径；未提供标准服务端互操作测试 |
+| WireGuard | 不可用于生产 | 握手/加密和 UDP 路径存在；TCP 路径缺少完整 TCP/IP 状态机、重传和拥塞控制 |
+| TUIC v5 | 实验性 | 基于 Quinn 的实现；缺少真实 TUIC 服务端兼容性测试 |
+| Hysteria 2 | 不可用于生产 | 当前自定义 QUIC 鉴权/帧格式未证明符合 Hysteria 2 标准 |
+| Hysteria v1 | 未实现 | 不再错误映射为 Hysteria 2；配置会明确失败 |
+| NaiveProxy | 未实现 | 配置会明确失败，不会绕过代理直连 |
 
-**VeloGuard** 是一款采用 Flutter + Rust 混合架构开发的跨平台网络代理客户端。项目利用 Rust 的高性能和内存安全特性构建核心代理引擎，通过 Flutter Rust Bridge (FRB) 实现与 Flutter UI 层的高效通信，为用户提供流畅的操作体验和稳定的代理服务。
+协议进入“已支持”状态至少需要：官方/主流服务端互操作测试、TCP 与 UDP 测试、认证失败测试、断线重连测试，以及各目标平台上的集成测试。
 
-VeloGuard 支持主流代理协议（Shadowsocks、VMess、VLESS、Trojan、TUIC、Hysteria2、WireGuard 等），提供灵活的路由规则配置，并在 Android 平台通过 VPN Service + TUN 模式实现全局透明代理，在 Windows/macOS/Linux 平台通过 Wintun/tun-rs 实现系统级流量接管。
+## 平台状态
 
----
+| 平台 | UI 壳 | 系统代理 | 全局 TUN/VPN | 当前结论 |
+| --- | --- | --- | --- | --- |
+| Android | 有 | 不适用 | `VpnService` 路径已实现 | 需要真机、ABI 和长连接回归测试 |
+| Windows | 有 | 已实现 | Wintun 路径已实现 | 需要管理员权限和 Windows 10/11 实机测试 |
+| Linux | 有 | GNOME 设置路径 | 已实现仅 IPv4 的 global 模式路径 | 仍需 root/实机验证；在完成 socket mark 或物理网卡绑定前，rule/direct 模式会主动拒绝 |
+| macOS | 有 | `networksetup` 路径 | 未实现 Network Extension | 不能宣称全局代理支持 |
+| iOS | 有 | 不适用 | 未实现 Packet Tunnel Extension | 仅应用壳 |
+| HarmonyOS NEXT | 有工程骨架 | 不适用 | VPN FD 回传与 Rust 网络栈尚未打通 | 不可发布 |
 
-## ✨ 核心特性
+## 架构
 
-### 🚀 高性能 Rust 核心引擎
-- **全异步架构**：基于 Tokio 运行时，支持高并发连接处理
-- **零拷贝优化**：最小化内存分配，提升数据转发效率
-- **智能连接池**：复用连接资源，降低延迟
-- **自研 TLS 栈**：基于 rustls 的定制化 TLS 实现
-
-### 🌐 多协议支持
-
-| 协议类型 | 支持协议 |
-|---------|---------|
-| **代理协议** | HTTP, SOCKS5, Shadowsocks (AEAD-2022), VMess, VLESS, Trojan |
-| **隧道协议** | WireGuard, TUIC (QUIC), Hysteria2 |
-| **入站协议** | HTTP Proxy, SOCKS5 Proxy, Mixed (HTTP + SOCKS5) |
-
-### 🔧 智能路由系统
-- **域名规则**：Domain / DomainSuffix / DomainKeyword / DomainRegex
-- **IP 规则**：IP-CIDR / SRC-IP-CIDR / GeoIP
-- **端口规则**：SRC-PORT / DST-PORT
-- **进程规则**：Process Name 匹配
-- **代理组**：Selector / URLTest / Fallback / LoadBalance / Relay
-
-### 🎨 Material Design 3 界面
-- Motion-physics 物理动画系统
-- 动态颜色主题 (Dynamic Color)
-- 响应式布局，适配多种屏幕尺寸
-- 支持 11 种语言国际化
-
-### 📊 实时监控与管理
-- 流量统计与可视化图表
-- 活跃连接管理
-- 实时日志查看
-- IP 地址检测
-
----
-
-## 📱 支持平台
-
-| 平台 | 状态 | 最低版本 | 代理模式 |
-|------|------|----------|----------|
-| Android | ✅ 已支持 | Android 7.0+ | VPN Service + TUN |
-| Windows | ✅ 已支持 | Windows 10+ | Wintun TUN / 系统代理 |
-| macOS | ✅ 已支持 | macOS 10.15+ | tun-rs TUN / 系统代理 |
-| Linux | ✅ 已支持 | Ubuntu 20.04+ | tun-rs TUN / 系统代理 |
-| iOS | 🚧 开发中 | iOS 12.0+ | Network Extension |
-| HarmonyOS NEXT | 🚧 开发中 | API 12+ | VPN Extension |
-
----
-
-## 🏗️ 系统架构
-
-VeloGuard 采用分层架构设计，通过 Flutter Rust Bridge 实现 Dart 与 Rust 的高效跨语言通信。
-
-### 整体架构图
-
-```mermaid
-graph TB
-    subgraph Flutter["Flutter UI Layer"]
-        UI[Screens & Widgets]
-        State[State Management<br/>Provider]
-        L10n[Localization<br/>11 Languages]
-        Theme[Material Design 3<br/>Dynamic Color]
-    end
-
-    subgraph Bridge["Flutter Rust Bridge"]
-        FRB[FFI Bindings<br/>flutter_rust_bridge]
-    end
-
-    subgraph Rust["Rust Core Layer"]
-        subgraph Lib["veloguard-lib"]
-            API[Public API]
-            JNI[Android JNI]
-        end
-        
-        subgraph Core["veloguard-core"]
-            Inbound[Inbound Handler]
-            Outbound[Outbound Proxy]
-            Router[Rule Router]
-            Dispatcher[Traffic Dispatcher]
-        end
-        
-        subgraph Network["Network Stack"]
-            DNS[veloguard-dns]
-            TUN[veloguard-netstack]
-            TCP[veloguard-solidtcp]
-            QUIC[veloguard-quic]
-        end
-        
-        subgraph Crypto["Crypto & TLS"]
-            TLS[veloguard-rustls]
-            WG[veloguard-boringtun]
-        end
-    end
-
-    subgraph Platform["Platform Layer"]
-        Android[Android VPN Service]
-        Windows[Wintun Driver]
-        Unix[tun-rs]
-    end
-
-    UI --> State
-    State --> FRB
-    FRB --> API
-    API --> Core
-    Core --> Network
-    Core --> Crypto
-    Network --> Platform
-    Crypto --> Platform
+```text
+Flutter UI / Provider
+        |
+Flutter Rust Bridge
+        |
+veloguard-lib (FFI 与平台入口)
+        |
+veloguard-core (配置、路由、入站、出站)
+        +-- veloguard-dns
+        +-- veloguard-netstack
+        +-- veloguard-protocol
 ```
 
-### 数据流转流程
+保持边界清晰比无目的地增加宏、泛型或复杂生命周期更重要。Rust 代码只在能减少重复、表达所有权或实现零成本抽象时使用这些能力。
 
-```mermaid
-sequenceDiagram
-    participant App as 应用程序
-    participant TUN as TUN 设备
-    participant Stack as TCP/IP 栈
-    participant Router as 路由引擎
-    participant Proxy as 代理出站
-    participant Remote as 远程服务器
+## 环境要求
 
-    App->>TUN: 发送网络请求
-    TUN->>Stack: 原始 IP 包
-    Stack->>Stack: TCP/UDP 重组
-    Stack->>Router: 连接请求
-    Router->>Router: 规则匹配
-    Router->>Proxy: 选择出站
-    Proxy->>Remote: 代理连接
-    Remote-->>Proxy: 响应数据
-    Proxy-->>Stack: 解密数据
-    Stack-->>TUN: IP 包封装
-    TUN-->>App: 返回响应
-```
+- Flutter SDK 对应 Dart `^3.10.4`
+- Rust stable，支持 edition 2021 和 workspace resolver 3
+- Android：Android SDK、NDK、JDK 17
+- Windows：Visual Studio C++ 工具链；Wintun/管理员权限
+- macOS/iOS：Xcode 与有效签名配置
+- HarmonyOS NEXT：DevEco Studio、API 12 SDK、Flutter OHOS 工具链
 
-### 代理协议处理流程
-
-```mermaid
-flowchart LR
-    subgraph Inbound["入站处理"]
-        HTTP_IN[HTTP Proxy]
-        SOCKS_IN[SOCKS5 Proxy]
-        MIXED[Mixed Proxy]
-        TUN_IN[TUN Device]
-    end
-
-    subgraph Router["路由决策"]
-        RULES[规则匹配引擎]
-        GEOIP[GeoIP 数据库]
-        DOMAIN[域名规则]
-    end
-
-    subgraph Outbound["出站代理"]
-        DIRECT[Direct]
-        REJECT[Reject]
-        SS[Shadowsocks]
-        VMESS[VMess/VLESS]
-        TROJAN[Trojan]
-        TUIC[TUIC]
-        WG[WireGuard]
-        HY2[Hysteria2]
-    end
-
-    HTTP_IN --> RULES
-    SOCKS_IN --> RULES
-    MIXED --> RULES
-    TUN_IN --> RULES
-    
-    RULES --> GEOIP
-    RULES --> DOMAIN
-    
-    GEOIP --> DIRECT
-    GEOIP --> SS
-    DOMAIN --> VMESS
-    DOMAIN --> TROJAN
-    RULES --> TUIC
-    RULES --> WG
-    RULES --> HY2
-    RULES --> REJECT
-```
-
----
-
-## 📁 项目结构
-
-```
-veloguard/
-├── lib/                          # Flutter 应用代码
-│   └── src/
-│       ├── screens/              # 页面组件
-│       ├── widgets/              # 可复用组件
-│       ├── providers/            # 状态管理
-│       ├── services/             # 平台服务
-│       ├── l10n/                 # 国际化
-│       └── rust/                 # FRB 生成代码
-│
-├── android/                      # Android 平台代码
-│   └── app/src/main/kotlin/
-│       └── com/blueokanna/veloguard/
-│           ├── MainActivity.kt
-│           ├── VeloGuardVpnService.kt
-│           └── ...
-│
-├── rust/                         # Rust 工作空间
-│   ├── veloguard-lib/            # Flutter FFI 绑定层
-│   ├── veloguard-core/           # 核心代理逻辑
-│   ├── veloguard-dns/            # DNS 解析器
-│   ├── veloguard-netstack/       # 网络栈 (smoltcp)
-│   ├── veloguard-solidtcp/       # TCP/IP 栈
-│   ├── veloguard-quic/           # QUIC 协议实现
-│   ├── veloguard-rustls/         # 自定义 TLS 实现
-│   ├── veloguard-boringtun/      # WireGuard 实现
-│   ├── tokio-veloguard-tls/      # Tokio TLS 适配器
-│   ├── tuic/                     # TUIC 协议
-│   ├── tuic-quinn/               # TUIC QUIC 实现
-│   ├── veloguard-sock2proc/      # 进程名查询
-│   ├── unix-udp-sock/            # Unix UDP Socket
-│   ├── console-subscriber/       # 调试订阅器
-│   └── veloguard-bin/            # CLI 程序
-│
-├── ios/                          # iOS 平台代码
-├── macos/                        # macOS 平台代码
-├── windows/                      # Windows 平台代码
-├── linux/                        # Linux 平台代码
-└── ohos/                         # HarmonyOS 平台代码
-```
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-#### Flutter 开发环境
-- Flutter SDK 3.24+
-- Dart SDK 3.5+
-- Android Studio / VS Code
-- Xcode 15+ (macOS/iOS 开发)
-
-#### Rust 开发环境
-- Rust 1.75+ (推荐使用 rustup)
-- Cargo
-- Android NDK r25+ (Android 开发)
-- LLVM/Clang (Windows 开发)
-
-### 构建步骤
+## 构建与检查
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/aspect-build/veloguard.git
-cd veloguard
-
-# 2. 安装 Flutter 依赖
 flutter pub get
-
-# 3. 安装 Rust 依赖
-cd rust && cargo fetch && cd ..
-
-# 4. 生成 FFI 绑定代码
-flutter_rust_bridge_codegen generate
-
-# 5. 构建 Android (需要 Android NDK)
-cd rust
-cargo ndk -t arm64-v8a -t armeabi-v7a -o ../android/app/src/main/jniLibs build --release
-cd ..
-
-# 6. 运行应用
-flutter run
-```
-
-### 构建发布版本
-
-```bash
-# Android APK
-flutter build apk --release
-
-# Android App Bundle
-flutter build appbundle --release
-
-# Windows
-flutter build windows --release
-
-# macOS
-flutter build macos --release
-
-# Linux
-flutter build linux --release
-```
-
----
-
-## 🔧 开发指南
-
-### Rust 核心开发
-
-```bash
-# 进入 Rust 工作空间
-cd rust
-
-# 运行测试
-cargo test --workspace
-
-# 代码检查
-cargo clippy --workspace
-
-# 格式化代码
-cargo fmt --all
-
-# 构建 CLI 工具
-cargo build -p veloguard-bin --release
-```
-
-### Flutter UI 开发
-
-```bash
-# 代码分析
 flutter analyze
-
-# 运行测试
 flutter test
 
-# 生成国际化文件
-flutter gen-l10n
+cd rust
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 ```
 
-### 调试技巧
+平台构建必须在对应宿主和 SDK 上执行：
 
 ```bash
-# 启用 Rust 日志
-RUST_LOG=debug flutter run
-
-# Android 日志查看
-adb logcat | grep -E "(VeloGuard|rust)"
-
-# 性能分析
-flutter run --profile
+flutter build apk --release
+flutter build windows --release
+flutter build linux --release
+flutter build macos --release
+flutter build ios --release --no-codesign
 ```
 
----
+HarmonyOS NEXT 使用 [ohos/README.md](ohos/README.md) 中的 DevEco/hvigor 流程。构建成功只证明工具链可用，不等于 VPN 数据路径已通过验证。
 
-## 📄 配置文件格式
+## 图标
 
-VeloGuard 兼容 Clash 配置格式，支持以下配置项：
+唯一源文件为 `assets/veloguard.png`（正方形，至少 1024x1024）。Windows 环境执行：
 
-```yaml
-# 基础配置
-mixed-port: 7890
-socks-port: 7891
-allow-lan: false
-mode: rule
-log-level: info
-
-# DNS 配置
-dns:
-  enable: true
-  listen: 0.0.0.0:53
-  enhanced-mode: fake-ip
-  nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-
-# 代理节点
-proxies:
-  - name: "proxy-1"
-    type: ss
-    server: server.example.com
-    port: 443
-    cipher: aes-256-gcm
-    password: "password"
-
-# 代理组
-proxy-groups:
-  - name: "Proxy"
-    type: select
-    proxies:
-      - proxy-1
-      - DIRECT
-
-# 路由规则
-rules:
-  - DOMAIN-SUFFIX,google.com,Proxy
-  - GEOIP,CN,DIRECT
-  - MATCH,Proxy
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate_icons.ps1
 ```
 
----
+脚本会生成 Android、iOS、macOS、Windows、Linux、Web 和 HarmonyOS 所需资源，并校验源图尺寸。不要手工编辑生成图标。
 
-## 🤝 贡献指南
+## 本次自检结果
 
-欢迎提交 Issue 和 Pull Request！
+- `cargo metadata --no-deps --format-version 1`：通过。
+- `cargo check --workspace --all-targets --locked --offline`：通过。
+- WSL Ubuntu 原生执行 `cargo check --workspace --all-targets --locked --offline`：通过。
+- WSL Ubuntu 原生执行 `cargo test --workspace --all-targets --locked --offline`：通过，299 个测试通过，6 个测试忽略（5 个需要外网，1 个需要 Linux `CAP_NET_ADMIN`），0 失败。
+- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`：默认生产特性通过。
+- WSL root 单独执行 `tun::tests::linux_tun_lifecycle`：通过；真实创建并释放临时 TUN 接口，未修改默认路由或 DNS。
+- `cargo build -p veloguard-lib --target aarch64-linux-android --release --locked --offline`：通过；产物为 AArch64 ELF 共享库，JNI/FRB 导出与绑定哈希已核对。
+- ADB 真机连接：通过；OnePlus PLK110、Android 16、API 36、`arm64-v8a`。
+- 全平台图标尺寸与 Windows ICO 目录结构：通过。
+- 全特性 Clippy：未完成；离线缓存缺少可选依赖 `hyper-timeout`。
+- 全工作区 `cargo fmt --all -- --check`：未通过；现有 Rust 文件存在大范围格式漂移，本次未执行会制造大量无关差异的全库格式化。
+- Dart 格式检查：通过。
+- Flutter analyze/test 与 Android APK 安装：未完成；已移除未使用的 `ffigen`，当前离线缓存缺少 `window_manager`，联网 `flutter pub get` 仍需明确授权。
+- Android VPN 真机数据路径尚未验证；现有证据只覆盖设备连接、Android arm64 Rust Release 库和 JNI/FRB 符号，不等于 VPN 启停或协议互操作通过。
+- macOS、iOS、Linux Flutter 桌面包与 HarmonyOS 构建：当前主机未完成。
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
+## 发布门槛
 
----
+在标记正式版本前必须完成：
 
-## 📜 许可证
+1. 用成熟、经过审计的实现替换或验证 WireGuard、Hysteria 2、TUIC；补充 Hysteria v1 与 NaiveProxy。
+2. 完成 Linux global 路由接管/恢复的隔离网络测试，并补齐无路由环路的 rule/direct、IPv6、DNS 防泄漏与网络切换恢复；实现 Apple Network Extension 和 HarmonyOS VPN FD 到 Rust 的完整生命周期。
+3. 为每个协议建立容器化互操作测试矩阵，并在 CI 中覆盖 TCP、UDP、IPv4、IPv6、重连和错误认证。
+4. 在六个平台完成签名发布构建、安装、启停、休眠恢复、网络切换和泄漏测试。
 
-本项目采用 [AGPL-3.0](LICENSE) 许可证开源。
+## 许可证
 
----
-
-## 💖 致谢与捐赠
-
-如果 VeloGuard 对你有帮助，欢迎通过以下方式支持项目发展：
-
-| ![Tether](https://raw.githubusercontent.com/ErikThiart/cryptocurrency-icons/master/16/tether.png "Tether (USDT)") **USDT** : Arbitrum One Network: **0x4051d34Af2025A33aFD5EacCA7A90046f7a64Bed** | ![USD Coin](https://raw.githubusercontent.com/ErikThiart/cryptocurrency-icons/master/16/usd-coin.png "USD Coin (USDC)") **USDC**: Arbitrum One Network: **0x4051d34Af2025A33aFD5EacCA7A90046f7a64Bed** | ![Dash Coin](https://raw.githubusercontent.com/ErikThiart/cryptocurrency-icons/master/16/dash.png "Dash Coin (Dash)") **Dash**: Dash Network: **XuJwtHWdsYzfLawymR3B3nDdS2W8dHnxyR** |
-|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-
-| ![0x4051d34Af2025A33aFD5EacCA7A90046f7a64Bed](https://github.com/user-attachments/assets/608c5e0d-edfc-4dee-be6f-63d40b53a65f) | ![0x4051d34Af2025A33aFD5EacCA7A90046f7a64Bed (1)](https://github.com/user-attachments/assets/87205826-1f76-4724-9734-3ecbfbfb729f) | ![XuJwtHWdsYzfLawymR3B3nDdS2W8dHnxyR](https://github.com/user-attachments/assets/71915604-cc14-426f-a8b9-9b7f023da084) |
-|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-
----
-
-<p align="center">
-  Made with ❤️ by <a href="https://github.com/aspect-build">Blueokanna</a>
-</p>
-
-<p align="center">
-  <sub>🛡️ Secure • 🚀 Fast • 🎨 Beautiful</sub>
-</p>
+[GNU Affero General Public License v3.0 or later](LICENSE)

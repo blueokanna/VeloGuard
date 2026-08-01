@@ -170,7 +170,7 @@ class _StatusCardState extends State<StatusCard> with TickerProviderStateMixin {
               : 1.0,
           child: AnimatedContainer(
             duration: AnimationUtils.stateChangeDuration,
-            curve: AnimationUtils.curveSpring,
+            curve: AnimationUtils.stateChangeCurve,
             width: indicatorSize,
             height: indicatorSize,
             decoration: BoxDecoration(

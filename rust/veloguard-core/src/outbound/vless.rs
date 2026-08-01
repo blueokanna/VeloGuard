@@ -58,7 +58,10 @@ impl VlessFlow {
     }
 
     pub fn is_vision(&self) -> bool {
-        matches!(self, VlessFlow::XtlsRprxVision | VlessFlow::XtlsRprxVisionUdp443)
+        matches!(
+            self,
+            VlessFlow::XtlsRprxVision | VlessFlow::XtlsRprxVisionUdp443
+        )
     }
 }
 
@@ -120,8 +123,8 @@ impl VlessOutbound {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::config("Missing UUID for VLess"))?;
 
-        let uuid = Uuid::parse_str(uuid_str)
-            .map_err(|e| Error::config(format!("Invalid UUID: {}", e)))?;
+        let uuid =
+            Uuid::parse_str(uuid_str).map_err(|e| Error::config(format!("Invalid UUID: {}", e)))?;
 
         let uuid_bytes = *uuid.as_bytes();
 
@@ -216,9 +219,10 @@ impl VlessOutbound {
         let server_name = ServerName::try_from(self.sni.clone())
             .map_err(|_| Error::config(format!("Invalid SNI: {}", self.sni)))?;
 
-        let tls_stream = connector.connect(server_name, stream).await.map_err(|e| {
-            Error::network(format!("TLS handshake failed: {}", e))
-        })?;
+        let tls_stream = connector
+            .connect(server_name, stream)
+            .await
+            .map_err(|e| Error::network(format!("TLS handshake failed: {}", e)))?;
 
         tracing::debug!(
             "VLess TLS connection established to {} (SNI: {})",
@@ -253,18 +257,21 @@ impl VlessOutbound {
         buf.extend_from_slice(&target.port().to_be_bytes());
         write_address_to_buf(&mut buf, target)?;
 
-        stream.write_all(&buf).await.map_err(|e| {
-            Error::network(format!("Failed to send VLess handshake: {}", e))
-        })?;
+        stream
+            .write_all(&buf)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send VLess handshake: {}", e)))?;
 
-        stream.flush().await.map_err(|e| {
-            Error::network(format!("Failed to flush VLess handshake: {}", e))
-        })?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| Error::network(format!("Failed to flush VLess handshake: {}", e)))?;
 
         let mut response = [0u8; 2];
-        stream.read_exact(&mut response).await.map_err(|e| {
-            Error::network(format!("Failed to read VLess response: {}", e))
-        })?;
+        stream
+            .read_exact(&mut response)
+            .await
+            .map_err(|e| Error::network(format!("Failed to read VLess response: {}", e)))?;
 
         if response[0] != VLESS_VERSION {
             return Err(Error::protocol(format!(
@@ -276,9 +283,10 @@ impl VlessOutbound {
         let addons_len = response[1] as usize;
         if addons_len > 0 {
             let mut addons = vec![0u8; addons_len];
-            stream.read_exact(&mut addons).await.map_err(|e| {
-                Error::network(format!("Failed to read VLess addons: {}", e))
-            })?;
+            stream
+                .read_exact(&mut addons)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read VLess addons: {}", e)))?;
         }
 
         tracing::debug!("VLess handshake completed for target: {}", target);
@@ -312,9 +320,10 @@ impl VlessOutbound {
             .await?;
 
         let udp_packet = build_udp_packet(target, data)?;
-        tls_stream.write_all(&udp_packet).await.map_err(|e| {
-            Error::network(format!("Failed to send UDP packet: {}", e))
-        })?;
+        tls_stream
+            .write_all(&udp_packet)
+            .await
+            .map_err(|e| Error::network(format!("Failed to send UDP packet: {}", e)))?;
         tls_stream.flush().await.ok();
 
         tracing::debug!(
@@ -361,21 +370,20 @@ impl OutboundProxy for VlessOutbound {
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.server.clone(), self.port))
     }
-    
+
     fn supports_udp(&self) -> bool {
         self.udp_enabled
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         if !self.udp_enabled {
-            return Err(Error::config("UDP relay is not enabled for this VLESS proxy"));
+            return Err(Error::config(
+                "UDP relay is not enabled for this VLESS proxy",
+            ));
         }
         // Create a dummy socket for the relay_udp call
-        let dummy_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await
+        let dummy_socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
         self.relay_udp(&dummy_socket, target, data).await
     }
@@ -397,7 +405,11 @@ impl OutboundProxy for VlessOutbound {
         let url_port = url
             .port()
             .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
-        let path = if url.path().is_empty() { "/" } else { url.path() };
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
 
         let start = Instant::now();
 
@@ -489,15 +501,16 @@ impl OutboundProxy for VlessOutbound {
         let client_to_remote = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ri.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from inbound: {}", e))
-                })?;
+                let n = ri
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from inbound: {}", e)))?;
                 if n == 0 {
                     break;
                 }
-                wo.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to VLess: {}", e))
-                })?;
+                wo.write_all(&buf[..n])
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to VLess: {}", e)))?;
 
                 tracker.add_global_upload(n as u64);
                 if let Some(ref conn) = conn_upload {
@@ -511,15 +524,16 @@ impl OutboundProxy for VlessOutbound {
         let remote_to_client = async {
             let mut buf = vec![0u8; 16 * 1024];
             loop {
-                let n = ro.read(&mut buf).await.map_err(|e| {
-                    Error::network(format!("Failed to read from VLess: {}", e))
-                })?;
+                let n = ro
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to read from VLess: {}", e)))?;
                 if n == 0 {
                     break;
                 }
-                wi.write_all(&buf[..n]).await.map_err(|e| {
-                    Error::network(format!("Failed to write to inbound: {}", e))
-                })?;
+                wi.write_all(&buf[..n])
+                    .await
+                    .map_err(|e| Error::network(format!("Failed to write to inbound: {}", e)))?;
 
                 tracker.add_global_download(n as u64);
                 if let Some(ref conn) = conn_download {
@@ -600,49 +614,59 @@ fn build_udp_packet(target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
 }
 
 async fn read_udp_packet<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Vec<u8>> {
-    let atype = stream.read_u8().await.map_err(|e| {
-        Error::network(format!("Failed to read address type: {}", e))
-    })?;
+    let atype = stream
+        .read_u8()
+        .await
+        .map_err(|e| Error::network(format!("Failed to read address type: {}", e)))?;
 
     match atype {
         0x01 => {
             let mut addr = [0u8; 4];
-            stream.read_exact(&mut addr).await.map_err(|e| {
-                Error::network(format!("Failed to read IPv4 address: {}", e))
-            })?;
+            stream
+                .read_exact(&mut addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read IPv4 address: {}", e)))?;
         }
         0x02 => {
-            let len = stream.read_u8().await.map_err(|e| {
-                Error::network(format!("Failed to read domain length: {}", e))
-            })? as usize;
+            let len = stream
+                .read_u8()
+                .await
+                .map_err(|e| Error::network(format!("Failed to read domain length: {}", e)))?
+                as usize;
             let mut domain = vec![0u8; len];
-            stream.read_exact(&mut domain).await.map_err(|e| {
-                Error::network(format!("Failed to read domain: {}", e))
-            })?;
+            stream
+                .read_exact(&mut domain)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read domain: {}", e)))?;
         }
         0x03 => {
             let mut addr = [0u8; 16];
-            stream.read_exact(&mut addr).await.map_err(|e| {
-                Error::network(format!("Failed to read IPv6 address: {}", e))
-            })?;
+            stream
+                .read_exact(&mut addr)
+                .await
+                .map_err(|e| Error::network(format!("Failed to read IPv6 address: {}", e)))?;
         }
         _ => {
             return Err(Error::protocol(format!("Unknown address type: {}", atype)));
         }
     }
 
-    let _port = stream.read_u16().await.map_err(|e| {
-        Error::network(format!("Failed to read port: {}", e))
-    })?;
+    let _port = stream
+        .read_u16()
+        .await
+        .map_err(|e| Error::network(format!("Failed to read port: {}", e)))?;
 
-    let length = stream.read_u16().await.map_err(|e| {
-        Error::network(format!("Failed to read length: {}", e))
-    })? as usize;
+    let length = stream
+        .read_u16()
+        .await
+        .map_err(|e| Error::network(format!("Failed to read length: {}", e)))?
+        as usize;
 
     let mut data = vec![0u8; length];
-    stream.read_exact(&mut data).await.map_err(|e| {
-        Error::network(format!("Failed to read UDP data: {}", e))
-    })?;
+    stream
+        .read_exact(&mut data)
+        .await
+        .map_err(|e| Error::network(format!("Failed to read UDP data: {}", e)))?;
 
     Ok(data)
 }
@@ -662,10 +686,19 @@ mod tests {
 
     #[test]
     fn test_vless_flow_from_str() {
-        assert_eq!(VlessFlow::from_str("xtls-rprx-vision"), VlessFlow::XtlsRprxVision);
+        assert_eq!(
+            VlessFlow::from_str("xtls-rprx-vision"),
+            VlessFlow::XtlsRprxVision
+        );
         assert_eq!(VlessFlow::from_str("vision"), VlessFlow::XtlsRprxVision);
-        assert_eq!(VlessFlow::from_str("XTLS-RPRX-VISION"), VlessFlow::XtlsRprxVision);
-        assert_eq!(VlessFlow::from_str("xtls-rprx-vision-udp443"), VlessFlow::XtlsRprxVisionUdp443);
+        assert_eq!(
+            VlessFlow::from_str("XTLS-RPRX-VISION"),
+            VlessFlow::XtlsRprxVision
+        );
+        assert_eq!(
+            VlessFlow::from_str("xtls-rprx-vision-udp443"),
+            VlessFlow::XtlsRprxVisionUdp443
+        );
         assert_eq!(VlessFlow::from_str(""), VlessFlow::None);
         assert_eq!(VlessFlow::from_str("unknown"), VlessFlow::None);
     }

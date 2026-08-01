@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Main configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// General settings
     #[serde(default)]
@@ -53,7 +52,6 @@ impl Config {
         Ok(config)
     }
 }
-
 
 /// General configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

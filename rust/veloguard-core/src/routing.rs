@@ -1,15 +1,19 @@
 use crate::config::{Config, Mode, RuleConfig, RuleType};
 use crate::error::{Error, Result};
 use crate::geoip::GeoIpManager;
+use crate::rule_provider::RuleProviderConfig;
 use crate::rule_provider::RuleProviderManager;
 use ipnet::IpNet;
 use regex::Regex;
 use std::net::IpAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::sync::RwLock as StdRwLock;
 use tokio::sync::RwLock;
 
 static RUNTIME_PROXY_MODE: AtomicI32 = AtomicI32::new(0);
+static RUNTIME_RULE_PROVIDERS: once_cell::sync::Lazy<StdRwLock<Vec<RuleProviderConfig>>> =
+    once_cell::sync::Lazy::new(|| StdRwLock::new(Vec::new()));
 
 pub fn set_runtime_proxy_mode(mode: i32) {
     tracing::info!("Setting runtime proxy mode to {}", mode);
@@ -18,6 +22,20 @@ pub fn set_runtime_proxy_mode(mode: i32) {
 
 pub fn get_runtime_proxy_mode() -> i32 {
     RUNTIME_PROXY_MODE.load(Ordering::SeqCst)
+}
+
+pub fn set_runtime_rule_providers(providers: Vec<RuleProviderConfig>) {
+    match RUNTIME_RULE_PROVIDERS.write() {
+        Ok(mut configured) => *configured = providers,
+        Err(poisoned) => *poisoned.into_inner() = providers,
+    }
+}
+
+fn runtime_rule_providers() -> Vec<RuleProviderConfig> {
+    match RUNTIME_RULE_PROVIDERS.read() {
+        Ok(configured) => configured.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
 }
 
 pub struct Router {
@@ -42,6 +60,15 @@ impl Router {
         let rules = Self::compile_rules(&config.read().await.rules)?;
         let geoip_manager = GeoIpManager::new();
         let rule_provider_manager = RuleProviderManager::new();
+        let load_results = futures::future::join_all(
+            runtime_rule_providers()
+                .into_iter()
+                .map(|provider| rule_provider_manager.add_provider(provider)),
+        )
+        .await;
+        for error in load_results.into_iter().filter_map(|result| result.err()) {
+            tracing::warn!("Rule provider could not be loaded: {}", error);
+        }
 
         Ok(Self {
             config,
@@ -71,7 +98,7 @@ impl Router {
         process_name: Option<&str>,
     ) -> String {
         let config = self.config.read().await;
-        
+
         let runtime_mode = get_runtime_proxy_mode();
         let effective_mode = match runtime_mode {
             1 => Mode::Global,
@@ -79,23 +106,27 @@ impl Router {
             3 => Mode::Rule,
             _ => config.general.mode,
         };
-        
+
         tracing::debug!(
             "Routing request: domain={:?}, ip={:?}, port={:?}, mode={:?}",
-            domain, ip, port, effective_mode
+            domain,
+            ip,
+            port,
+            effective_mode
         );
-        
+
         if matches!(effective_mode, Mode::Global) {
             for outbound in &config.outbounds {
                 let tag_lower = outbound.tag.to_lowercase();
                 if tag_lower == "direct" || tag_lower == "reject" {
                     continue;
                 }
-                if matches!(outbound.outbound_type, 
-                    crate::config::OutboundType::Selector |
-                    crate::config::OutboundType::Urltest |
-                    crate::config::OutboundType::Fallback |
-                    crate::config::OutboundType::Loadbalance
+                if matches!(
+                    outbound.outbound_type,
+                    crate::config::OutboundType::Selector
+                        | crate::config::OutboundType::Urltest
+                        | crate::config::OutboundType::Fallback
+                        | crate::config::OutboundType::Loadbalance
                 ) {
                     tracing::info!("Global mode: routing to proxy group '{}'", outbound.tag);
                     return outbound.tag.clone();
@@ -110,19 +141,24 @@ impl Router {
             }
             return "DIRECT".to_string();
         }
-        
+
         if matches!(effective_mode, Mode::Direct) {
             tracing::debug!("Direct mode: routing to DIRECT");
             return "DIRECT".to_string();
         }
-        
+
         let rules = self.rules.read().await;
 
         for rule in rules.iter() {
-            if self.matches_rule(rule, domain, ip, port, process_name).await {
+            if self
+                .matches_rule(rule, domain, ip, port, process_name)
+                .await
+            {
                 tracing::info!(
                     "Rule matched: {:?} '{}' -> '{}'",
-                    rule.rule_type, rule.pattern, rule.outbound
+                    rule.rule_type,
+                    rule.pattern,
+                    rule.outbound
                 );
                 return rule.outbound.clone();
             }
@@ -133,8 +169,11 @@ impl Router {
             .first()
             .map(|o| o.tag.clone())
             .unwrap_or_else(|| "direct".to_string());
-        
-        tracing::debug!("No rule matched, using default outbound: {}", default_outbound);
+
+        tracing::debug!(
+            "No rule matched, using default outbound: {}",
+            default_outbound
+        );
         default_outbound
     }
 
@@ -151,9 +190,10 @@ impl Router {
 
         for rule in rules {
             let regex = if rule.rule_type == RuleType::DomainRegex {
-                Some(Regex::new(&rule.payload).map_err(|e| {
-                    Error::config(format!("Invalid regex pattern: {}", e))
-                })?)
+                Some(
+                    Regex::new(&rule.payload)
+                        .map_err(|e| Error::config(format!("Invalid regex pattern: {}", e)))?,
+                )
             } else {
                 None
             };
@@ -190,8 +230,8 @@ impl Router {
                 if let Some(domain) = domain {
                     let domain_lower = domain.to_lowercase();
                     let pattern_lower = rule.pattern.to_lowercase();
-                    domain_lower == pattern_lower || 
-                    domain_lower.ends_with(&format!(".{}", pattern_lower))
+                    domain_lower == pattern_lower
+                        || domain_lower.ends_with(&format!(".{}", pattern_lower))
                 } else {
                     false
                 }
@@ -270,7 +310,9 @@ impl Router {
             let part = part.trim();
             if part.contains('-') {
                 if let Some((start, end)) = part.split_once('-') {
-                    if let (Ok(start), Ok(end)) = (start.trim().parse::<u16>(), end.trim().parse::<u16>()) {
+                    if let (Ok(start), Ok(end)) =
+                        (start.trim().parse::<u16>(), end.trim().parse::<u16>())
+                    {
                         if port >= start && port <= end {
                             return true;
                         }
@@ -288,17 +330,17 @@ impl Router {
     fn matches_process_name(&self, pattern: &str, process_name: &str) -> bool {
         let pattern_lower = pattern.to_lowercase();
         let process_lower = process_name.to_lowercase();
-        
+
         if pattern_lower == process_lower {
             return true;
         }
-        
+
         if let Some(name) = process_name.rsplit(['/', '\\']).next() {
             if name.to_lowercase() == pattern_lower {
                 return true;
             }
         }
-        
+
         if let Some(name_without_ext) = pattern_lower.strip_suffix(".exe") {
             if process_lower == name_without_ext {
                 return true;
@@ -309,17 +351,16 @@ impl Router {
                 }
             }
         }
-        
+
         if let Some(proc_without_ext) = process_lower.strip_suffix(".exe") {
             if proc_without_ext == pattern_lower {
                 return true;
             }
         }
-        
+
         false
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -328,16 +369,25 @@ mod tests {
 
     #[test]
     fn test_matches_cidr_ipv4() {
-        assert!(Router::matches_cidr("192.168.0.0/16", IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
-        assert!(Router::matches_cidr("192.168.0.0/16", IpAddr::V4(Ipv4Addr::new(192, 168, 255, 255))));
-        assert!(!Router::matches_cidr("192.168.0.0/16", IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(Router::matches_cidr(
+            "192.168.0.0/16",
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))
+        ));
+        assert!(Router::matches_cidr(
+            "192.168.0.0/16",
+            IpAddr::V4(Ipv4Addr::new(192, 168, 255, 255))
+        ));
+        assert!(!Router::matches_cidr(
+            "192.168.0.0/16",
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
+        ));
     }
 
     #[test]
     fn test_matches_cidr_ipv6() {
         let ip = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
         assert!(Router::matches_cidr("2001:db8::/32", ip));
-        
+
         let ip2 = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb9, 0, 0, 0, 0, 0, 1));
         assert!(!Router::matches_cidr("2001:db8::/32", ip2));
     }
@@ -381,7 +431,7 @@ mod tests {
             geoip_manager: GeoIpManager::new(),
             rule_provider_manager: RuleProviderManager::new(),
         };
-        
+
         assert!(router.matches_process_name("chrome", "chrome"));
         assert!(router.matches_process_name("Chrome", "chrome"));
     }
@@ -394,7 +444,7 @@ mod tests {
             geoip_manager: GeoIpManager::new(),
             rule_provider_manager: RuleProviderManager::new(),
         };
-        
+
         assert!(router.matches_process_name("chrome", "/usr/bin/chrome"));
         assert!(router.matches_process_name("chrome", "C:\\Program Files\\chrome"));
     }
@@ -407,7 +457,7 @@ mod tests {
             geoip_manager: GeoIpManager::new(),
             rule_provider_manager: RuleProviderManager::new(),
         };
-        
+
         assert!(router.matches_process_name("chrome.exe", "chrome"));
         assert!(router.matches_process_name("chrome", "chrome.exe"));
     }
@@ -427,8 +477,14 @@ mod property_tests {
     #[allow(dead_code)]
     fn arb_ipv6() -> impl Strategy<Value = Ipv6Addr> {
         (
-            any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(),
-            any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
         )
             .prop_map(|(a, b, c, d, e, f, g, h)| Ipv6Addr::new(a, b, c, d, e, f, g, h))
     }
@@ -450,7 +506,7 @@ mod property_tests {
         ) {
             let lower = domain.to_lowercase();
             let upper = domain.to_uppercase();
-            
+
             let rule = CompiledRule {
                 rule_type: RuleType::Domain,
                 pattern: lower.clone(),
@@ -458,14 +514,14 @@ mod property_tests {
                 process_name: None,
                 regex: None,
             };
-            
+
             let router = Router {
                 config: std::sync::Arc::new(RwLock::new(Config::default())),
                 rules: RwLock::new(vec![rule]),
                 geoip_manager: GeoIpManager::new(),
                 rule_provider_manager: RuleProviderManager::new(),
             };
-            
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let matches_lower = rt.block_on(async {
                 router.matches_rule(
@@ -485,7 +541,7 @@ mod property_tests {
                     None,
                 ).await
             });
-            
+
             prop_assert!(matches_lower);
             prop_assert!(matches_upper);
         }
@@ -496,7 +552,7 @@ mod property_tests {
             subdomain in "[a-z]{1,5}"
         ) {
             let full_domain = format!("{}.{}", subdomain, base_domain);
-            
+
             let rule = CompiledRule {
                 rule_type: RuleType::DomainSuffix,
                 pattern: base_domain.clone(),
@@ -504,14 +560,14 @@ mod property_tests {
                 process_name: None,
                 regex: None,
             };
-            
+
             let router = Router {
                 config: std::sync::Arc::new(RwLock::new(Config::default())),
                 rules: RwLock::new(vec![rule]),
                 geoip_manager: GeoIpManager::new(),
                 rule_provider_manager: RuleProviderManager::new(),
             };
-            
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let matches = rt.block_on(async {
                 router.matches_rule(
@@ -522,7 +578,7 @@ mod property_tests {
                     None,
                 ).await
             });
-            
+
             prop_assert!(matches, "Domain suffix {} should match {}", base_domain, full_domain);
         }
 
@@ -533,7 +589,7 @@ mod property_tests {
             suffix in "[a-z]{0,3}\\.[a-z]{2,4}"
         ) {
             let domain = format!("{}{}{}", prefix, keyword, suffix);
-            
+
             let rule = CompiledRule {
                 rule_type: RuleType::DomainKeyword,
                 pattern: keyword.clone(),
@@ -541,14 +597,14 @@ mod property_tests {
                 process_name: None,
                 regex: None,
             };
-            
+
             let router = Router {
                 config: std::sync::Arc::new(RwLock::new(Config::default())),
                 rules: RwLock::new(vec![rule]),
                 geoip_manager: GeoIpManager::new(),
                 rule_provider_manager: RuleProviderManager::new(),
             };
-            
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let matches = rt.block_on(async {
                 router.matches_rule(
@@ -559,7 +615,7 @@ mod property_tests {
                     None,
                 ).await
             });
-            
+
             prop_assert!(matches, "Keyword {} should match domain {}", keyword, domain);
         }
 
@@ -571,18 +627,18 @@ mod property_tests {
         ) {
             let base_octets = base_ip.octets();
             let base_u32 = u32::from_be_bytes(base_octets);
-            
+
             let mask = !((1u32 << (32 - prefix_len)) - 1);
             let network_base = base_u32 & mask;
-            
+
             let network_size = 1u32 << (32 - prefix_len);
             let test_offset = offset % network_size;
             let test_ip_u32 = network_base.wrapping_add(test_offset);
             let test_ip = Ipv4Addr::from(test_ip_u32);
-            
+
             let network_ip = Ipv4Addr::from(network_base);
             let cidr = format!("{}/{}", network_ip, prefix_len);
-            
+
             let matches = Router::matches_cidr(&cidr, IpAddr::V4(test_ip));
             prop_assert!(matches, "IP {} should be in CIDR {}", test_ip, cidr);
         }
@@ -592,9 +648,9 @@ mod property_tests {
             start in 1u16..32000u16,
             range_size in 1u16..1000u16
         ) {
-            let end = start.saturating_add(range_size).min(65535);
+            let end = start.saturating_add(range_size);
             let pattern = format!("{}-{}", start, end);
-            
+
             for port in start..=end.min(start + 10) {
                 prop_assert!(
                     Router::matches_port_range(&pattern, port),
@@ -610,14 +666,14 @@ mod property_tests {
         ) {
             let end = start.saturating_add(range_size).min(65534);
             let pattern = format!("{}-{}", start, end);
-            
+
             if start > 1 {
                 prop_assert!(
                     !Router::matches_port_range(&pattern, start - 1),
                     "Port {} should not match range {}", start - 1, pattern
                 );
             }
-            
+
             if end < 65535 {
                 prop_assert!(
                     !Router::matches_port_range(&pattern, end + 1),
@@ -639,14 +695,14 @@ mod property_tests {
                 process_name: None,
                 regex: None,
             };
-            
+
             let router = Router {
                 config: std::sync::Arc::new(RwLock::new(Config::default())),
                 rules: RwLock::new(vec![rule]),
                 geoip_manager: GeoIpManager::new(),
                 rule_provider_manager: RuleProviderManager::new(),
             };
-            
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let matches = rt.block_on(async {
                 router.matches_rule(
@@ -657,7 +713,7 @@ mod property_tests {
                     None,
                 ).await
             });
-            
+
             prop_assert!(matches, "MATCH rule should always match");
         }
 
@@ -674,7 +730,7 @@ mod property_tests {
                 },
                 RuleConfig {
                     rule_type: RuleType::DomainSuffix,
-                    payload: domain.split('.').last().unwrap_or("com").to_string(),
+                    payload: domain.split('.').next_back().unwrap_or("com").to_string(),
                     outbound: "second".to_string(),
                     process_name: None,
                 },
@@ -685,7 +741,7 @@ mod property_tests {
                     process_name: None,
                 },
             ];
-            
+
             let config = Config {
                 rules: rules.clone(),
                 outbounds: vec![
@@ -699,13 +755,13 @@ mod property_tests {
                 ],
                 ..Default::default()
             };
-            
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let result = rt.block_on(async {
                 let router = Router::new(std::sync::Arc::new(RwLock::new(config))).await.unwrap();
                 router.match_outbound(Some(&domain), None, None, None).await
             });
-            
+
             prop_assert_eq!(result, "first", "First matching rule should be used");
         }
     }

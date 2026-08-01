@@ -31,8 +31,11 @@ fn init_tracing_safe() -> std::result::Result<(), ()> {
     let flutter_log_layer = FlutterLogLayer;
     #[cfg(target_os = "android")]
     {
-        let android_layer =
-            tracing_android::layer("VeloGuard").expect("Failed to create Android tracing layer");
+        let android_layer = tracing_android::layer("VeloGuard").map_err(|error| {
+            veloguard_core::logging::add_log(format!(
+                "[WARN] Android tracing layer is unavailable: {error}"
+            ));
+        })?;
 
         let result = tracing_subscriber::registry()
             .with(filter)
@@ -43,7 +46,11 @@ fn init_tracing_safe() -> std::result::Result<(), ()> {
         if result.is_ok() {
             tracing::info!("VeloGuard FFI bridge initialized (Android) - logs visible in logcat and Flutter UI");
         }
-        result.map_err(|_| ())
+        result.map_err(|error| {
+            veloguard_core::logging::add_log(format!(
+                "[INFO] Tracing subscriber was not installed: {error}"
+            ));
+        })
     }
 
     #[cfg(not(target_os = "android"))]
@@ -693,6 +700,7 @@ pub async fn stop_tun_mode() -> std::result::Result<(), String> {
 pub async fn initialize_veloguard(config_json: String) -> Result<()> {
     tracing::info!("Initializing veloguard...");
 
+    configure_rule_providers(&config_json)?;
     let config: VeloGuardConfig = serde_json::from_str(&config_json)
         .map_err(|e| VeloGuardError::Parse(format!("Invalid config JSON: {}", e)))?;
     let core_config = convert_ffi_config_to_core(config)?;
@@ -770,6 +778,7 @@ pub async fn stop_veloguard() -> Result<()> {
 
 #[frb]
 pub async fn reload_veloguard(config_json: String) -> Result<()> {
+    configure_rule_providers(&config_json)?;
     let config: VeloGuardConfig = serde_json::from_str(&config_json)
         .map_err(|e| VeloGuardError::Parse(format!("Invalid config JSON: {}", e)))?;
 
@@ -819,7 +828,8 @@ pub async fn get_veloguard_status() -> Result<ProxyStatus> {
             {
                 if let Some(processor) = crate::get_android_vpn_processor() {
                     let vpn_stats = processor.get_traffic_stats();
-                    let vpn_connections = (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u32;
+                    let vpn_connections =
+                        (vpn_stats.tcp_connections + vpn_stats.udp_sessions) as u32;
                     base_count.max(vpn_connections)
                 } else {
                     base_count
@@ -878,6 +888,7 @@ pub async fn get_traffic_stats() -> Result<TrafficStats> {
 
 #[frb]
 pub async fn test_config(config_json: String) -> Result<bool> {
+    configure_rule_providers(&config_json)?;
     let config: VeloGuardConfig = serde_json::from_str(&config_json)
         .map_err(|e| VeloGuardError::Parse(format!("Invalid config JSON: {}", e)))?;
 
@@ -963,7 +974,11 @@ pub async fn get_system_info() -> Result<SystemInfo> {
     sys.refresh_all();
 
     let memory_total = sys.total_memory();
-    let memory_used = sys.used_memory();
+    let memory_used = sysinfo::get_current_pid()
+        .ok()
+        .and_then(|pid| sys.process(pid))
+        .map(|process| process.memory())
+        .unwrap_or_default();
     let cpu_threads = sys.cpus().len() as u32;
     let cpu_cores = System::physical_core_count()
         .map(|c| c as u32)
@@ -1079,6 +1094,8 @@ pub fn get_build_info() -> String {
         "ios"
     } else if cfg!(target_os = "android") {
         "android"
+    } else if cfg!(target_os = "ohos") {
+        "harmonyos"
     } else {
         "unknown"
     };
@@ -1087,6 +1104,60 @@ pub fn get_build_info() -> String {
         env!("CARGO_PKG_VERSION"),
         target
     )
+}
+
+fn configure_rule_providers(config_json: &str) -> Result<()> {
+    use veloguard_core::rule_provider::{RuleProviderConfig, RuleProviderType};
+
+    let value: serde_json::Value = serde_json::from_str(config_json)
+        .map_err(|error| VeloGuardError::Parse(format!("Invalid config JSON: {error}")))?;
+    let providers = value
+        .get("rule_providers")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+    let providers: Vec<RuleProviderConfig> = serde_json::from_value(providers)
+        .map_err(|error| VeloGuardError::Parse(format!("Invalid rule providers: {error}")))?;
+
+    for provider in &providers {
+        if provider.interval < 60 {
+            return Err(VeloGuardError::Parse(format!(
+                "Rule provider '{}' interval must be at least 60 seconds",
+                provider.name
+            )));
+        }
+        match provider.provider_type {
+            RuleProviderType::Http => {
+                let url = provider.url.as_deref().ok_or_else(|| {
+                    VeloGuardError::Parse(format!(
+                        "HTTP rule provider '{}' requires a URL",
+                        provider.name
+                    ))
+                })?;
+                let parsed = reqwest::Url::parse(url).map_err(|error| {
+                    VeloGuardError::Parse(format!(
+                        "Invalid URL for rule provider '{}': {error}",
+                        provider.name
+                    ))
+                })?;
+                if parsed.scheme() != "https" {
+                    return Err(VeloGuardError::Parse(format!(
+                        "Rule provider '{}' must use HTTPS",
+                        provider.name
+                    )));
+                }
+            }
+            RuleProviderType::File if provider.path.is_none() => {
+                return Err(VeloGuardError::Parse(format!(
+                    "File rule provider '{}' requires a path",
+                    provider.name
+                )));
+            }
+            RuleProviderType::File => {}
+        }
+    }
+
+    veloguard_core::set_runtime_rule_providers(providers);
+    Ok(())
 }
 
 fn convert_ffi_config_to_core(ffi_config: VeloGuardConfig) -> Result<Config> {
@@ -1141,139 +1212,51 @@ fn convert_ffi_config_to_core(ffi_config: VeloGuardConfig) -> Result<Config> {
     let inbounds = ffi_config
         .inbounds
         .into_iter()
-        .map(|inbound| {
-            let opts: HashMap<String, serde_yaml::Value> = if inbound.options.is_empty() {
-                HashMap::new()
-            } else {
-                let json_map: HashMap<String, serde_json::Value> =
-                    serde_json::from_str(&inbound.options).unwrap_or_default();
-                json_map
-                    .into_iter()
-                    .filter_map(|(k, v)| match serde_yaml::to_value(v) {
-                        Ok(val) => Some((k, val)),
-                        Err(err) => {
-                            tracing::warn!("Failed to convert inbound option {}: {}", k, err);
-                            None
-                        }
-                    })
-                    .collect()
-            };
+        .map(|inbound| -> Result<InboundConfig> {
+            let opts = decode_options("inbound", &inbound.tag, &inbound.options)?;
+            let inbound_type = parse_inbound_type(&inbound.inbound_type, &inbound.tag)?;
 
-            InboundConfig {
-                inbound_type: match inbound.inbound_type.as_str() {
-                    "http" => InboundType::Http,
-                    "socks5" => InboundType::Socks5,
-                    "mixed" => InboundType::Mixed,
-                    "redir" => InboundType::Redir,
-                    "tproxy" => InboundType::Tproxy,
-                    "tun" => InboundType::Tun,
-                    "socks" => InboundType::Socks5,
-                    _ => InboundType::Http,
-                },
+            Ok(InboundConfig {
+                inbound_type,
                 tag: inbound.tag,
                 listen: inbound.listen,
                 port: inbound.port,
                 options: opts,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let outbounds = ffi_config
         .outbounds
         .into_iter()
-        .map(|outbound| {
-            let opts: HashMap<String, serde_yaml::Value> = if outbound.options.is_empty() {
-                HashMap::new()
-            } else {
-                tracing::debug!(
-                    "Outbound '{}' options JSON: {}",
-                    outbound.tag,
-                    &outbound.options
-                );
-                let json_map: HashMap<String, serde_json::Value> =
-                    serde_json::from_str(&outbound.options).unwrap_or_default();
-                let result: HashMap<String, serde_yaml::Value> = json_map
-                    .into_iter()
-                    .filter_map(|(k, v)| match serde_yaml::to_value(&v) {
-                        Ok(val) => {
-                            tracing::debug!(
-                                "Outbound '{}' option '{}' converted: {:?}",
-                                outbound.tag,
-                                k,
-                                val
-                            );
-                            Some((k, val))
-                        }
-                        Err(err) => {
-                            tracing::warn!("Failed to convert outbound option {}: {}", k, err);
-                            None
-                        }
-                    })
-                    .collect();
-                tracing::debug!(
-                    "Outbound '{}' converted {} options",
-                    outbound.tag,
-                    result.len()
-                );
-                result
-            };
+        .map(|outbound| -> Result<OutboundConfig> {
+            let opts = decode_options("outbound", &outbound.tag, &outbound.options)?;
+            let outbound_type = parse_outbound_type(&outbound.outbound_type, &outbound.tag)?;
 
-            OutboundConfig {
-                outbound_type: match outbound.outbound_type.to_lowercase().as_str() {
-                    "direct" => OutboundType::Direct,
-                    "reject" => OutboundType::Reject,
-                    "shadowsocks" => OutboundType::Shadowsocks,
-                    "vmess" => OutboundType::Vmess,
-                    "trojan" => OutboundType::Trojan,
-                    "wireguard" => OutboundType::Wireguard,
-                    "socks5" => OutboundType::Socks5,
-                    "socks" => OutboundType::Socks5,
-                    "http" => OutboundType::Http,
-                    "tuic" => OutboundType::Tuic,
-                    "hysteria2" | "hy2" | "hysteria" => OutboundType::Hysteria2,
-                    "quic" | "shadowquic" => OutboundType::Quic,
-                    "selector" => OutboundType::Selector,
-                    "urltest" | "url-test" => OutboundType::Urltest,
-                    "fallback" => OutboundType::Fallback,
-                    "loadbalance" | "load-balance" => OutboundType::Loadbalance,
-                    "relay" => OutboundType::Relay,
-                    _ => OutboundType::Direct,
-                },
+            Ok(OutboundConfig {
+                outbound_type,
                 tag: outbound.tag,
                 server: outbound.server,
                 port: outbound.port,
                 options: opts,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let rules = ffi_config
         .rules
         .into_iter()
-        .map(|rule| {
+        .map(|rule| -> Result<RuleConfig> {
             let normalized = rule.rule_type.replace('_', "-").to_lowercase();
-            RuleConfig {
-                rule_type: match normalized.as_str() {
-                    "domain" => RuleType::Domain,
-                    "domain-suffix" => RuleType::DomainSuffix,
-                    "domain-keyword" => RuleType::DomainKeyword,
-                    "domain-regex" => RuleType::DomainRegex,
-                    "geoip" => RuleType::Geoip,
-                    "ip-cidr" => RuleType::IpCidr,
-                    "src-ip-cidr" => RuleType::SrcIpCidr,
-                    "src-port" => RuleType::SrcPort,
-                    "dst-port" => RuleType::DstPort,
-                    "process-name" => RuleType::ProcessName,
-                    "rule-set" => RuleType::RuleSet,
-                    "match" => RuleType::Match,
-                    _ => RuleType::Domain,
-                },
+            let rule_type = parse_rule_type(&normalized)?;
+            Ok(RuleConfig {
+                rule_type,
                 payload: rule.payload,
                 outbound: rule.outbound,
                 process_name: rule.process_name,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(Config {
         general,
@@ -1282,6 +1265,130 @@ fn convert_ffi_config_to_core(ffi_config: VeloGuardConfig) -> Result<Config> {
         outbounds,
         rules,
     })
+}
+
+fn local_proxy_addr(config: &Config, port: u16) -> Result<std::net::SocketAddr> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+    let listen = config
+        .inbounds
+        .iter()
+        .find(|inbound| inbound.port == port)
+        .map(|inbound| inbound.listen.as_str())
+        .unwrap_or(config.general.bind_address.as_str())
+        .trim();
+    let host = listen
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(listen);
+    let bind_ip = host.parse::<IpAddr>().map_err(|error| {
+        VeloGuardError::Config(format!(
+            "Invalid local proxy listen address '{listen}': {error}"
+        ))
+    })?;
+    let loopback = match bind_ip {
+        IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+    };
+    Ok(SocketAddr::new(loopback, port))
+}
+
+fn parse_proxy_mode(value: &str) -> Result<i32> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "global" => Ok(1),
+        "direct" => Ok(2),
+        "rule" => Ok(3),
+        unsupported => Err(VeloGuardError::Config(format!(
+            "Unsupported proxy mode '{unsupported}'"
+        ))),
+    }
+}
+
+fn parse_inbound_type(value: &str, tag: &str) -> Result<veloguard_core::InboundType> {
+    use veloguard_core::InboundType;
+
+    match value.to_lowercase().as_str() {
+        "http" => Ok(InboundType::Http),
+        "socks" | "socks5" => Ok(InboundType::Socks5),
+        "mixed" => Ok(InboundType::Mixed),
+        "redir" => Ok(InboundType::Redir),
+        "tproxy" => Ok(InboundType::Tproxy),
+        "tun" => Ok(InboundType::Tun),
+        unsupported => Err(VeloGuardError::Config(format!(
+            "Unsupported inbound protocol '{unsupported}' for '{tag}'"
+        ))),
+    }
+}
+
+fn parse_outbound_type(value: &str, tag: &str) -> Result<veloguard_core::OutboundType> {
+    use veloguard_core::OutboundType;
+
+    match value.to_lowercase().as_str() {
+        "direct" => Ok(OutboundType::Direct),
+        "reject" => Ok(OutboundType::Reject),
+        "shadowsocks" => Ok(OutboundType::Shadowsocks),
+        "vmess" => Ok(OutboundType::Vmess),
+        "vless" => Ok(OutboundType::Vless),
+        "trojan" => Ok(OutboundType::Trojan),
+        "wireguard" => Ok(OutboundType::Wireguard),
+        "socks" | "socks5" => Ok(OutboundType::Socks5),
+        "http" => Ok(OutboundType::Http),
+        "tuic" => Ok(OutboundType::Tuic),
+        "hysteria2" | "hy2" => Ok(OutboundType::Hysteria2),
+        "quic" | "shadowquic" => Ok(OutboundType::Quic),
+        "selector" => Ok(OutboundType::Selector),
+        "urltest" | "url-test" => Ok(OutboundType::Urltest),
+        "fallback" => Ok(OutboundType::Fallback),
+        "loadbalance" | "load-balance" => Ok(OutboundType::Loadbalance),
+        "relay" => Ok(OutboundType::Relay),
+        unsupported => Err(VeloGuardError::Config(format!(
+            "Unsupported outbound protocol '{unsupported}' for '{tag}'; refusing unsafe direct fallback"
+        ))),
+    }
+}
+
+fn parse_rule_type(value: &str) -> Result<veloguard_core::RuleType> {
+    use veloguard_core::RuleType;
+
+    match value {
+        "domain" => Ok(RuleType::Domain),
+        "domain-suffix" => Ok(RuleType::DomainSuffix),
+        "domain-keyword" => Ok(RuleType::DomainKeyword),
+        "domain-regex" => Ok(RuleType::DomainRegex),
+        "geoip" => Ok(RuleType::Geoip),
+        "ip-cidr" => Ok(RuleType::IpCidr),
+        "src-ip-cidr" => Ok(RuleType::SrcIpCidr),
+        "src-port" => Ok(RuleType::SrcPort),
+        "dst-port" => Ok(RuleType::DstPort),
+        "process-name" => Ok(RuleType::ProcessName),
+        "rule-set" => Ok(RuleType::RuleSet),
+        "match" => Ok(RuleType::Match),
+        unsupported => Err(VeloGuardError::Config(format!(
+            "Unsupported routing rule type '{unsupported}'"
+        ))),
+    }
+}
+
+fn decode_options(kind: &str, tag: &str, raw: &str) -> Result<HashMap<String, serde_yaml::Value>> {
+    if raw.trim().is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let json: HashMap<String, serde_json::Value> = serde_json::from_str(raw).map_err(|error| {
+        VeloGuardError::Config(format!("Invalid {kind} options for '{tag}': {error}"))
+    })?;
+
+    json.into_iter()
+        .map(|(key, value)| {
+            serde_yaml::to_value(value)
+                .map(|value| (key.clone(), value))
+                .map_err(|error| {
+                    VeloGuardError::Config(format!(
+                        "Invalid {kind} option '{key}' for '{tag}': {error}"
+                    ))
+                })
+        })
+        .collect()
 }
 
 // ============== Latency Testing ==============
@@ -1297,7 +1404,7 @@ pub async fn test_proxy_latency(
     let proxy_name = format!("{}:{}", server, port);
     let timeout_duration = Duration::from_millis(timeout_ms as u64);
 
-    let proxy_port = {
+    let proxy_addr = {
         let instance = get_veloguard_instance().await;
         match instance {
             Ok(inst) => {
@@ -1314,18 +1421,18 @@ pub async fn test_proxy_latency(
                             break;
                         }
                     }
-                    port
+                    local_proxy_addr(config, port)?
                 } else {
-                    7890
+                    std::net::SocketAddr::from(([127, 0, 0, 1], 7890))
                 }
             }
-            Err(_) => 7890,
+            Err(_) => std::net::SocketAddr::from(([127, 0, 0, 1], 7890)),
         }
     };
 
     let test_url = "http://www.gstatic.com/generate_204";
     let start = Instant::now();
-    let result = test_via_http_proxy(test_url, proxy_port, timeout_duration).await;
+    let result = test_via_http_proxy(test_url, proxy_addr, timeout_duration).await;
 
     match result {
         Ok(()) => {
@@ -1752,13 +1859,16 @@ struct SsAeadCipher {
 
 impl SsAeadCipher {
     fn new(key: &[u8]) -> std::result::Result<Self, String> {
-        use aes_gcm::aead::generic_array::GenericArray;
         use aes_gcm::KeyInit;
 
         let inner = if key.len() == 32 {
-            SsAeadCipherInner::Aes256Gcm(aes_gcm::Aes256Gcm::new(GenericArray::from_slice(key)))
+            SsAeadCipherInner::Aes256Gcm(
+                aes_gcm::Aes256Gcm::new_from_slice(key).map_err(|_| "Invalid AES-256 key")?,
+            )
         } else if key.len() == 16 {
-            SsAeadCipherInner::Aes128Gcm(aes_gcm::Aes128Gcm::new(GenericArray::from_slice(key)))
+            SsAeadCipherInner::Aes128Gcm(
+                aes_gcm::Aes128Gcm::new_from_slice(key).map_err(|_| "Invalid AES-128 key")?,
+            )
         } else {
             return Err(format!("Invalid key length: {}", key.len()));
         };
@@ -1774,35 +1884,35 @@ impl SsAeadCipher {
     }
 
     fn encrypt(&mut self, plaintext: &[u8]) -> std::result::Result<Vec<u8>, String> {
-        use aes_gcm::aead::generic_array::GenericArray;
         use aes_gcm::aead::Aead;
 
         let nonce = self.next_nonce();
-        let nonce = GenericArray::from_slice(&nonce);
+        let nonce =
+            aes_gcm::Nonce::try_from(nonce.as_slice()).map_err(|_| "Invalid nonce length")?;
 
         match &self.inner {
             SsAeadCipherInner::Aes256Gcm(cipher) => cipher
-                .encrypt(nonce, plaintext)
+                .encrypt(&nonce, plaintext)
                 .map_err(|e| format!("Encryption failed: {}", e)),
             SsAeadCipherInner::Aes128Gcm(cipher) => cipher
-                .encrypt(nonce, plaintext)
+                .encrypt(&nonce, plaintext)
                 .map_err(|e| format!("Encryption failed: {}", e)),
         }
     }
 
     fn decrypt(&mut self, ciphertext: &[u8]) -> std::result::Result<Vec<u8>, String> {
-        use aes_gcm::aead::generic_array::GenericArray;
         use aes_gcm::aead::Aead;
 
         let nonce = self.next_nonce();
-        let nonce = GenericArray::from_slice(&nonce);
+        let nonce =
+            aes_gcm::Nonce::try_from(nonce.as_slice()).map_err(|_| "Invalid nonce length")?;
 
         match &self.inner {
             SsAeadCipherInner::Aes256Gcm(cipher) => cipher
-                .decrypt(nonce, ciphertext)
+                .decrypt(&nonce, ciphertext)
                 .map_err(|e| format!("Decryption failed: {}", e)),
             SsAeadCipherInner::Aes128Gcm(cipher) => cipher
-                .decrypt(nonce, ciphertext)
+                .decrypt(&nonce, ciphertext)
                 .map_err(|e| format!("Decryption failed: {}", e)),
         }
     }
@@ -1838,12 +1948,12 @@ async fn ss_recv_decrypted_chunk<R: tokio::io::AsyncReadExt + Unpin>(
 
 async fn test_via_http_proxy(
     url: &str,
-    proxy_port: u16,
+    proxy_addr: std::net::SocketAddr,
     timeout: tokio::time::Duration,
 ) -> std::result::Result<(), String> {
     use tokio::time::timeout as tokio_timeout;
 
-    let proxy_url = format!("http://127.0.0.1:{}", proxy_port);
+    let proxy_url = format!("http://{proxy_addr}");
     let proxy =
         reqwest::Proxy::http(&proxy_url).map_err(|e| format!("Failed to create proxy: {}", e))?;
 
@@ -2080,31 +2190,87 @@ pub async fn ensure_wintun_dll() -> Result<String> {
 
 #[frb]
 pub async fn enable_tun_mode() -> Result<TunStatus> {
-    enable_tun_mode_with_mode("rule".to_string()).await
+    #[cfg(target_os = "linux")]
+    let mode = "global";
+    #[cfg(not(target_os = "linux"))]
+    let mode = "rule";
+
+    enable_tun_mode_with_mode(mode.to_string()).await
+}
+
+#[cfg(target_os = "linux")]
+async fn stop_linux_tun_runtime() -> Vec<String> {
+    let mut errors = Vec::new();
+
+    if let Some(task) = crate::take_linux_packet_task() {
+        task.abort();
+        let _ = task.await;
+    }
+    if let Some(processor) = crate::take_linux_vpn_processor() {
+        processor.stop();
+        processor.reset();
+    }
+    if let Some(mut routes) = crate::take_linux_route_manager() {
+        if let Err(error) = routes.restore_routes() {
+            errors.push(format!("failed to restore routes: {error}"));
+        }
+    }
+    if let Some(mut device) = crate::take_linux_tun_device() {
+        if let Err(error) = device.stop().await {
+            errors.push(format!("failed to stop TUN device: {error}"));
+        }
+    }
+
+    veloguard_core::set_runtime_proxy_mode(0);
+    errors
+}
+
+#[cfg(windows)]
+async fn stop_windows_tun_runtime() -> Vec<String> {
+    if let Some(mut routes) = crate::take_windows_route_manager() {
+        if let Err(error) = routes.disable_global_mode() {
+            crate::set_windows_route_manager(routes);
+            return vec![format!("failed to restore routes: {error}")];
+        }
+    }
+
+    if let Some(mut device) = crate::take_windows_tun_device() {
+        if let Err(error) = device.stop().await {
+            crate::set_windows_tun_device(device);
+            return vec![format!("failed to stop TUN device: {error}")];
+        }
+    }
+    if let Some(processor) = crate::take_windows_vpn_processor() {
+        processor.stop();
+        processor.reset();
+    }
+
+    veloguard_core::set_runtime_proxy_mode(0);
+    veloguard_netstack::set_windows_proxy_mode(0);
+    Vec::new()
 }
 
 #[frb]
 pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
+    let _lifecycle_guard = crate::TUN_LIFECYCLE_LOCK.lock().await;
+    let mode_int = parse_proxy_mode(&mode)?;
+
     #[cfg(target_os = "windows")]
     {
         use veloguard_netstack::{TunConfig, TunDevice, WindowsRouteManager, WindowsVpnProcessor};
 
         tracing::info!("=== Enabling TUN mode on Windows with mode={} ===", mode);
-        if let Some(old_processor) = crate::get_windows_vpn_processor() {
-            tracing::info!("Cleaning up existing Windows VPN processor");
-            old_processor.stop();
-            old_processor.reset();
-        }
-        crate::clear_windows_vpn_processor();
-
-        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
-            let _ = route_manager.disable_global_mode();
-        }
-        crate::clear_windows_route_manager();
-
-        if let Some(mut tun_device) = crate::take_windows_tun_device() {
-            let _ = tun_device.stop().await;
-            tracing::info!("Stopped existing TUN device");
+        let cleanup_errors = stop_windows_tun_runtime().await;
+        if !cleanup_errors.is_empty() {
+            return Ok(TunStatus {
+                enabled: true,
+                interface_name: Some("VeloGuard".to_string()),
+                mtu: Some(1500),
+                error: Some(format!(
+                    "Failed to clean up the previous Windows TUN runtime: {}",
+                    cleanup_errors.join("; ")
+                )),
+            });
         }
 
         match veloguard_netstack::ensure_wintun().await {
@@ -2121,7 +2287,7 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
             }
         }
 
-        let proxy_port = {
+        let (proxy_addr, proxy_servers) = {
             let instance = get_veloguard_instance().await?;
             let veloguard_guard = instance.read().await;
             if let Some(ref veloguard) = *veloguard_guard {
@@ -2139,11 +2305,17 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
                     });
                 }
                 let config = veloguard.config();
-                config
+                let proxy_port = config
                     .general
                     .mixed_port
                     .or(config.general.socks_port)
-                    .unwrap_or(7890)
+                    .unwrap_or(7890);
+                let proxy_servers = config
+                    .outbounds
+                    .iter()
+                    .filter_map(|outbound| outbound.server.clone().zip(outbound.port))
+                    .collect::<Vec<_>>();
+                (local_proxy_addr(config, proxy_port)?, proxy_servers)
             } else {
                 return Ok(TunStatus {
                     enabled: false,
@@ -2154,17 +2326,57 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
             }
         };
 
-        tracing::info!("Using proxy port {} for Windows TUN", proxy_port);
+        tracing::info!("Using proxy endpoint {} for Windows TUN", proxy_addr);
 
-        let mode_int = match mode.to_lowercase().as_str() {
-            "global" => 1,
-            "direct" => 2,
-            "rule" => 3,
-            _ => 3,
-        };
-        veloguard_core::set_runtime_proxy_mode(mode_int);
-        veloguard_netstack::set_windows_proxy_mode(mode_int);
-        tracing::info!("Proxy mode set to {} ({})", mode, mode_int);
+        if let Err(error) = tokio::net::TcpStream::connect(proxy_addr).await {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(format!("Local SOCKS inbound is unavailable: {error}")),
+            });
+        }
+
+        let mut excluded_addresses = std::collections::HashSet::new();
+        if mode_int == 1 {
+            if proxy_servers.is_empty() {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some("Global mode has no configured proxy server".to_string()),
+                });
+            }
+            for (server, port) in proxy_servers {
+                let addresses = match tokio::net::lookup_host((server.as_str(), port)).await {
+                    Ok(addresses) => addresses,
+                    Err(error) => {
+                        return Ok(TunStatus {
+                            enabled: false,
+                            interface_name: None,
+                            mtu: None,
+                            error: Some(format!(
+                                "Failed to resolve proxy server {server}:{port}: {error}"
+                            )),
+                        });
+                    }
+                };
+                excluded_addresses.extend(addresses.filter_map(|address| match address.ip() {
+                    std::net::IpAddr::V4(address) if !address.is_loopback() => Some(address),
+                    _ => None,
+                }));
+            }
+            if excluded_addresses.is_empty() {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some(
+                        "Global mode has no routable IPv4 proxy server address".to_string(),
+                    ),
+                });
+            }
+        }
 
         let tun_address = std::net::Ipv4Addr::new(198, 18, 0, 1);
         let config = TunConfig {
@@ -2226,8 +2438,11 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
             }
         };
 
-        let processor = std::sync::Arc::new(WindowsVpnProcessor::new(proxy_port, tun_tx.clone()));
-        crate::set_windows_vpn_processor(processor.clone());
+        let processor = std::sync::Arc::new(WindowsVpnProcessor::new_with_proxy_addr(
+            proxy_addr,
+            config.mtu,
+            tun_tx.clone(),
+        ));
 
         let processor_clone = processor.clone();
         tokio::spawn(async move {
@@ -2252,13 +2467,25 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
                 "Windows TUN packet processing task stopped, processed {} packets",
                 packet_count
             );
+            processor_clone.stop();
         });
 
         let mut route_manager = WindowsRouteManager::new(&config.name, tun_address);
 
-        if mode.to_lowercase() == "global" {
-            if let Err(e) = route_manager.enable_global_mode() {
-                tracing::warn!("Failed to enable global mode routes: {}", e);
+        if mode_int == 1 {
+            let excluded_addresses = excluded_addresses.into_iter().collect::<Vec<_>>();
+            if let Err(error) = route_manager.enable_global_mode(&excluded_addresses) {
+                processor.stop();
+                processor.reset();
+                let _ = tun.stop().await;
+                veloguard_core::set_runtime_proxy_mode(0);
+                veloguard_netstack::set_windows_proxy_mode(0);
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some(format!("Failed to enable global mode routes: {error}")),
+                });
             }
         }
 
@@ -2272,8 +2499,12 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
             tracing::warn!("Failed to flush DNS cache: {}", e);
         }
 
+        crate::set_windows_vpn_processor(processor);
         crate::set_windows_route_manager(route_manager);
         crate::set_windows_tun_device(tun);
+        veloguard_core::set_runtime_proxy_mode(mode_int);
+        veloguard_netstack::set_windows_proxy_mode(mode_int);
+        tracing::info!("Proxy mode set to {} ({})", mode, mode_int);
 
         tracing::info!("=== Windows TUN mode enabled successfully ===");
         Ok(TunStatus {
@@ -2286,19 +2517,185 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
 
     #[cfg(target_os = "linux")]
     {
-        mode;
-        tracing::info!("Enabling TUN mode on Linux");
+        use veloguard_netstack::{RouteManager, TunConfig, TunDevice, TunPacketProcessor};
+
+        let cleanup_errors = stop_linux_tun_runtime().await;
+        if !cleanup_errors.is_empty() {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(format!(
+                    "Failed to clean up the previous Linux TUN runtime: {}",
+                    cleanup_errors.join("; ")
+                )),
+            });
+        }
+
+        if mode_int != 1 {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(
+                    "Linux TUN currently requires global mode because direct sockets are not marked"
+                        .to_string(),
+                ),
+            });
+        }
+
+        let (proxy_addr, proxy_servers) = {
+            let instance = get_veloguard_instance().await?;
+            let guard = instance.read().await;
+            let Some(veloguard) = guard.as_ref() else {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some("VeloGuard is not initialized".to_string()),
+                });
+            };
+            if !veloguard.is_running().await.unwrap_or(false) {
+                return Ok(TunStatus {
+                    enabled: false,
+                    interface_name: None,
+                    mtu: None,
+                    error: Some("VeloGuard proxy service is not running".to_string()),
+                });
+            }
+            let config = veloguard.config();
+            let proxy_port = config
+                .general
+                .mixed_port
+                .or(config.general.socks_port)
+                .unwrap_or(7890);
+            let servers = config
+                .outbounds
+                .iter()
+                .filter_map(|outbound| outbound.server.clone().zip(outbound.port))
+                .collect::<Vec<_>>();
+            (local_proxy_addr(config, proxy_port)?, servers)
+        };
+
+        if proxy_servers.is_empty() {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some("Global mode has no configured proxy server".to_string()),
+            });
+        }
+        if let Err(error) = tokio::net::TcpStream::connect(proxy_addr).await {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(format!("Local SOCKS inbound is unavailable: {error}")),
+            });
+        }
+
+        let mut excluded_addresses = std::collections::HashSet::new();
+        for (server, port) in proxy_servers {
+            let addresses = tokio::net::lookup_host((server.as_str(), port))
+                .await
+                .map_err(|error| {
+                    VeloGuardError::Internal(format!(
+                        "Failed to resolve proxy server {server}:{port}: {error}"
+                    ))
+                })?;
+            excluded_addresses.extend(addresses.map(|address| address.ip()));
+        }
+
+        let config = TunConfig {
+            name: "veloguard0".to_string(),
+            address: std::net::Ipv4Addr::new(198, 18, 0, 1),
+            netmask: std::net::Ipv4Addr::new(255, 255, 0, 0),
+            mtu: 1500,
+            gateway: None,
+            dns: vec![std::net::Ipv4Addr::new(198, 18, 0, 2)],
+        };
+        let mut device = TunDevice::with_config(config.clone())
+            .await
+            .map_err(|error| VeloGuardError::Internal(error.to_string()))?;
+        if let Err(error) = device.start().await {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(format!("Failed to start Linux TUN device: {error}")),
+            });
+        }
+
+        let Some(tun_tx) = device.get_sender() else {
+            let _ = device.stop().await;
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some("Linux TUN sender was not initialized".to_string()),
+            });
+        };
+        let Some(mut tun_rx) = device.take_receiver() else {
+            let _ = device.stop().await;
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some("Linux TUN receiver was not initialized".to_string()),
+            });
+        };
+
+        let processor = std::sync::Arc::new(TunPacketProcessor::new_with_proxy_addr(
+            proxy_addr, config.mtu, tun_tx,
+        ));
+        let packet_processor = std::sync::Arc::clone(&processor);
+        let packet_task = tokio::spawn(async move {
+            while let Some(packet) = tun_rx.recv().await {
+                if !packet_processor.is_running() {
+                    break;
+                }
+                if let Err(error) = packet_processor.process_packet(&packet).await {
+                    tracing::debug!("Linux TUN packet processing failed: {}", error);
+                }
+            }
+            packet_processor.stop();
+        });
+
+        let mut routes = RouteManager::new();
+        routes.set_tun_interface_name(&config.name);
+        for address in excluded_addresses {
+            routes.exclude_address(address);
+        }
+        if let Err(error) = routes.setup_routes(config.address) {
+            packet_task.abort();
+            processor.stop();
+            let _ = routes.restore_routes();
+            let _ = device.stop().await;
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(format!("Failed to install Linux TUN routes: {error}")),
+            });
+        }
+
+        veloguard_core::set_runtime_proxy_mode(mode_int);
+        crate::set_linux_vpn_processor(processor);
+        crate::set_linux_tun_device(device);
+        crate::set_linux_route_manager(routes);
+        crate::set_linux_packet_task(packet_task);
+
         Ok(TunStatus {
-            enabled: false,
-            interface_name: None,
-            mtu: None,
-            error: Some("TUN mode requires root privileges on Linux.".to_string()),
+            enabled: true,
+            interface_name: Some(config.name),
+            mtu: Some(u32::from(config.mtu)),
+            error: None,
         })
     }
 
     #[cfg(target_os = "macos")]
     {
-        mode;
+        let _ = mode_int;
         tracing::info!("Enabling TUN mode on macOS");
         Ok(TunStatus {
             enabled: false,
@@ -2310,12 +2707,18 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
 
     #[cfg(target_os = "android")]
     {
-        mode;
+        veloguard_core::set_runtime_proxy_mode(mode_int);
+        veloguard_netstack::set_android_proxy_mode(mode_int);
+        let enabled = start_android_vpn_inner().await?;
+        if !enabled {
+            veloguard_core::set_runtime_proxy_mode(0);
+            veloguard_netstack::set_android_proxy_mode(0);
+        }
         Ok(TunStatus {
-            enabled: true,
-            interface_name: Some("tun0".to_string()),
-            mtu: Some(1500),
-            error: None,
+            enabled,
+            interface_name: enabled.then(|| "tun0".to_string()),
+            mtu: enabled.then_some(1500),
+            error: (!enabled).then(|| "Android VPN runtime failed to start".to_string()),
         })
     }
 
@@ -2338,31 +2741,39 @@ pub async fn enable_tun_mode_with_mode(mode: String) -> Result<TunStatus> {
 
 #[frb]
 pub async fn disable_tun_mode() -> Result<TunStatus> {
+    let _lifecycle_guard = crate::TUN_LIFECYCLE_LOCK.lock().await;
     tracing::info!("=== Disabling TUN mode ===");
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(processor) = crate::get_windows_vpn_processor() {
-            processor.stop();
-            processor.reset();
-            tracing::info!("Windows VPN processor stopped");
+        let cleanup_errors = stop_windows_tun_runtime().await;
+        if !cleanup_errors.is_empty() {
+            return Ok(TunStatus {
+                enabled: true,
+                interface_name: Some("VeloGuard".to_string()),
+                mtu: Some(1500),
+                error: Some(cleanup_errors.join("; ")),
+            });
         }
-        crate::clear_windows_vpn_processor();
-        if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
-            if let Err(e) = route_manager.disable_global_mode() {
-                tracing::warn!("Failed to disable global mode routes: {}", e);
-            }
-        }
-        crate::clear_windows_route_manager();
-        if let Some(mut tun_device) = crate::take_windows_tun_device() {
-            if let Err(e) = tun_device.stop().await {
-                tracing::warn!("Failed to stop TUN device: {}", e);
-            }
-            tracing::info!("Windows TUN device stopped");
-        }
+    }
 
+    #[cfg(target_os = "android")]
+    {
+        stop_android_vpn_inner().await?;
         veloguard_core::set_runtime_proxy_mode(0);
-        veloguard_netstack::set_windows_proxy_mode(0);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let cleanup_errors = stop_linux_tun_runtime().await;
+        if !cleanup_errors.is_empty() {
+            return Ok(TunStatus {
+                enabled: false,
+                interface_name: None,
+                mtu: None,
+                error: Some(cleanup_errors.join("; ")),
+            });
+        }
     }
 
     Ok(TunStatus {
@@ -2389,6 +2800,39 @@ pub async fn get_tun_status() -> Result<TunStatus> {
         }
     }
 
+    #[cfg(target_os = "android")]
+    {
+        if veloguard_netstack::get_android_vpn_fd() >= 0 {
+            if let Some(processor) = crate::get_android_vpn_processor() {
+                if processor.is_running() {
+                    return Ok(TunStatus {
+                        enabled: true,
+                        interface_name: Some("tun0".to_string()),
+                        mtu: Some(1500),
+                        error: None,
+                    });
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let processor_running =
+            crate::get_linux_vpn_processor().is_some_and(|processor| processor.is_running());
+        if processor_running
+            && crate::linux_tun_device_is_running()
+            && crate::linux_packet_task_is_running()
+        {
+            return Ok(TunStatus {
+                enabled: true,
+                interface_name: Some("veloguard0".to_string()),
+                mtu: Some(1500),
+                error: None,
+            });
+        }
+    }
+
     Ok(TunStatus {
         enabled: false,
         interface_name: None,
@@ -2399,33 +2843,32 @@ pub async fn get_tun_status() -> Result<TunStatus> {
 
 #[frb]
 pub fn set_windows_proxy_mode(mode: String) -> Result<bool> {
-    let mode_int = match mode.to_lowercase().as_str() {
-        "global" => 1,
-        "direct" => 2,
-        "rule" => 3,
-        _ => 3,
-    };
-
-    veloguard_core::set_runtime_proxy_mode(mode_int);
-    tracing::info!("Runtime proxy mode set to {} ({})", mode, mode_int);
+    let mode_int = parse_proxy_mode(&mode)?;
+    let _lifecycle_guard = crate::TUN_LIFECYCLE_LOCK.try_lock().map_err(|_| {
+        VeloGuardError::Internal("A TUN lifecycle operation is already in progress".to_string())
+    })?;
 
     #[cfg(target_os = "windows")]
     {
-        veloguard_netstack::set_windows_proxy_mode(mode_int);
-
         if let Some(mut route_manager) = crate::get_windows_route_manager_mut() {
-            if mode.to_lowercase() == "global" {
-                if let Err(e) = route_manager.enable_global_mode() {
-                    tracing::warn!("Failed to enable global mode routes: {}", e);
-                }
-            } else {
-                if let Err(e) = route_manager.disable_global_mode() {
-                    tracing::warn!("Failed to disable global mode routes: {}", e);
-                }
+            if mode_int == 1 && !route_manager.is_active() {
+                return Err(VeloGuardError::Internal(
+                    "Global mode must be initialized through enable_tun_mode_with_mode".to_string(),
+                ));
+            }
+            if mode_int != 1 {
+                route_manager.disable_global_mode().map_err(|error| {
+                    VeloGuardError::Internal(format!(
+                        "Failed to disable global mode routes: {error}"
+                    ))
+                })?;
             }
         }
+        veloguard_netstack::set_windows_proxy_mode(mode_int);
     }
 
+    veloguard_core::set_runtime_proxy_mode(mode_int);
+    tracing::info!("Runtime proxy mode set to {} ({})", mode, mode_int);
     Ok(true)
 }
 
@@ -2607,11 +3050,14 @@ pub fn get_android_proxy_mode() -> String {
 
 #[frb]
 pub async fn start_android_vpn() -> Result<bool> {
+    let _lifecycle_guard = crate::TUN_LIFECYCLE_LOCK.lock().await;
+    start_android_vpn_inner().await
+}
+
+async fn start_android_vpn_inner() -> Result<bool> {
     #[cfg(target_os = "android")]
     {
-        use bytes::BytesMut;
-        use std::os::unix::io::FromRawFd;
-        use tokio::sync::mpsc;
+        use veloguard_netstack::{TunConfig, TunDevice};
 
         let fd = veloguard_netstack::get_android_vpn_fd();
         if fd < 0 {
@@ -2622,6 +3068,12 @@ pub async fn start_android_vpn() -> Result<bool> {
         tracing::info!("=== Starting Android VPN packet processing ===");
         tracing::info!("VPN fd={}", fd);
 
+        if let Some(task) = crate::take_android_packet_task() {
+            task.abort();
+        }
+        if let Some(mut device) = crate::take_android_tun_device() {
+            let _ = device.stop().await;
+        }
         if let Some(old_processor) = crate::get_android_vpn_processor() {
             tracing::info!("Cleaning up existing VPN processor before restart");
             old_processor.stop();
@@ -2634,15 +3086,17 @@ pub async fn start_android_vpn() -> Result<bool> {
 
         if !crate::android_jni::is_jni_initialized() {
             tracing::error!("JNI bridge not initialized! Socket protection will not work.");
+            return Ok(false);
         }
 
         if veloguard_netstack::has_protect_callback() {
             tracing::info!("Socket protect callback is SET");
         } else {
             tracing::error!("Socket protect callback is NOT SET! This will cause routing loops.");
+            return Ok(false);
         }
 
-        let proxy_port = {
+        let (proxy_addr, proxy_port) = {
             let instance = get_veloguard_instance().await?;
             let veloguard_guard = instance.read().await;
             if let Some(ref veloguard) = *veloguard_guard {
@@ -2668,15 +3122,15 @@ pub async fn start_android_vpn() -> Result<bool> {
                     config.general.socks_port,
                     port
                 );
-                port
+                (local_proxy_addr(config, port)?, port)
             } else {
                 tracing::error!("VeloGuard instance not initialized! VPN will not work.");
                 return Ok(false);
             }
         };
 
-        tracing::info!("Using proxy port {} for Android VPN", proxy_port);
-        match tokio::net::TcpStream::connect(format!("127.0.0.1:{}", proxy_port)).await {
+        tracing::info!("Using proxy endpoint {} for Android VPN", proxy_addr);
+        match tokio::net::TcpStream::connect(proxy_addr).await {
             Ok(_) => {
                 tracing::info!(
                     "Proxy port {} is listening and accepting connections",
@@ -2686,143 +3140,56 @@ pub async fn start_android_vpn() -> Result<bool> {
             Err(e) => {
                 tracing::error!("Proxy port {} is NOT listening: {}", proxy_port, e);
                 tracing::error!("VeloGuard proxy may not have started correctly");
+                return Ok(false);
             }
         }
 
-        let dup_fd = unsafe { libc::dup(fd) };
-        if dup_fd < 0 {
-            tracing::error!(
-                "Failed to duplicate VPN fd: {}",
-                std::io::Error::last_os_error()
-            );
+        let config = TunConfig {
+            name: "tun0".to_string(),
+            address: std::net::Ipv4Addr::new(198, 18, 0, 1),
+            netmask: std::net::Ipv4Addr::new(255, 255, 0, 0),
+            mtu: 1500,
+            gateway: None,
+            dns: vec![std::net::Ipv4Addr::new(198, 18, 0, 2)],
+        };
+        let mut device = TunDevice::with_config(config.clone())
+            .await
+            .map_err(|error| VeloGuardError::Internal(error.to_string()))?;
+        if let Err(error) = device.start().await {
+            tracing::error!("Failed to start Android TUN device: {}", error);
             return Ok(false);
         }
 
-        tracing::info!("Duplicated VPN fd: {} -> {}", fd, dup_fd);
-        let file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
-        let async_fd = match tokio::io::unix::AsyncFd::new(file) {
-            Ok(fd) => std::sync::Arc::new(fd),
-            Err(e) => {
-                tracing::error!("Failed to create AsyncFd: {}", e);
-                return Ok(false);
-            }
+        let Some(tun_tx) = device.get_sender() else {
+            let _ = device.stop().await;
+            return Ok(false);
+        };
+        let Some(mut tun_rx) = device.take_receiver() else {
+            let _ = device.stop().await;
+            return Ok(false);
         };
 
-        let (tun_tx, mut tun_rx) = mpsc::channel::<BytesMut>(4096);
-        let processor = std::sync::Arc::new(veloguard_netstack::AndroidVpnProcessor::new(
-            proxy_port, tun_tx,
-        ));
-
-        let async_fd_read = async_fd.clone();
-        let async_fd_write = async_fd.clone();
-        let processor_clone = processor.clone();
-
-        crate::set_android_vpn_processor(processor.clone());
-        tokio::spawn(async move {
-            let mut read_buf = vec![0u8; 65535];
-            let mut packet_count = 0u64;
-
-            tracing::info!("=== Android VPN read task started ===");
-
-            loop {
-                let mut guard = match async_fd_read.readable().await {
-                    Ok(g) => g,
-                    Err(e) => {
-                        tracing::error!("AsyncFd readable error: {}", e);
-                        break;
-                    }
-                };
-
-                match guard.try_io(|inner| {
-                    use std::io::Read;
-                    inner.get_ref().read(&mut read_buf)
-                }) {
-                    Ok(Ok(n)) if n > 0 => {
-                        packet_count += 1;
-                        if packet_count <= 10 || packet_count % 100 == 0 {
-                            tracing::info!("Read packet #{}: {} bytes from TUN", packet_count, n);
-                        }
-                        if let Err(e) = processor_clone.process_packet(&read_buf[..n]).await {
-                            tracing::debug!("Packet processing error: {}", e);
-                        }
-                    }
-                    Ok(Ok(_)) => {
-                        tracing::info!("TUN read EOF");
-                        break;
-                    }
-                    Ok(Err(e)) => {
-                        if e.kind() != std::io::ErrorKind::WouldBlock {
-                            tracing::error!("TUN read error: {}", e);
-                            break;
-                        }
-                    }
-                    Err(_) => continue,
+        let processor = std::sync::Arc::new(
+            veloguard_netstack::AndroidVpnProcessor::new_with_proxy_addr(
+                proxy_addr, config.mtu, tun_tx,
+            ),
+        );
+        let packet_processor = std::sync::Arc::clone(&processor);
+        let packet_task = tokio::spawn(async move {
+            while let Some(packet) = tun_rx.recv().await {
+                if !packet_processor.is_running() {
+                    break;
+                }
+                if let Err(error) = packet_processor.process_packet(&packet).await {
+                    tracing::debug!("Android TUN packet processing failed: {}", error);
                 }
             }
-
-            processor_clone.stop();
-            tracing::info!(
-                "Android VPN read task stopped, processed {} packets",
-                packet_count
-            );
+            packet_processor.stop();
         });
 
-        tokio::spawn(async move {
-            let mut write_count = 0u64;
-            tracing::info!("=== Android VPN write task started ===");
-
-            loop {
-                match tun_rx.recv().await {
-                    Some(packet) => {
-                        write_count += 1;
-                        if write_count <= 10 || write_count % 100 == 0 {
-                            tracing::info!(
-                                "Writing packet #{}: {} bytes to TUN",
-                                write_count,
-                                packet.len()
-                            );
-                        }
-
-                        let mut written = 0;
-                        let packet_data = &packet[..];
-
-                        while written < packet_data.len() {
-                            if let Ok(mut guard) = async_fd_write.writable().await {
-                                match guard.try_io(|inner| {
-                                    use std::io::Write;
-                                    inner.get_ref().write(&packet_data[written..])
-                                }) {
-                                    Ok(Ok(n)) => {
-                                        written += n;
-                                        if n == 0 {
-                                            tracing::warn!("TUN write returned 0 bytes");
-                                            break;
-                                        }
-                                    }
-                                    Ok(Err(e)) => {
-                                        if e.kind() != std::io::ErrorKind::WouldBlock {
-                                            tracing::error!("TUN write error: {}", e);
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => {
-                                        continue;
-                                    }
-                                }
-                            } else {
-                                tracing::error!("Failed to get writable guard");
-                                break;
-                            }
-                        }
-                    }
-                    None => break,
-                }
-            }
-            tracing::info!(
-                "Android VPN write task stopped, wrote {} packets",
-                write_count
-            );
-        });
+        crate::set_android_vpn_processor(processor);
+        crate::set_android_tun_device(device);
+        crate::set_android_packet_task(packet_task);
 
         tracing::info!("=== Android VPN packet processing started successfully ===");
         Ok(true)
@@ -2837,9 +3204,25 @@ pub async fn start_android_vpn() -> Result<bool> {
 
 #[frb]
 pub async fn stop_android_vpn() -> Result<bool> {
+    let _lifecycle_guard = crate::TUN_LIFECYCLE_LOCK.lock().await;
+    stop_android_vpn_inner().await
+}
+
+async fn stop_android_vpn_inner() -> Result<bool> {
     #[cfg(target_os = "android")]
     {
         tracing::info!("=== Stopping Android VPN packet processing ===");
+
+        if let Some(mut device) = crate::take_android_tun_device() {
+            if let Err(error) = device.stop().await {
+                tracing::warn!("Failed to stop Android TUN device: {}", error);
+            }
+        }
+
+        if let Some(task) = crate::take_android_packet_task() {
+            task.abort();
+            let _ = task.await;
+        }
 
         if let Some(processor) = crate::get_android_vpn_processor() {
             tracing::info!("Stopping VPN processor...");
@@ -2857,8 +3240,6 @@ pub async fn stop_android_vpn() -> Result<bool> {
 
         veloguard_netstack::clear_android_vpn_fd();
         tracing::info!("VPN fd cleared");
-        veloguard_netstack::clear_protect_callback();
-        tracing::info!("Socket protect callback cleared");
 
         let tracker = veloguard_core::connection_tracker::global_tracker();
         tracker.reset();
@@ -2872,5 +3253,96 @@ pub async fn stop_android_vpn() -> Result<bool> {
     {
         tracing::warn!("stop_android_vpn called on non-Android platform");
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod config_conversion_tests {
+    use super::*;
+
+    #[test]
+    fn rule_provider_urls_must_use_https() {
+        let insecure = r#"{
+            "rule_providers": [{
+                "name": "proxy",
+                "type": "http",
+                "behavior": "domain",
+                "url": "http://example.com/proxy.txt",
+                "interval": 86400
+            }]
+        }"#;
+        assert!(configure_rule_providers(insecure).is_err());
+
+        let secure = r#"{
+            "rule_providers": [{
+                "name": "proxy",
+                "type": "http",
+                "behavior": "domain",
+                "url": "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/proxy.txt",
+                "interval": 86400
+            }]
+        }"#;
+        assert!(configure_rule_providers(secure).is_ok());
+    }
+
+    #[test]
+    fn supported_aliases_are_explicit() {
+        assert_eq!(
+            parse_outbound_type("hy2", "proxy").unwrap(),
+            veloguard_core::OutboundType::Hysteria2
+        );
+        assert_eq!(
+            parse_outbound_type("socks", "proxy").unwrap(),
+            veloguard_core::OutboundType::Socks5
+        );
+    }
+
+    #[test]
+    fn proxy_modes_are_strict() {
+        assert_eq!(parse_proxy_mode("global").unwrap(), 1);
+        assert_eq!(parse_proxy_mode("DIRECT").unwrap(), 2);
+        assert_eq!(parse_proxy_mode(" rule ").unwrap(), 3);
+        assert!(parse_proxy_mode("automatic").is_err());
+    }
+
+    #[test]
+    fn unsupported_protocols_fail_closed() {
+        for protocol in ["hysteria", "naive", "typo"] {
+            let error = parse_outbound_type(protocol, "proxy").unwrap_err();
+            assert!(matches!(error, VeloGuardError::Config(_)));
+            assert!(error.to_string().contains(protocol));
+        }
+    }
+
+    #[test]
+    fn malformed_options_are_rejected() {
+        let error = decode_options("outbound", "proxy", "{not-json}").unwrap_err();
+        assert!(matches!(error, VeloGuardError::Config(_)));
+    }
+
+    #[test]
+    fn local_proxy_endpoint_follows_inbound_address_family() {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+        use veloguard_core::{InboundConfig, InboundType};
+
+        let mut config = Config::default();
+        config.inbounds.push(InboundConfig {
+            inbound_type: InboundType::Mixed,
+            tag: "mixed-in".to_string(),
+            listen: "::1".to_string(),
+            port: 7897,
+            options: Default::default(),
+        });
+
+        assert_eq!(
+            local_proxy_addr(&config, 7897).unwrap(),
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 7897)
+        );
+
+        config.inbounds[0].listen = "0.0.0.0".to_string();
+        assert_eq!(
+            local_proxy_addr(&config, 7897).unwrap(),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7897)
+        );
     }
 }

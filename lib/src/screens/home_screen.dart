@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.memory_outlined,
               label: l10n?.memory ?? 'Memory',
               value:
-                  '${appState.systemInfo!.memoryTotal ~/ BigInt.from(1024) ~/ BigInt.from(1024)} MB',
+                  '${appState.systemInfo!.memoryUsed ~/ BigInt.from(1024) ~/ BigInt.from(1024)} MB',
             ),
             // Only show CPU Cores on desktop platforms
             if (!isMobile) ...[

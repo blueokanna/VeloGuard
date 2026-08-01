@@ -47,7 +47,9 @@ impl TrafficStats {
         self.upload_bytes = self.upload_bytes.saturating_add(other.upload_bytes);
         self.download_bytes = self.download_bytes.saturating_add(other.download_bytes);
         self.connections = self.connections.saturating_add(other.connections);
-        self.connection_time_secs = self.connection_time_secs.saturating_add(other.connection_time_secs);
+        self.connection_time_secs = self
+            .connection_time_secs
+            .saturating_add(other.connection_time_secs);
     }
 }
 
@@ -116,12 +118,17 @@ impl TrafficStatsManager {
     }
 
     /// Start tracking a connection
-    pub async fn start_connection(&self, connection_id: String, proxy_tag: String) -> Arc<ConnectionTracker> {
+    pub async fn start_connection(
+        &self,
+        connection_id: String,
+        proxy_tag: String,
+    ) -> Arc<ConnectionTracker> {
         let tracker = ConnectionTracker::new(connection_id.clone());
         let tracker_arc = Arc::new(tracker);
 
         // Store in active connections
-        self.active_connections.insert(connection_id.clone(), ConnectionTracker::new(connection_id));
+        self.active_connections
+            .insert(connection_id.clone(), ConnectionTracker::new(connection_id));
 
         // Update connection count
         let mut global = self.global_stats.write().await;
@@ -134,7 +141,12 @@ impl TrafficStatsManager {
     }
 
     /// Record traffic for a connection
-    pub async fn record_traffic(&self, connection_id: &str, upload_bytes: u64, download_bytes: u64) {
+    pub async fn record_traffic(
+        &self,
+        connection_id: &str,
+        upload_bytes: u64,
+        download_bytes: u64,
+    ) {
         if let Some(mut tracker) = self.active_connections.get_mut(connection_id) {
             tracker.add_upload(upload_bytes);
             tracker.add_download(download_bytes);
@@ -261,7 +273,9 @@ mod tests {
         let manager = TrafficStatsManager::new();
 
         // Start a connection (await the async function)
-        let _tracker = manager.start_connection("conn1".to_string(), "proxy1".to_string()).await;
+        let _tracker = manager
+            .start_connection("conn1".to_string(), "proxy1".to_string())
+            .await;
 
         // Record some traffic
         manager.record_traffic("conn1", 1024, 2048).await;

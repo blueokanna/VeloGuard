@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -112,7 +112,9 @@ class AnimationUtils {
   static const listItemStaggerDelay = Duration(milliseconds: 50);
 
   static const stateChangeDuration = Duration(milliseconds: 250);
-  static const stateChangeCurve = curveSpring;
+  // Decoration tweens contain constrained values such as shadow blur radii.
+  // Overshooting curves can drive those values below zero while reversing.
+  static const Curve stateChangeCurve = curveStandard;
 
   static const iconMorphDuration = Duration(milliseconds: 200);
   static const iconMorphCurve = curveEmphasized;
@@ -1011,7 +1013,7 @@ class ExpressiveShapeContainer extends StatelessWidget {
 
     return AnimatedContainer(
       duration: duration,
-      curve: AnimationUtils.curveSpring,
+      curve: AnimationUtils.stateChangeCurve,
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(radius),
@@ -1200,7 +1202,7 @@ class ExpressiveHero extends StatelessWidget {
 class ExpressiveSwitch extends StatefulWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
-  final Color? activeColor;
+  final Color? activeThumbColor;
   final Color? activeTrackColor;
   final Color? inactiveThumbColor;
   final Color? inactiveTrackColor;
@@ -1209,7 +1211,7 @@ class ExpressiveSwitch extends StatefulWidget {
     super.key,
     required this.value,
     this.onChanged,
-    this.activeColor,
+    this.activeThumbColor,
     this.activeTrackColor,
     this.inactiveThumbColor,
     this.inactiveTrackColor,
@@ -1247,9 +1249,13 @@ class _ExpressiveSwitchState extends State<ExpressiveSwitch>
 
   void _handleTap() {
     if (widget.onChanged != null) {
-      _controller.forward().then((_) {
-        _controller.reverse();
-      });
+      if (!MediaQuery.disableAnimationsOf(context)) {
+        _controller.forward().then((_) {
+          if (mounted) {
+            _controller.reverse();
+          }
+        });
+      }
       AnimationUtils.selectionHaptic();
       widget.onChanged!(!widget.value);
     }
@@ -1264,7 +1270,7 @@ class _ExpressiveSwitchState extends State<ExpressiveSwitch>
         child: Switch.adaptive(
           value: widget.value,
           onChanged: widget.onChanged,
-          activeColor: widget.activeColor,
+          activeThumbColor: widget.activeThumbColor,
           activeTrackColor: widget.activeTrackColor,
           inactiveThumbColor: widget.inactiveThumbColor,
           inactiveTrackColor: widget.inactiveTrackColor,
@@ -1365,7 +1371,7 @@ class _ExpressiveCardState extends State<ExpressiveCard>
         scale: _scaleAnimation,
         child: AnimatedContainer(
           duration: AnimationUtils.stateChangeDuration,
-          curve: AnimationUtils.curveSpring,
+          curve: AnimationUtils.stateChangeCurve,
           margin: widget.margin,
           padding: widget.padding,
           decoration: BoxDecoration(

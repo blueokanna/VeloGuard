@@ -7,9 +7,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use veloguard_protocol::wireguard::{
-    WireGuardTunnel, public_key_from_private,
-};
+use veloguard_protocol::wireguard::{public_key_from_private, WireGuardTunnel};
 
 const WG_HEADER_SIZE: usize = 32;
 const IP_HEADER_SIZE: usize = 20;
@@ -81,10 +79,7 @@ impl WireguardOutbound {
             .get("local-address")
             .or_else(|| config.options.get("localAddress"))
             .and_then(|v| v.as_str())
-            .and_then(|s| {
-                s.split('/').next()
-                    .and_then(|ip| ip.parse::<IpAddr>().ok())
-            })
+            .and_then(|s| s.split('/').next().and_then(|ip| ip.parse::<IpAddr>().ok()))
             .unwrap_or(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
 
         let mtu = config
@@ -128,11 +123,15 @@ impl WireguardOutbound {
 
     async fn ensure_tunnel(&self) -> Result<()> {
         let mut tunnel_guard = self.tunnel.lock().await;
-        
-        if tunnel_guard.as_ref().map(|t| t.has_session()).unwrap_or(false)
-            && !tunnel_guard.as_ref().unwrap().is_session_expired() {
-                return Ok(());
-            }
+
+        if tunnel_guard
+            .as_ref()
+            .map(|t| t.has_session())
+            .unwrap_or(false)
+            && !tunnel_guard.as_ref().unwrap().is_session_expired()
+        {
+            return Ok(());
+        }
 
         let endpoint: SocketAddr = format!("{}:{}", self.server, self.port)
             .parse()
@@ -145,32 +144,40 @@ impl WireguardOutbound {
             endpoint,
         );
 
-        let socket = UdpSocket::bind("0.0.0.0:0").await
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
 
-        socket.connect(endpoint).await
-            .map_err(|e| Error::network(format!("Failed to connect to WireGuard endpoint: {}", e)))?;
+        socket.connect(endpoint).await.map_err(|e| {
+            Error::network(format!("Failed to connect to WireGuard endpoint: {}", e))
+        })?;
 
-        let init_packet = tunnel.initiate_handshake()
+        let init_packet = tunnel
+            .initiate_handshake()
             .map_err(|e| Error::protocol(format!("Failed to create handshake: {}", e)))?;
 
-        socket.send(&init_packet).await
+        socket
+            .send(&init_packet)
+            .await
             .map_err(|e| Error::network(format!("Failed to send handshake: {}", e)))?;
 
         let mut response_buf = vec![0u8; 256];
         let timeout = tokio::time::Duration::from_secs(10);
-        
+
         let n = tokio::time::timeout(timeout, socket.recv(&mut response_buf))
             .await
             .map_err(|_| Error::network("Handshake timeout"))?
             .map_err(|e| Error::network(format!("Failed to receive handshake response: {}", e)))?;
 
-        tunnel.process_handshake_response(&response_buf[..n])
+        tunnel
+            .process_handshake_response(&response_buf[..n])
             .map_err(|e| Error::protocol(format!("Failed to process handshake response: {}", e)))?;
 
         tracing::info!(
             "WireGuard tunnel established to {}:{} (local: {})",
-            self.server, self.port, self.local_address
+            self.server,
+            self.port,
+            self.local_address
         );
 
         *tunnel_guard = Some(tunnel);
@@ -181,17 +188,22 @@ impl WireguardOutbound {
 
     async fn send_ip_packet(&self, packet: &[u8]) -> Result<()> {
         let tunnel_guard = self.tunnel.lock().await;
-        let tunnel = tunnel_guard.as_ref()
+        let tunnel = tunnel_guard
+            .as_ref()
             .ok_or_else(|| Error::protocol("WireGuard tunnel not established"))?;
 
-        let encrypted = tunnel.encrypt_packet(packet)
+        let encrypted = tunnel
+            .encrypt_packet(packet)
             .map_err(|e| Error::protocol(format!("Failed to encrypt packet: {}", e)))?;
 
         let socket_guard = self.socket.lock().await;
-        let socket = socket_guard.as_ref()
+        let socket = socket_guard
+            .as_ref()
             .ok_or_else(|| Error::protocol("WireGuard socket not available"))?;
 
-        socket.send(&encrypted).await
+        socket
+            .send(&encrypted)
+            .await
             .map_err(|e| Error::network(format!("Failed to send packet: {}", e)))?;
 
         Ok(())
@@ -199,20 +211,25 @@ impl WireguardOutbound {
 
     async fn recv_ip_packet(&self) -> Result<Vec<u8>> {
         let socket_guard = self.socket.lock().await;
-        let socket = socket_guard.as_ref()
+        let socket = socket_guard
+            .as_ref()
             .ok_or_else(|| Error::protocol("WireGuard socket not available"))?;
 
         let mut buf = vec![0u8; self.mtu as usize + WG_HEADER_SIZE];
-        let n = socket.recv(&mut buf).await
+        let n = socket
+            .recv(&mut buf)
+            .await
             .map_err(|e| Error::network(format!("Failed to receive packet: {}", e)))?;
 
         drop(socket_guard);
 
         let tunnel_guard = self.tunnel.lock().await;
-        let tunnel = tunnel_guard.as_ref()
+        let tunnel = tunnel_guard
+            .as_ref()
             .ok_or_else(|| Error::protocol("WireGuard tunnel not established"))?;
 
-        let decrypted = tunnel.decrypt_packet(&buf[..n])
+        let decrypted = tunnel
+            .decrypt_packet(&buf[..n])
             .map_err(|e| Error::protocol(format!("Failed to decrypt packet: {}", e)))?;
 
         Ok(decrypted)
@@ -245,7 +262,7 @@ impl WireguardOutbound {
         packet[9] = 6;
         packet[10..12].copy_from_slice(&[0, 0]);
         packet[12..16].copy_from_slice(&src_ip.octets());
-        
+
         if let IpAddr::V4(dst) = dst_ip {
             packet[16..20].copy_from_slice(&dst.octets());
         }
@@ -254,33 +271,33 @@ impl WireguardOutbound {
         packet[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
 
         let tcp_offset = IP_HEADER_SIZE;
-        packet[tcp_offset..tcp_offset+2].copy_from_slice(&src_port.to_be_bytes());
-        packet[tcp_offset+2..tcp_offset+4].copy_from_slice(&dst_port.to_be_bytes());
-        packet[tcp_offset+4..tcp_offset+8].copy_from_slice(&seq.to_be_bytes());
-        packet[tcp_offset+8..tcp_offset+12].copy_from_slice(&0u32.to_be_bytes());
-        packet[tcp_offset+12] = 0x50;
-        packet[tcp_offset+13] = 0x02;
-        packet[tcp_offset+14..tcp_offset+16].copy_from_slice(&65535u16.to_be_bytes());
-        packet[tcp_offset+16..tcp_offset+18].copy_from_slice(&[0, 0]);
-        packet[tcp_offset+18..tcp_offset+20].copy_from_slice(&[0, 0]);
+        packet[tcp_offset..tcp_offset + 2].copy_from_slice(&src_port.to_be_bytes());
+        packet[tcp_offset + 2..tcp_offset + 4].copy_from_slice(&dst_port.to_be_bytes());
+        packet[tcp_offset + 4..tcp_offset + 8].copy_from_slice(&seq.to_be_bytes());
+        packet[tcp_offset + 8..tcp_offset + 12].copy_from_slice(&0u32.to_be_bytes());
+        packet[tcp_offset + 12] = 0x50;
+        packet[tcp_offset + 13] = 0x02;
+        packet[tcp_offset + 14..tcp_offset + 16].copy_from_slice(&65535u16.to_be_bytes());
+        packet[tcp_offset + 16..tcp_offset + 18].copy_from_slice(&[0, 0]);
+        packet[tcp_offset + 18..tcp_offset + 20].copy_from_slice(&[0, 0]);
 
         packet
     }
 
-    pub async fn relay_udp(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+    pub async fn relay_udp(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         self.ensure_tunnel().await?;
 
         let dst_ip = match target {
             TargetAddr::Ip(addr) => match addr.ip() {
                 IpAddr::V4(ip) => ip,
-                IpAddr::V6(_) => return Err(Error::protocol("IPv6 not supported for WireGuard UDP")),
+                IpAddr::V6(_) => {
+                    return Err(Error::protocol("IPv6 not supported for WireGuard UDP"))
+                }
             },
             TargetAddr::Domain(_, _) => {
-                return Err(Error::protocol("Domain targets require DNS resolution for WireGuard"));
+                return Err(Error::protocol(
+                    "Domain targets require DNS resolution for WireGuard",
+                ));
             }
         };
         let dst_port = target.port();
@@ -311,11 +328,11 @@ impl WireguardOutbound {
         packet[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
 
         let udp_offset = IP_HEADER_SIZE;
-        packet[udp_offset..udp_offset+2].copy_from_slice(&src_port.to_be_bytes());
-        packet[udp_offset+2..udp_offset+4].copy_from_slice(&dst_port.to_be_bytes());
-        packet[udp_offset+4..udp_offset+6].copy_from_slice(&(udp_len as u16).to_be_bytes());
-        packet[udp_offset+6..udp_offset+8].copy_from_slice(&[0, 0]);
-        packet[udp_offset+8..].copy_from_slice(data);
+        packet[udp_offset..udp_offset + 2].copy_from_slice(&src_port.to_be_bytes());
+        packet[udp_offset + 2..udp_offset + 4].copy_from_slice(&dst_port.to_be_bytes());
+        packet[udp_offset + 4..udp_offset + 6].copy_from_slice(&(udp_len as u16).to_be_bytes());
+        packet[udp_offset + 6..udp_offset + 8].copy_from_slice(&[0, 0]);
+        packet[udp_offset + 8..].copy_from_slice(data);
 
         self.send_ip_packet(&packet).await?;
 
@@ -356,57 +373,52 @@ impl OutboundProxy for WireguardOutbound {
     fn tag(&self) -> &str {
         &self.config.tag
     }
-    
+
     fn server_addr(&self) -> Option<(String, u16)> {
         Some((self.server.clone(), self.port))
     }
-    
+
     fn supports_udp(&self) -> bool {
         true // WireGuard supports UDP
     }
-    
-    async fn relay_udp_packet(
-        &self,
-        target: &TargetAddr,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
+
+    async fn relay_udp_packet(&self, target: &TargetAddr, data: &[u8]) -> Result<Vec<u8>> {
         self.relay_udp(target, data).await
     }
-    
+
     async fn test_http_latency(
         &self,
         _test_url: &str,
         timeout: std::time::Duration,
     ) -> Result<std::time::Duration> {
         use std::time::Instant;
-        
+
         let start = Instant::now();
-        
+
         tokio::time::timeout(timeout, self.ensure_tunnel())
             .await
             .map_err(|_| Error::network("Connection timeout"))?
             .map_err(|e| Error::network(format!("Failed to establish tunnel: {}", e)))?;
-        
+
         let tunnel_guard = self.tunnel.lock().await;
         if let Some(tunnel) = tunnel_guard.as_ref() {
-            let keepalive = tunnel.create_keepalive()
+            let keepalive = tunnel
+                .create_keepalive()
                 .map_err(|e| Error::protocol(format!("Failed to create keepalive: {}", e)))?;
-            
+
             let socket_guard = self.socket.lock().await;
             if let Some(socket) = socket_guard.as_ref() {
-                socket.send(&keepalive).await
+                socket
+                    .send(&keepalive)
+                    .await
                     .map_err(|e| Error::network(format!("Failed to send keepalive: {}", e)))?;
             }
         }
-        
+
         Ok(start.elapsed())
     }
-    
-    async fn relay_tcp(
-        &self,
-        inbound: Box<dyn AsyncReadWrite>,
-        target: TargetAddr,
-    ) -> Result<()> {
+
+    async fn relay_tcp(&self, inbound: Box<dyn AsyncReadWrite>, target: TargetAddr) -> Result<()> {
         self.relay_tcp_with_connection(inbound, target, None).await
     }
 
@@ -436,7 +448,7 @@ impl OutboundProxy for WireguardOutbound {
                         Ok(0) => break,
                         Ok(n) => {
                             let data = &buf[..n];
-                            
+
                             let dst_ip = match &target {
                                 TargetAddr::Ip(addr) => match addr.ip() {
                                     IpAddr::V4(ip) => ip,
@@ -490,7 +502,7 @@ impl OutboundProxy for WireguardOutbound {
                             packet[tcp_offset+20..].copy_from_slice(data);
 
                             self.send_ip_packet(&packet).await?;
-                            
+
                             seq = seq.wrapping_add(data.len() as u32);
                             tracker.add_global_upload(n as u64);
                             if let Some(ref conn) = connection {
@@ -509,21 +521,21 @@ impl OutboundProxy for WireguardOutbound {
                             if ip_packet.len() < IP_HEADER_SIZE + TCP_HEADER_SIZE {
                                 continue;
                             }
-                            
+
                             let protocol = ip_packet[9];
                             if protocol != 6 {
                                 continue;
                             }
-                            
+
                             let tcp_offset = IP_HEADER_SIZE;
                             let data_offset = tcp_offset + TCP_HEADER_SIZE;
-                            
+
                             if ip_packet.len() > data_offset {
                                 let payload = &ip_packet[data_offset..];
                                 inbound.write_all(payload).await.map_err(|e| {
                                     Error::network(format!("Failed to write to inbound: {}", e))
                                 })?;
-                                
+
                                 tracker.add_global_download(payload.len() as u64);
                                 if let Some(ref conn) = connection {
                                     conn.add_download(payload.len() as u64);
@@ -544,15 +556,16 @@ impl OutboundProxy for WireguardOutbound {
 }
 
 fn decode_base64_key(s: &str) -> std::result::Result<[u8; 32], String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    
-    let bytes = STANDARD.decode(s)
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let bytes = STANDARD
+        .decode(s)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
-    
+
     if bytes.len() != 32 {
         return Err(format!("Key must be 32 bytes, got {}", bytes.len()));
     }
-    
+
     let mut key = [0u8; 32];
     key.copy_from_slice(&bytes);
     Ok(key)
@@ -560,7 +573,7 @@ fn decode_base64_key(s: &str) -> std::result::Result<[u8; 32], String> {
 
 fn calculate_ip_checksum(header: &[u8]) -> u16 {
     let mut sum: u32 = 0;
-    
+
     for i in (0..header.len()).step_by(2) {
         if i == 10 {
             continue;
@@ -572,11 +585,11 @@ fn calculate_ip_checksum(header: &[u8]) -> u16 {
         };
         sum = sum.wrapping_add(word);
     }
-    
+
     while (sum >> 16) != 0 {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
-    
+
     !sum as u16
 }
 
@@ -610,27 +623,24 @@ mod tests {
     #[test]
     fn test_ip_checksum() {
         let header = [
-            0x45, 0x00, 0x00, 0x28,
-            0x00, 0x01, 0x40, 0x00,
-            0x40, 0x06, 0x00, 0x00,
-            0x0a, 0x00, 0x00, 0x02,
-            0x0a, 0x00, 0x00, 0x01,
+            0x45, 0x00, 0x00, 0x28, 0x00, 0x01, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0x0a, 0x00,
+            0x00, 0x02, 0x0a, 0x00, 0x00, 0x01,
         ];
-        
+
         let checksum = calculate_ip_checksum(&header);
         assert_ne!(checksum, 0);
     }
 
     #[test]
     fn test_wireguard_outbound_new() {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
         let (priv_key, _) = generate_keypair();
         let (_, peer_pub) = generate_keypair();
-        
+
         let priv_key_b64 = STANDARD.encode(priv_key);
         let peer_pub_b64 = STANDARD.encode(peer_pub);
-        
+
         let mut options = std::collections::HashMap::new();
         options.insert(
             "private-key".to_string(),
@@ -681,11 +691,11 @@ mod tests {
 
     #[test]
     fn test_wireguard_outbound_server_addr() {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
         let (priv_key, _) = generate_keypair();
         let (_, peer_pub) = generate_keypair();
-        
+
         let mut options = std::collections::HashMap::new();
         options.insert(
             "private-key".to_string(),

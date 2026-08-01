@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veloguard/src/providers/general_settings_provider.dart';
+import 'package:veloguard/src/providers/app_state_provider.dart';
+import 'package:veloguard/src/services/platform_proxy_service.dart';
 import 'package:veloguard/src/widgets/adaptive_list_tile.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
 
@@ -17,6 +19,7 @@ class _BasicConfigScreenState extends State<BasicConfigScreen> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context);
+    final appState = context.watch<AppStateProvider>();
 
     return Consumer<GeneralSettingsProvider>(
       builder: (context, settings, child) {
@@ -123,7 +126,7 @@ class _BasicConfigScreenState extends State<BasicConfigScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: DropdownButton<String>(
-                          value: settings.mode,
+                          value: appState.proxyMode.name,
                           underline: const SizedBox.shrink(),
                           isDense: true,
                           borderRadius: BorderRadius.circular(12),
@@ -141,8 +144,11 @@ class _BasicConfigScreenState extends State<BasicConfigScreen> {
                               child: Text(l10n?.direct ?? 'Direct'),
                             ),
                           ],
-                          onChanged: (v) {
-                            if (v != null) settings.setMode(v);
+                          onChanged: (value) async {
+                            if (value == null) return;
+                            final mode = ProxyMode.values.byName(value);
+                            final applied = await appState.setProxyMode(mode);
+                            if (applied) await settings.setMode(value);
                           },
                         ),
                       ),

@@ -51,7 +51,7 @@ impl TrackedConnection {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-            
+
         Self {
             id: generate_connection_id(),
             inbound_tag,
@@ -70,7 +70,7 @@ impl TrackedConnection {
             process_name: None,
         }
     }
-    
+
     /// Create a new tracked connection with destination IP address
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_ip(
@@ -88,7 +88,7 @@ impl TrackedConnection {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-            
+
         Self {
             id: generate_connection_id(),
             inbound_tag,
@@ -182,8 +182,10 @@ impl ConnectionTracker {
                 if secs > 0.0 {
                     let upload = self.realtime_upload.swap(0, Ordering::Relaxed);
                     let download = self.realtime_download.swap(0, Ordering::Relaxed);
-                    self.upload_speed.store((upload as f64 / secs) as u64, Ordering::Relaxed);
-                    self.download_speed.store((download as f64 / secs) as u64, Ordering::Relaxed);
+                    self.upload_speed
+                        .store((upload as f64 / secs) as u64, Ordering::Relaxed);
+                    self.download_speed
+                        .store((download as f64 / secs) as u64, Ordering::Relaxed);
                 }
                 *last_update = Instant::now();
             }
@@ -198,8 +200,10 @@ impl ConnectionTracker {
             if secs > 0.0 {
                 let upload = self.realtime_upload.swap(0, Ordering::Relaxed);
                 let download = self.realtime_download.swap(0, Ordering::Relaxed);
-                self.upload_speed.store((upload as f64 / secs) as u64, Ordering::Relaxed);
-                self.download_speed.store((download as f64 / secs) as u64, Ordering::Relaxed);
+                self.upload_speed
+                    .store((upload as f64 / secs) as u64, Ordering::Relaxed);
+                self.download_speed
+                    .store((download as f64 / secs) as u64, Ordering::Relaxed);
             }
             *last_update = Instant::now();
         }
@@ -273,10 +277,7 @@ impl ConnectionTracker {
 
     /// Close all connections
     pub fn close_all(&self) {
-        let ids: Vec<String> = self.connections
-            .iter()
-            .map(|e| e.key().clone())
-            .collect();
+        let ids: Vec<String> = self.connections.iter().map(|e| e.key().clone()).collect();
         for id in ids {
             self.untrack(&id);
         }
@@ -286,7 +287,7 @@ impl ConnectionTracker {
     pub fn reset(&self) {
         // Clear all connections
         self.connections.clear();
-        
+
         // Reset all counters
         self.total_connections.store(0, Ordering::Relaxed);
         self.total_upload.store(0, Ordering::Relaxed);
@@ -295,7 +296,7 @@ impl ConnectionTracker {
         self.realtime_download.store(0, Ordering::Relaxed);
         self.upload_speed.store(0, Ordering::Relaxed);
         self.download_speed.store(0, Ordering::Relaxed);
-        
+
         // Reset speed update time
         if let Ok(mut last_update) = self.last_speed_update.write() {
             *last_update = Instant::now();
@@ -317,7 +318,10 @@ pub struct ConnectionHandle {
 
 impl ConnectionHandle {
     pub fn new(tracker: Arc<ConnectionTracker>, connection: Arc<TrackedConnection>) -> Self {
-        Self { tracker, connection }
+        Self {
+            tracker,
+            connection,
+        }
     }
 
     pub fn id(&self) -> &str {
@@ -360,7 +364,7 @@ mod tests {
     #[test]
     fn test_connection_tracking() {
         let tracker = ConnectionTracker::new();
-        
+
         let conn = TrackedConnection::new(
             "mixed".to_string(),
             "proxy".to_string(),
@@ -371,22 +375,22 @@ mod tests {
             "DOMAIN-SUFFIX".to_string(),
             "example.com".to_string(),
         );
-        
+
         let id = conn.id.clone();
         let tracked = tracker.track(conn);
-        
+
         assert_eq!(tracker.active_count(), 1);
-        
+
         tracked.add_upload(1024);
         tracked.add_download(2048);
-        
+
         assert_eq!(tracked.get_upload(), 1024);
         assert_eq!(tracked.get_download(), 2048);
-        
+
         // Simulate global traffic tracking (as done in relay functions)
         tracker.add_global_upload(1024);
         tracker.add_global_download(2048);
-        
+
         tracker.untrack(&id);
         assert_eq!(tracker.active_count(), 0);
         // Global traffic is tracked separately

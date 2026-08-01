@@ -1,16 +1,16 @@
 use crate::config::InboundConfig;
-use crate::connection_tracker::{TrackedConnection, global_tracker};
+use crate::connection_tracker::{global_tracker, TrackedConnection};
 use crate::error::{Error, Result};
-use crate::inbound::InboundListener;
+use crate::inbound::{bind_tcp_listener, InboundListener};
 use crate::outbound::{OutboundManager, TargetAddr};
 use crate::routing::Router;
+use dashmap::DashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, UdpSocket};
-use tokio_util::sync::CancellationToken;
-use dashmap::DashMap;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::UdpSocket;
+use tokio_util::sync::CancellationToken;
 
 /// UDP session timeout for QUIC/gRPC long-lived connections
 const UDP_SESSION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
@@ -50,9 +50,13 @@ impl InboundListener for Socks5Inbound {
 }
 
 impl Socks5Inbound {
-    pub fn new(config: InboundConfig, router: Arc<Router>, outbound_manager: Arc<OutboundManager>) -> Self {
-        Self { 
-            config, 
+    pub fn new(
+        config: InboundConfig,
+        router: Arc<Router>,
+        outbound_manager: Arc<OutboundManager>,
+    ) -> Self {
+        Self {
+            config,
             router,
             outbound_manager,
             cancel_token: CancellationToken::new(),
@@ -63,35 +67,15 @@ impl Socks5Inbound {
 
     async fn start_listener(&self) -> Result<()> {
         if self.running.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::warn!("SOCKS5 inbound already running on {}:{}", self.config.listen, self.config.port);
+            tracing::warn!(
+                "SOCKS5 inbound already running on {}:{}",
+                self.config.listen,
+                self.config.port
+            );
             return Ok(());
         }
 
-        let addr: SocketAddr = format!("{}:{}", self.config.listen, self.config.port)
-            .parse()
-            .map_err(|e| Error::config_with_source("Invalid listen address", e))?;
-
-        // Try to bind with SO_REUSEADDR to avoid "address already in use" errors
-        let socket = socket2::Socket::new(
-            socket2::Domain::for_address(addr),
-            socket2::Type::STREAM,
-            Some(socket2::Protocol::TCP),
-        ).map_err(|e| Error::network(format!("Failed to create socket: {}", e)))?;
-        
-        socket.set_reuse_address(true)
-            .map_err(|e| Error::network(format!("Failed to set SO_REUSEADDR: {}", e)))?;
-        
-        socket.set_nonblocking(true)
-            .map_err(|e| Error::network(format!("Failed to set non-blocking: {}", e)))?;
-        
-        socket.bind(&addr.into())
-            .map_err(|e| Error::network(format!("Failed to bind SOCKS5 listener to {}: {}", addr, e)))?;
-        
-        socket.listen(1024)
-            .map_err(|e| Error::network(format!("Failed to listen on {}: {}", addr, e)))?;
-
-        let listener: TcpListener = TcpListener::from_std(socket.into())
-            .map_err(|e| Error::network(format!("Failed to create TcpListener: {}", e)))?;
+        let (listener, addr) = bind_tcp_listener(&self.config.listen, self.config.port, "SOCKS5")?;
 
         let router = Arc::clone(&self.router);
         let outbound_manager = Arc::clone(&self.outbound_manager);
@@ -134,16 +118,20 @@ impl Socks5Inbound {
     }
 
     async fn stop_listener(&self) -> Result<()> {
-        tracing::info!("Stopping SOCKS5 inbound on {}:{}", self.config.listen, self.config.port);
+        tracing::info!(
+            "Stopping SOCKS5 inbound on {}:{}",
+            self.config.listen,
+            self.config.port
+        );
         self.cancel_token.cancel();
-        
+
         // Wait for graceful shutdown
         let mut attempts = 0;
         while self.running.load(std::sync::atomic::Ordering::Relaxed) && attempts < 50 {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             attempts += 1;
         }
-        
+
         Ok(())
     }
 
@@ -155,7 +143,10 @@ impl Socks5Inbound {
     ) -> Result<()> {
         // SOCKS5 handshake
         if !Self::perform_handshake(&mut stream).await? {
-            return Err(Error::protocol_with_info("SOCKS5 handshake failed", "SOCKS5"));
+            return Err(Error::protocol_with_info(
+                "SOCKS5 handshake failed",
+                "SOCKS5",
+            ));
         }
 
         // Read request
@@ -165,7 +156,15 @@ impl Socks5Inbound {
         match command {
             0x01 => {
                 // CONNECT command - TCP proxy
-                Self::handle_connect(stream, peer_addr, target_addr, target_port, router, outbound_manager).await
+                Self::handle_connect(
+                    stream,
+                    peer_addr,
+                    target_addr,
+                    target_port,
+                    router,
+                    outbound_manager,
+                )
+                .await
             }
             0x03 => {
                 // UDP ASSOCIATE command - UDP proxy for QUIC/gRPC
@@ -173,7 +172,10 @@ impl Socks5Inbound {
             }
             _ => {
                 Self::send_reply(&mut stream, 0x07).await?; // Command not supported
-                Err(Error::protocol_with_info("Unsupported SOCKS5 command", "SOCKS5"))
+                Err(Error::protocol_with_info(
+                    "Unsupported SOCKS5 command",
+                    "SOCKS5",
+                ))
             }
         }
     }
@@ -187,7 +189,6 @@ impl Socks5Inbound {
         router: Arc<Router>,
         outbound_manager: Arc<OutboundManager>,
     ) -> Result<()> {
-
         // Extract domain/IP and port for routing
         let (domain, ip) = match &target_addr {
             Socks5Addr::Domain(domain) => (Some(domain.clone()), None),
@@ -196,21 +197,27 @@ impl Socks5Inbound {
         };
 
         // Match outbound using router
-        let outbound_tag = router.match_outbound(
-            domain.as_deref(),
-            ip,
-            Some(target_port),
-            None,
-        ).await;
+        let outbound_tag = router
+            .match_outbound(domain.as_deref(), ip, Some(target_port), None)
+            .await;
 
         // Build target address
         let target = match &target_addr {
             Socks5Addr::Domain(d) => TargetAddr::new_domain(d.clone(), target_port),
-            Socks5Addr::Ipv4(ip) => TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(*ip), target_port)),
-            Socks5Addr::Ipv6(ip) => TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(*ip), target_port)),
+            Socks5Addr::Ipv4(ip) => {
+                TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(*ip), target_port))
+            }
+            Socks5Addr::Ipv6(ip) => {
+                TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(*ip), target_port))
+            }
         };
 
-        tracing::info!("SOCKS5 CONNECT {} -> {} from {}", target, outbound_tag, peer_addr);
+        tracing::info!(
+            "SOCKS5 CONNECT {} -> {} from {}",
+            target,
+            outbound_tag,
+            peer_addr
+        );
 
         // Get the outbound proxy
         let outbound = match outbound_manager.get_proxy(&outbound_tag) {
@@ -218,7 +225,10 @@ impl Socks5Inbound {
             None => {
                 tracing::error!("Outbound '{}' not found", outbound_tag);
                 Self::send_reply(&mut stream, 0x01).await?; // General failure
-                return Err(Error::config(format!("Outbound '{}' not found", outbound_tag)));
+                return Err(Error::config(format!(
+                    "Outbound '{}' not found",
+                    outbound_tag
+                )));
             }
         };
 
@@ -256,8 +266,16 @@ impl Socks5Inbound {
         let conn_arc = Arc::clone(&tracked);
 
         // Relay data through the outbound proxy with connection tracking
-        if let Err(e) = outbound.relay_tcp_with_connection(Box::new(stream), target.clone(), Some(conn_arc)).await {
-            tracing::debug!("SOCKS5 relay error via '{}' to {}: {}", outbound.tag(), target, e);
+        if let Err(e) = outbound
+            .relay_tcp_with_connection(Box::new(stream), target.clone(), Some(conn_arc))
+            .await
+        {
+            tracing::debug!(
+                "SOCKS5 relay error via '{}' to {}: {}",
+                outbound.tag(),
+                target,
+                e
+            );
         }
 
         // Untrack the connection
@@ -276,13 +294,19 @@ impl Socks5Inbound {
         tracing::info!("SOCKS5 UDP ASSOCIATE request from {}", peer_addr);
 
         // Bind a UDP socket for the client
-        let udp_socket = UdpSocket::bind("0.0.0.0:0").await
+        let udp_socket = UdpSocket::bind("0.0.0.0:0")
+            .await
             .map_err(|e| Error::network(format!("Failed to bind UDP socket: {}", e)))?;
-        
-        let local_addr = udp_socket.local_addr()
+
+        let local_addr = udp_socket
+            .local_addr()
             .map_err(|e| Error::network(format!("Failed to get UDP socket address: {}", e)))?;
 
-        tracing::info!("UDP relay socket bound to {} for client {}", local_addr, peer_addr);
+        tracing::info!(
+            "UDP relay socket bound to {} for client {}",
+            local_addr,
+            peer_addr
+        );
 
         // Send success reply with the UDP relay address
         Self::send_reply_with_addr(&mut stream, 0x00, local_addr).await?;
@@ -300,7 +324,9 @@ impl Socks5Inbound {
                 peer_addr,
                 router_clone,
                 outbound_manager_clone,
-            ).await {
+            )
+            .await
+            {
                 tracing::debug!("UDP relay error for {}: {}", peer_addr, e);
             }
         });
@@ -340,22 +366,22 @@ impl Socks5Inbound {
         outbound_manager: Arc<OutboundManager>,
     ) -> Result<()> {
         let mut buf = vec![0u8; 65535];
-        
+
         loop {
-            let (n, src_addr) = match tokio::time::timeout(
-                UDP_SESSION_TIMEOUT,
-                udp_socket.recv_from(&mut buf)
-            ).await {
-                Ok(Ok(result)) => result,
-                Ok(Err(e)) => {
-                    tracing::debug!("UDP recv error: {}", e);
-                    continue;
-                }
-                Err(_) => {
-                    // Timeout, continue waiting
-                    continue;
-                }
-            };
+            let (n, src_addr) =
+                match tokio::time::timeout(UDP_SESSION_TIMEOUT, udp_socket.recv_from(&mut buf))
+                    .await
+                {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(e)) => {
+                        tracing::debug!("UDP recv error: {}", e);
+                        continue;
+                    }
+                    Err(_) => {
+                        // Timeout, continue waiting
+                        continue;
+                    }
+                };
 
             if n < 10 {
                 continue; // Too short for SOCKS5 UDP header
@@ -384,7 +410,11 @@ impl Socks5Inbound {
                     }
                     let ip = Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
                     let port = u16::from_be_bytes([buf[8], buf[9]]);
-                    (TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(ip), port)), port, 10)
+                    (
+                        TargetAddr::new_ip(SocketAddr::new(IpAddr::V4(ip), port)),
+                        port,
+                        10,
+                    )
                 }
                 0x03 => {
                     // Domain
@@ -408,7 +438,11 @@ impl Socks5Inbound {
                     octets.copy_from_slice(&buf[4..20]);
                     let ip = Ipv6Addr::from(octets);
                     let port = u16::from_be_bytes([buf[20], buf[21]]);
-                    (TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(ip), port)), port, 22)
+                    (
+                        TargetAddr::new_ip(SocketAddr::new(IpAddr::V6(ip), port)),
+                        port,
+                        22,
+                    )
                 }
                 _ => continue,
             };
@@ -424,16 +458,16 @@ impl Socks5Inbound {
                 TargetAddr::Ip(addr) => (None, Some(addr.ip())),
             };
 
-            let outbound_tag = router.match_outbound(
-                domain.as_deref(),
-                ip,
-                Some(target_port),
-                None,
-            ).await;
+            let outbound_tag = router
+                .match_outbound(domain.as_deref(), ip, Some(target_port), None)
+                .await;
 
             tracing::debug!(
                 "UDP relay: {} -> {} via {} ({} bytes)",
-                src_addr, target_addr, outbound_tag, payload.len()
+                src_addr,
+                target_addr,
+                outbound_tag,
+                payload.len()
             );
 
             // Get the outbound proxy
@@ -455,15 +489,18 @@ impl Socks5Inbound {
             let udp_socket_clone = Arc::clone(&udp_socket);
             let target_addr_clone = target_addr.clone();
             let payload_vec = payload.to_vec();
-            
+
             tokio::spawn(async move {
-                match outbound.relay_udp_packet(&target_addr_clone, &payload_vec).await {
+                match outbound
+                    .relay_udp_packet(&target_addr_clone, &payload_vec)
+                    .await
+                {
                     Ok(response) => {
                         if !response.is_empty() {
                             // Build SOCKS5 UDP response
                             let mut response_packet = Vec::with_capacity(response.len() + 22);
                             response_packet.extend_from_slice(&[0x00, 0x00, 0x00]); // RSV, FRAG
-                            
+
                             match &target_addr_clone {
                                 TargetAddr::Ip(addr) => {
                                     match addr.ip() {
@@ -487,7 +524,9 @@ impl Socks5Inbound {
                             }
                             response_packet.extend_from_slice(&response);
 
-                            if let Err(e) = udp_socket_clone.send_to(&response_packet, src_addr).await {
+                            if let Err(e) =
+                                udp_socket_clone.send_to(&response_packet, src_addr).await
+                            {
                                 tracing::debug!("Failed to send UDP response: {}", e);
                             }
                         }
@@ -502,7 +541,9 @@ impl Socks5Inbound {
 
     async fn perform_handshake(stream: &mut tokio::net::TcpStream) -> Result<bool> {
         let mut buf = [0u8; 2];
-        stream.read_exact(&mut buf).await
+        stream
+            .read_exact(&mut buf)
+            .await
             .map_err(|e| Error::network(format!("Failed to read SOCKS5 handshake: {}", e)))?;
 
         if buf[0] != 0x05 {
@@ -511,20 +552,26 @@ impl Socks5Inbound {
 
         let num_methods = buf[1] as usize;
         let mut methods = vec![0u8; num_methods];
-        stream.read_exact(&mut methods).await
+        stream
+            .read_exact(&mut methods)
+            .await
             .map_err(|e| Error::network(format!("Failed to read SOCKS5 methods: {}", e)))?;
 
         // Check if no authentication is supported
         let supports_no_auth = methods.contains(&0x00);
         if !supports_no_auth {
             // Send "no acceptable methods" reply
-            stream.write_all(&[0x05, 0xFF]).await
+            stream
+                .write_all(&[0x05, 0xFF])
+                .await
                 .map_err(|e| Error::network(format!("Failed to write SOCKS5 response: {}", e)))?;
             return Ok(false);
         }
 
         // Send response: version 5, no authentication
-        stream.write_all(&[0x05, 0x00]).await
+        stream
+            .write_all(&[0x05, 0x00])
+            .await
             .map_err(|e| Error::network(format!("Failed to write SOCKS5 response: {}", e)))?;
 
         Ok(true)
@@ -532,7 +579,9 @@ impl Socks5Inbound {
 
     async fn read_request(stream: &mut tokio::net::TcpStream) -> Result<(Socks5Addr, u16, u8)> {
         let mut buf = [0u8; 4];
-        stream.read_exact(&mut buf).await
+        stream
+            .read_exact(&mut buf)
+            .await
             .map_err(|e| Error::network(format!("Failed to read SOCKS5 request: {}", e)))?;
 
         if buf[0] != 0x05 {
@@ -543,7 +592,8 @@ impl Socks5Inbound {
         let addr_type = buf[3];
 
         let (addr, port) = match addr_type {
-            0x01 => { // IPv4
+            0x01 => {
+                // IPv4
                 let mut addr_buf = [0u8; 4];
                 stream.read_exact(&mut addr_buf).await?;
                 let ipv4 = Ipv4Addr::from(addr_buf);
@@ -552,7 +602,8 @@ impl Socks5Inbound {
                 let port = u16::from_be_bytes(port_buf);
                 (Socks5Addr::Ipv4(ipv4), port)
             }
-            0x03 => { // Domain
+            0x03 => {
+                // Domain
                 let mut len_buf = [0u8; 1];
                 stream.read_exact(&mut len_buf).await?;
                 let len = len_buf[0] as usize;
@@ -565,7 +616,8 @@ impl Socks5Inbound {
                 let port = u16::from_be_bytes(port_buf);
                 (Socks5Addr::Domain(domain), port)
             }
-            0x04 => { // IPv6
+            0x04 => {
+                // IPv6
                 let mut addr_buf = [0u8; 16];
                 stream.read_exact(&mut addr_buf).await?;
                 let ipv6 = Ipv6Addr::from(addr_buf);
@@ -582,21 +634,27 @@ impl Socks5Inbound {
 
     async fn send_reply(stream: &mut tokio::net::TcpStream, reply: u8) -> Result<()> {
         let reply_packet = [
-            0x05, // Version
+            0x05,  // Version
             reply, // Reply code
-            0x00, // Reserved
-            0x01, // IPv4 address type
+            0x00,  // Reserved
+            0x01,  // IPv4 address type
             0x00, 0x00, 0x00, 0x00, // IPv4 address (0.0.0.0)
             0x00, 0x00, // Port (0)
         ];
 
-        stream.write_all(&reply_packet).await
+        stream
+            .write_all(&reply_packet)
+            .await
             .map_err(|e| Error::network(format!("Failed to write SOCKS5 reply: {}", e)))?;
 
         Ok(())
     }
 
-    async fn send_reply_with_addr(stream: &mut tokio::net::TcpStream, reply: u8, addr: SocketAddr) -> Result<()> {
+    async fn send_reply_with_addr(
+        stream: &mut tokio::net::TcpStream,
+        reply: u8,
+        addr: SocketAddr,
+    ) -> Result<()> {
         let mut reply_packet = Vec::with_capacity(22);
         reply_packet.push(0x05); // Version
         reply_packet.push(reply); // Reply code
@@ -612,10 +670,12 @@ impl Socks5Inbound {
                 reply_packet.extend_from_slice(&ipv6.octets());
             }
         }
-        
+
         reply_packet.extend_from_slice(&addr.port().to_be_bytes());
 
-        stream.write_all(&reply_packet).await
+        stream
+            .write_all(&reply_packet)
+            .await
             .map_err(|e| Error::network(format!("Failed to write SOCKS5 reply: {}", e)))?;
 
         Ok(())

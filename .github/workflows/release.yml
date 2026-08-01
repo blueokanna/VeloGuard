@@ -1,0 +1,128 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Build and publish Android release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VELOGUARD_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.jks
+      VELOGUARD_KEYSTORE_PASSWORD: ${{ secrets.VELOGUARD_KEYSTORE_PASSWORD }}
+      VELOGUARD_KEY_ALIAS: ${{ secrets.VELOGUARD_KEY_ALIAS }}
+      VELOGUARD_KEY_PASSWORD: ${{ secrets.VELOGUARD_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate stable tag and changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Only stable vMAJOR.MINOR.PATCH tags can be released" >&2
+            exit 1
+          fi
+          version="$(sed -nE 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)(\+[0-9]+)?$/\1/p' pubspec.yaml)"
+          test -n "$version"
+          test "$tag" = "v$version"
+          awk -v version="$version" '
+            $0 == "## " version { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > changelog-section.md
+          grep -qE '^- ' changelog-section.md
+          {
+            echo '**Official changelog:**'
+            echo
+            sed '/^[[:space:]]*$/d' changelog-section.md
+          } > release-notes.md
+
+      - name: Validate signing secrets
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VELOGUARD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_BASE64"
+          test -n "$VELOGUARD_KEYSTORE_PASSWORD"
+          test -n "$VELOGUARD_KEY_ALIAS"
+          test -n "$VELOGUARD_KEY_PASSWORD"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$VELOGUARD_KEYSTORE_PATH"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Resolve dependencies and test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+          cargo test --manifest-path rust/Cargo.toml -p veloguard-core -p veloguard-lib
+
+      - name: Build signed release APK
+        run: flutter build apk --release
+
+      - name: Create verified update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          asset="VeloGuard-${GITHUB_REF_NAME}-android.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$asset"
+          checksum="$(sha256sum "dist/$asset" | cut -d' ' -f1)"
+          published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          version="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${asset}"
+          jq -n \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg version "$version" \
+            --arg published_at "$published_at" \
+            --arg name "$asset" \
+            --arg url "$url" \
+            --arg sha256 "$checksum" \
+            '{schema:1,tag:$tag,version:$version,published_at:$published_at,assets:[{platform:"android",name:$name,url:$url,sha256:$sha256}]}' \
+            > dist/update-manifest.json
+          (cd dist && sha256sum "$asset" update-manifest.json > SHA256SUMS)
+
+      - name: Publish stable GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VeloGuard ${{ github.ref_name }}
+          body_path: release-notes.md
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/VeloGuard-${{ github.ref_name }}-android.apk
+            dist/update-manifest.json
+            dist/SHA256SUMS

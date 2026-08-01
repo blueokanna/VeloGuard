@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/services/storage_service.dart';
 import 'package:veloguard/src/rust/api.dart' as rust_api;
-import 'package:veloguard/main.dart' show isRustLibInitialized;
+import 'package:veloguard/src/services/native_core_service.dart';
 
 /// Latency test result
 class LatencyResult {
@@ -162,7 +162,7 @@ class ProxiesProvider extends ChangeNotifier {
       }
 
       // Apply persisted selections to Rust backend if initialized
-      if (isRustLibInitialized) {
+      if (NativeCoreService.instance.isReady) {
         await _applySelectionsToRust();
       }
     } catch (e) {
@@ -172,7 +172,7 @@ class ProxiesProvider extends ChangeNotifier {
 
   /// Apply all current selections to Rust backend
   Future<void> _applySelectionsToRust() async {
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Skipping Rust selection sync: RustLib not initialized');
       return;
     }
@@ -262,7 +262,7 @@ class ProxiesProvider extends ChangeNotifier {
     notifyListeners();
 
     // Call Rust API to change proxy selection (only if RustLib is initialized)
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       debugPrint('Skipping Rust API call: RustLib not initialized');
       return;
     }
@@ -390,7 +390,7 @@ class ProxiesProvider extends ChangeNotifier {
     ParsedProxy proxy,
   ) async {
     // Check if RustLib is initialized
-    if (!isRustLibInitialized) {
+    if (!NativeCoreService.instance.isReady) {
       return LatencyResult(
         proxyName: proxyName,
         isSuccess: false,

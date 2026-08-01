@@ -178,7 +178,7 @@ impl TuicClient {
             password: password.clone(),
         };
 
-        let auth_data = bincode::serialize(&auth_request)
+        let auth_data = rustbinary::serialize(&auth_request)
             .map_err(|e| TuicError::Protocol(e.to_string()))?;
 
         auth_stream.write_all(&auth_data).await?;

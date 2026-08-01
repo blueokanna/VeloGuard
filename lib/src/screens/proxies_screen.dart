@@ -351,7 +351,7 @@ class _ProxiesScreenState extends State<ProxiesScreen>
       pressedScale: 0.95,
       child: AnimatedContainer(
         duration: AnimationUtils.stateChangeDuration,
-        curve: AnimationUtils.curveSpring,
+        curve: AnimationUtils.stateChangeCurve,
         decoration: BoxDecoration(
           color: isSelected
               ? colorScheme.primaryContainer
@@ -595,7 +595,7 @@ class _ProxyCard extends StatelessWidget {
       pressedScale: 0.96,
       child: AnimatedContainer(
         duration: AnimationUtils.stateChangeDuration,
-        curve: AnimationUtils.curveSpring,
+        curve: AnimationUtils.stateChangeCurve,
         decoration: BoxDecoration(
           color: isSelected
               ? colorScheme.primaryContainer
@@ -941,7 +941,7 @@ class _SpecialCard extends StatelessWidget {
       pressedScale: 0.96,
       child: AnimatedContainer(
         duration: AnimationUtils.stateChangeDuration,
-        curve: AnimationUtils.curveSpring,
+        curve: AnimationUtils.stateChangeCurve,
         decoration: BoxDecoration(
           color: isSelected
               ? colorScheme.primaryContainer

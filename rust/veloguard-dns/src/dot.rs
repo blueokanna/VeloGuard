@@ -103,7 +103,7 @@ impl DotClient {
     pub async fn resolve(&self, domain: &str) -> Result<Vec<IpAddr>> {
         // Try A records first
         let mut ips = self.query(domain, RecordType::A).await.unwrap_or_default();
-        
+
         // Also try AAAA records
         if let Ok(ipv6) = self.query(domain, RecordType::AAAA).await {
             ips.extend(ipv6);
@@ -127,15 +127,16 @@ impl DotClient {
     }
 
     /// Build DNS query message
-    fn build_query(&self, domain: &str, record_type: hickory_proto::rr::RecordType) -> Result<Vec<u8>> {
+    fn build_query(
+        &self,
+        domain: &str,
+        record_type: hickory_proto::rr::RecordType,
+    ) -> Result<Vec<u8>> {
         let name = Name::from_str(domain)
             .map_err(|e| DnsError::NameError(format!("Invalid domain name: {}", e)))?;
 
-        let mut message = Message::new();
-        message.set_id(rand::random());
-        message.set_message_type(MessageType::Query);
-        message.set_op_code(OpCode::Query);
-        message.set_recursion_desired(true);
+        let mut message = Message::new(rand::random(), MessageType::Query, OpCode::Query);
+        message.metadata.recursion_desired = true;
 
         let query = Query::query(name, record_type);
         message.add_query(query);
@@ -149,7 +150,7 @@ impl DotClient {
     async fn send_query(&self, query: &[u8]) -> Result<Vec<u8>> {
         // Connect to the DoT server
         let addr = format!("{}:{}", self.server, self.port);
-        
+
         let tcp_stream = tokio::time::timeout(self.timeout, TcpStream::connect(&addr))
             .await
             .map_err(|_| DnsError::Timeout)?
@@ -174,10 +175,7 @@ impl DotClient {
         request.put_slice(query);
 
         // Send the query
-        tls_stream
-            .write_all(&request)
-            .await
-            .map_err(DnsError::Io)?;
+        tls_stream.write_all(&request).await.map_err(DnsError::Io)?;
 
         // Read the response length
         let mut len_buf = [0u8; 2];
@@ -211,8 +209,8 @@ impl DotClient {
 
         let mut ips = Vec::new();
 
-        for answer in message.answers() {
-            match answer.data() {
+        for answer in &message.answers {
+            match &answer.data {
                 RData::A(a) => ips.push(IpAddr::V4(a.0)),
                 RData::AAAA(aaaa) => ips.push(IpAddr::V6(aaaa.0)),
                 _ => {}
@@ -233,7 +231,6 @@ impl DotClient {
     }
 }
 
-
 /// DoT resolver with multiple upstream servers and load balancing
 pub struct DotResolver {
     /// DoT clients
@@ -246,7 +243,7 @@ pub struct DotResolver {
 
 impl DotResolver {
     /// Create a new DoT resolver with multiple upstream servers
-    /// 
+    ///
     /// # Arguments
     /// * `servers` - List of (server, port, tls_name) tuples
     pub fn new(servers: &[(String, u16, Option<String>)]) -> Result<Self> {
@@ -268,7 +265,9 @@ impl DotResolver {
         }
 
         if clients.is_empty() {
-            return Err(DnsError::Config("No valid DoT servers configured".to_string()));
+            return Err(DnsError::Config(
+                "No valid DoT servers configured".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -310,13 +309,18 @@ impl DotResolver {
                     clients.push(client);
                 }
                 Err(e) => {
-                    warn!("Failed to create DoT client for {}:{}: {}", config.server, config.port, e);
+                    warn!(
+                        "Failed to create DoT client for {}:{}: {}",
+                        config.server, config.port, e
+                    );
                 }
             }
         }
 
         if clients.is_empty() {
-            return Err(DnsError::Config("No valid DoT servers configured".to_string()));
+            return Err(DnsError::Config(
+                "No valid DoT servers configured".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -357,20 +361,28 @@ impl DotResolver {
                     }
                     debug!(
                         "DoT resolved {} to {:?} via {}:{}",
-                        domain, ips, client.server(), client.port()
+                        domain,
+                        ips,
+                        client.server(),
+                        client.port()
                     );
                     return Ok(ips);
                 }
                 Ok(_) => {
                     debug!(
                         "DoT returned empty result for {} via {}:{}",
-                        domain, client.server(), client.port()
+                        domain,
+                        client.server(),
+                        client.port()
                     );
                 }
                 Err(e) => {
                     debug!(
                         "DoT resolution failed for {} via {}:{}: {}",
-                        domain, client.server(), client.port(), e
+                        domain,
+                        client.server(),
+                        client.port(),
+                        e
                     );
                     last_error = Some(e);
                 }
@@ -408,7 +420,10 @@ impl DotResolver {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            DnsError::QueryFailed(format!("All DoT servers failed for {} {:?}", domain, record_type))
+            DnsError::QueryFailed(format!(
+                "All DoT servers failed for {} {:?}",
+                domain, record_type
+            ))
         }))
     }
 

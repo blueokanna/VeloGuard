@@ -31,10 +31,7 @@ impl HostsFile {
     /// Add an entry
     pub fn add(&mut self, domain: &str, ip: IpAddr) {
         let domain = domain.to_lowercase();
-        self.entries
-            .entry(domain)
-            .or_default()
-            .push(ip);
+        self.entries.entry(domain).or_default().push(ip);
     }
 
     /// Lookup a domain

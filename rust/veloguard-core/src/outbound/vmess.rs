@@ -550,8 +550,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for WebSocketStream<S> 
         if payload_len_byte >= 126 {
             // For larger frames, we need to buffer and handle asynchronously
             // This is a simplified implementation
-            return Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Poll::Ready(Err(std::io::Error::other(
                 "Large WebSocket frames not yet supported in poll_read",
             )));
         }
@@ -951,10 +950,11 @@ impl VmessOutbound {
 
         let cipher = Aes128Gcm::new_from_slice(&header_key)
             .map_err(|e| Error::protocol(format!("Failed to create AES-GCM cipher: {}", e)))?;
-        let nonce = Nonce::from_slice(&header_nonce);
+        let nonce = Nonce::try_from(header_nonce.as_slice())
+            .map_err(|_| Error::protocol("Invalid header nonce length"))?;
 
         let encrypted_header = cipher
-            .encrypt(nonce, header_buf.as_ref())
+            .encrypt(&nonce, header_buf.as_ref())
             .map_err(|e| Error::protocol(format!("Failed to encrypt header: {}", e)))?;
 
         let header_length_key = kdf16(
@@ -972,11 +972,12 @@ impl VmessOutbound {
 
         let length_cipher = Aes128Gcm::new_from_slice(&header_length_key)
             .map_err(|e| Error::protocol(format!("Failed to create length cipher: {}", e)))?;
-        let length_nonce = Nonce::from_slice(&header_length_nonce);
+        let length_nonce = Nonce::try_from(header_length_nonce.as_slice())
+            .map_err(|_| Error::protocol("Invalid header length nonce"))?;
 
         let length_bytes = (encrypted_header.len() as u16).to_be_bytes();
         let encrypted_length = length_cipher
-            .encrypt(length_nonce, length_bytes.as_ref())
+            .encrypt(&length_nonce, length_bytes.as_ref())
             .map_err(|e| Error::protocol(format!("Failed to encrypt length: {}", e)))?;
 
         let mut result =
@@ -1002,10 +1003,11 @@ impl VmessOutbound {
         let cipher = Aes128Gcm::new_from_slice(response_key)
             .map_err(|e| Error::protocol(format!("Failed to create response cipher: {}", e)))?;
 
-        let nonce = Nonce::from_slice(&response_iv[..VMESS_AEAD_NONCE_LEN]);
+        let nonce = Nonce::try_from(&response_iv[..VMESS_AEAD_NONCE_LEN])
+            .map_err(|_| Error::protocol("Invalid response nonce length"))?;
 
         let decrypted = cipher
-            .decrypt(nonce, data)
+            .decrypt(&nonce, data)
             .map_err(|e| Error::protocol(format!("Failed to decrypt response header: {}", e)))?;
 
         if decrypted.len() < 4 {
@@ -1276,7 +1278,7 @@ impl VmessOutbound {
     /// Get or create a UDP session for the given target
     async fn get_or_create_udp_session(&self, target: &TargetAddr) -> Result<Arc<VmessUdpSession>> {
         let session_key = target.to_string();
-        
+
         // Check for existing session
         if let Some(session) = self.udp_sessions.get(&session_key) {
             let session = session.clone();
@@ -1306,7 +1308,7 @@ impl VmessOutbound {
         ));
 
         self.udp_sessions.insert(session_key, session.clone());
-        
+
         tracing::debug!("Created new VMess UDP session for {}", target);
         Ok(session)
     }
@@ -1314,13 +1316,13 @@ impl VmessOutbound {
     /// Clean up expired UDP sessions
     pub fn cleanup_udp_sessions(&self) {
         let mut expired_keys = Vec::new();
-        
+
         for entry in self.udp_sessions.iter() {
             if entry.value().is_expired(Duration::from_secs(120)) {
                 expired_keys.push(entry.key().clone());
             }
         }
-        
+
         for key in expired_keys {
             self.udp_sessions.remove(&key);
             tracing::debug!("Removed expired VMess UDP session: {}", key);
@@ -1336,7 +1338,7 @@ impl VmessOutbound {
 
         // Get or create a session for this target
         let session = self.get_or_create_udp_session(target).await?;
-        
+
         // Get chunk count and keys
         let chunk_count = session.next_chunk_count();
         let request_key = session.request_key;
@@ -1344,10 +1346,10 @@ impl VmessOutbound {
         let response_key = session.response_key;
         let response_iv = session.response_iv;
         let target_str = target.to_string();
-        
+
         // Lock stream for write
         let mut stream_guard = session.stream.lock().await;
-        
+
         // Encrypt and send data
         let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
         if let Err(e) = stream_guard.write_all(&encrypted_data).await {
@@ -1387,13 +1389,13 @@ impl VmessOutbound {
         }
 
         let session = self.get_or_create_udp_session(target).await?;
-        
+
         let chunk_count = session.next_chunk_count();
         let request_key = session.request_key;
         let request_iv = session.request_iv;
-        
+
         let encrypted_data = self.encrypt_chunk(data, &request_key, &request_iv, chunk_count)?;
-        
+
         let mut stream_guard = session.stream.lock().await;
         stream_guard
             .write_all(&encrypted_data)
@@ -1439,10 +1441,11 @@ impl VmessOutbound {
         let mut nonce_bytes = [0u8; 12];
         nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
         nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| Error::protocol("Invalid AES nonce length"))?;
 
         let encrypted = cipher
-            .encrypt(nonce, data)
+            .encrypt(&nonce, data)
             .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
 
         let length = (encrypted.len() as u16).to_be_bytes();
@@ -1469,10 +1472,11 @@ impl VmessOutbound {
         let mut nonce_bytes = [0u8; 12];
         nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
         nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
+        let nonce = chacha20poly1305::Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| Error::protocol("Invalid ChaCha20 nonce length"))?;
 
         let encrypted = cipher
-            .encrypt(nonce, data)
+            .encrypt(&nonce, data)
             .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
 
         let length = (encrypted.len() as u16).to_be_bytes();
@@ -1511,10 +1515,11 @@ impl VmessOutbound {
         let mut nonce_bytes = [0u8; 12];
         nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
         nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| Error::protocol("Invalid AES nonce length"))?;
 
         let decrypted = cipher
-            .decrypt(nonce, data)
+            .decrypt(&nonce, data)
             .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
 
         Ok(decrypted)
@@ -1537,10 +1542,11 @@ impl VmessOutbound {
         let mut nonce_bytes = [0u8; 12];
         nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
         nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-        let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
+        let nonce = chacha20poly1305::Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| Error::protocol("Invalid ChaCha20 nonce length"))?;
 
         let decrypted = cipher
-            .decrypt(nonce, data)
+            .decrypt(&nonce, data)
             .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
 
         Ok(decrypted)
@@ -1879,10 +1885,11 @@ fn encrypt_chunk_static(
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
             nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = Nonce::from_slice(&nonce_bytes);
+            let nonce = Nonce::try_from(nonce_bytes.as_slice())
+                .map_err(|_| Error::protocol("Invalid AES nonce length"))?;
 
             let encrypted = aes_cipher
-                .encrypt(nonce, data)
+                .encrypt(&nonce, data)
                 .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
 
             let length = (encrypted.len() as u16).to_be_bytes();
@@ -1902,10 +1909,11 @@ fn encrypt_chunk_static(
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
             nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
+            let nonce = chacha20poly1305::Nonce::try_from(nonce_bytes.as_slice())
+                .map_err(|_| Error::protocol("Invalid ChaCha20 nonce length"))?;
 
             let encrypted = chacha_cipher
-                .encrypt(nonce, data)
+                .encrypt(&nonce, data)
                 .map_err(|e| Error::protocol(format!("Failed to encrypt data: {}", e)))?;
 
             let length = (encrypted.len() as u16).to_be_bytes();
@@ -1938,10 +1946,11 @@ fn decrypt_chunk_static(
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
             nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = Nonce::from_slice(&nonce_bytes);
+            let nonce = Nonce::try_from(nonce_bytes.as_slice())
+                .map_err(|_| Error::protocol("Invalid AES nonce length"))?;
 
             let decrypted = aes_cipher
-                .decrypt(nonce, data)
+                .decrypt(&nonce, data)
                 .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
 
             Ok(decrypted)
@@ -1957,10 +1966,11 @@ fn decrypt_chunk_static(
             let mut nonce_bytes = [0u8; 12];
             nonce_bytes[..2].copy_from_slice(&count.to_be_bytes());
             nonce_bytes[2..].copy_from_slice(&iv[2..12]);
-            let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
+            let nonce = chacha20poly1305::Nonce::try_from(nonce_bytes.as_slice())
+                .map_err(|_| Error::protocol("Invalid ChaCha20 nonce length"))?;
 
             let decrypted = chacha_cipher
-                .decrypt(nonce, data)
+                .decrypt(&nonce, data)
                 .map_err(|e| Error::protocol(format!("Failed to decrypt data: {}", e)))?;
 
             Ok(decrypted)

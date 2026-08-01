@@ -250,7 +250,41 @@ class ConfigConverter {
       'inbounds': _extractInbounds(clash, generalSettings: generalSettings),
       'outbounds': _extractOutbounds(clash),
       'rules': _extractRules(clash),
+      'rule_providers': _extractRuleProviders(clash),
     };
+  }
+
+  static List<Map<String, dynamic>> _extractRuleProviders(
+    Map<String, dynamic> clash,
+  ) {
+    final source = clash['rule-providers'];
+    if (source is! Map) return const [];
+
+    final providers = <Map<String, dynamic>>[];
+    for (final entry in source.entries) {
+      if (entry.value is! Map) continue;
+      final config = Map<String, dynamic>.from(entry.value as Map);
+      final type = (config['type'] ?? 'http').toString().toLowerCase();
+      final behavior = (config['behavior'] ?? 'classical')
+          .toString()
+          .toLowerCase();
+      if (type != 'http' && type != 'file') {
+        throw FormatException('Unsupported rule provider type: $type');
+      }
+      if (!const {'domain', 'ipcidr', 'classical'}.contains(behavior)) {
+        throw FormatException('Unsupported rule provider behavior: $behavior');
+      }
+
+      providers.add({
+        'name': entry.key.toString(),
+        'type': type,
+        'behavior': behavior,
+        'url': config['url']?.toString(),
+        'path': config['path']?.toString(),
+        'interval': config['interval'] is int ? config['interval'] : 86400,
+      });
+    }
+    return providers;
   }
 
   static Map<String, dynamic> _extractGeneralConfig(

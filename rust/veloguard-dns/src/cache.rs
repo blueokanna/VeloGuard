@@ -101,15 +101,18 @@ impl CacheStats {
     }
 
     pub fn miss(&self) {
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn stale_hit(&self) {
-        self.stale_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stale_hits
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn eviction(&self) {
-        self.evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.evictions
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn hit_rate(&self) -> f64 {
@@ -177,7 +180,12 @@ impl DnsCache {
         }
 
         entries.insert(key, entry);
-        trace!("DNS cache insert: {} {:?} TTL={}", name, record_type, bounded_ttl);
+        trace!(
+            "DNS cache insert: {} {:?} TTL={}",
+            name,
+            record_type,
+            bounded_ttl
+        );
     }
 
     /// Insert a cache entry with CNAME chain

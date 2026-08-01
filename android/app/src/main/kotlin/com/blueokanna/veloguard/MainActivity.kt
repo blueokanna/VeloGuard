@@ -13,10 +13,12 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -117,6 +119,14 @@ class MainActivity : FlutterActivity() {
                 "isNativeLibraryLoaded" -> {
                     result.success(VeloGuardVpnService.isLibraryLoaded)
                 }
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("INVALID_PATH", "APK path is required", null)
+                    } else {
+                        installApk(path, result)
+                    }
+                }
                 "getNativeLibraryInfo" -> {
                     result.success(VeloGuardVpnService.getLibraryInfo(this))
                 }
@@ -132,6 +142,44 @@ class MainActivity : FlutterActivity() {
         }
         
         Log.d(TAG, "MethodChannel configured")
+    }
+
+    private fun installApk(path: String, result: MethodChannel.Result) {
+        val apk = File(path)
+        if (!apk.isFile || !apk.canRead()) {
+            result.error("APK_NOT_FOUND", "Downloaded APK is not readable", null)
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()) {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            )
+            result.success(mapOf("launched" to false, "requiresPermission" to true))
+            return
+        }
+
+        try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                apk,
+            )
+            startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+            result.success(mapOf("launched" to true))
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to launch APK installer", error)
+            result.error("INSTALL_FAILED", error.message, null)
+        }
     }
 
     private fun startVpnService(result: MethodChannel.Result, mode: String) {

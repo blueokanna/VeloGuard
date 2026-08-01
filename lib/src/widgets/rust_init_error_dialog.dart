@@ -1,27 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:veloguard/src/widgets/adaptive_dialog.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
-import 'package:veloguard/main.dart' show lastInitError;
 
 /// Dialog shown when the Rust library fails to initialize.
-/// Provides user-friendly error message and allows continuing with limited functionality.
+/// The application cannot continue until the native core is available.
 class RustInitErrorDialog extends StatelessWidget {
-  const RustInitErrorDialog({super.key});
+  const RustInitErrorDialog({super.key, this.errorDetails});
 
-  /// Shows the error dialog and returns true if user wants to retry
-  static Future<bool> show(BuildContext context) async {
-    final result = await AdaptiveDialog.show<bool>(
+  final String? errorDetails;
+
+  static Future<void> show(BuildContext context, {String? errorDetails}) async {
+    await AdaptiveDialog.show<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const RustInitErrorDialog(),
+      builder: (context) => PopScope(
+        canPop: false,
+        child: RustInitErrorDialog(errorDetails: errorDetails),
+      ),
     );
-    return result ?? false;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
     return AdaptiveDialog(
       title: Row(
@@ -34,7 +36,7 @@ class RustInitErrorDialog extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              l10n?.rustInitErrorTitle ?? 'Initialization Error',
+              l10n.rustInitErrorTitle,
               style: theme.textTheme.titleLarge?.copyWith(
                 color: theme.colorScheme.error,
               ),
@@ -47,12 +49,8 @@ class RustInitErrorDialog extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            l10n?.rustInitErrorMessage ??
-                'The native library failed to load. Some features will not be available.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          if (lastInitError != null && lastInitError!.isNotEmpty) ...[
+          Text(l10n.rustInitErrorMessage, style: theme.textTheme.bodyMedium),
+          if (errorDetails != null && errorDetails!.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(8),
@@ -61,7 +59,7 @@ class RustInitErrorDialog extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'Error: $lastInitError',
+                '${l10n.rustInitErrorDetails}: $errorDetails',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontFamily: 'monospace',
                   color: theme.colorScheme.error,
@@ -73,35 +71,30 @@ class RustInitErrorDialog extends StatelessWidget {
           _buildSection(
             context,
             icon: Icons.block_rounded,
-            title: l10n?.rustInitErrorAffectedFeatures ?? 'Affected Features',
+            title: l10n.rustInitErrorAffectedFeatures,
             items: [
-              l10n?.rustInitErrorFeatureVpn ?? '• VPN connection',
-              l10n?.rustInitErrorFeatureProxy ?? '• Proxy functionality',
-              l10n?.rustInitErrorFeatureProfiles ?? '• Profile activation',
+              l10n.rustInitErrorFeatureVpn,
+              l10n.rustInitErrorFeatureProxy,
+              l10n.rustInitErrorFeatureProfiles,
             ],
           ),
           const SizedBox(height: 16),
           _buildSection(
             context,
             icon: Icons.lightbulb_outline_rounded,
-            title: l10n?.rustInitErrorSuggestions ?? 'Suggestions',
+            title: l10n.rustInitErrorSuggestions,
             items: [
-              l10n?.rustInitErrorSuggestion1 ?? '• Restart the app',
-              l10n?.rustInitErrorSuggestion2 ??
-                  '• Update to the latest version',
-              l10n?.rustInitErrorSuggestion3 ?? '• Check device compatibility',
+              l10n.rustInitErrorSuggestion1,
+              l10n.rustInitErrorSuggestion2,
+              l10n.rustInitErrorSuggestion3,
             ],
           ),
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l10n?.rustInitErrorRetry ?? 'Retry'),
-        ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n?.rustInitErrorContinue ?? 'Continue Anyway'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.rustInitErrorRetry),
         ),
       ],
     );

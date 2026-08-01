@@ -22,8 +22,7 @@ use tracing::{debug, trace, warn};
 use url::Url;
 
 /// DoH request method
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DohMethod {
     /// HTTP GET with base64url encoded query
     Get,
@@ -31,7 +30,6 @@ pub enum DohMethod {
     #[default]
     Post,
 }
-
 
 /// DoH client configuration
 #[derive(Debug, Clone)]
@@ -121,7 +119,7 @@ impl DohClient {
     pub async fn resolve(&self, domain: &str) -> Result<Vec<IpAddr>> {
         // Try A records first
         let mut ips = self.query(domain, RecordType::A).await.unwrap_or_default();
-        
+
         // Also try AAAA records
         if let Ok(ipv6) = self.query(domain, RecordType::AAAA).await {
             ips.extend(ipv6);
@@ -145,15 +143,16 @@ impl DohClient {
     }
 
     /// Build DNS query message
-    fn build_query(&self, domain: &str, record_type: hickory_proto::rr::RecordType) -> Result<Vec<u8>> {
+    fn build_query(
+        &self,
+        domain: &str,
+        record_type: hickory_proto::rr::RecordType,
+    ) -> Result<Vec<u8>> {
         let name = Name::from_str(domain)
             .map_err(|e| DnsError::NameError(format!("Invalid domain name: {}", e)))?;
 
-        let mut message = Message::new();
-        message.set_id(rand::random());
-        message.set_message_type(MessageType::Query);
-        message.set_op_code(OpCode::Query);
-        message.set_recursion_desired(true);
+        let mut message = Message::new(rand::random(), MessageType::Query, OpCode::Query);
+        message.metadata.recursion_desired = true;
 
         let query = Query::query(name, record_type);
         message.add_query(query);
@@ -165,7 +164,10 @@ impl DohClient {
 
     /// Send DNS query via DoH
     async fn send_query(&self, query: &[u8]) -> Result<Vec<u8>> {
-        let host = self.url.host_str().ok_or(DnsError::Config("No host in URL".to_string()))?;
+        let host = self
+            .url
+            .host_str()
+            .ok_or(DnsError::Config("No host in URL".to_string()))?;
         let port = self.url.port().unwrap_or(443);
         let path = self.url.path();
 
@@ -178,19 +180,20 @@ impl DohClient {
             }
             DohMethod::Post => {
                 let uri = self.url.to_string();
-                (uri, Bytes::copy_from_slice(query), Some("application/dns-message"))
+                (
+                    uri,
+                    Bytes::copy_from_slice(query),
+                    Some("application/dns-message"),
+                )
             }
         };
 
         // Connect with TLS
         let addr = format!("{}:{}", host, port);
-        let tcp_stream = tokio::time::timeout(
-            self.timeout,
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await
-        .map_err(|_| DnsError::Timeout)?
-        .map_err(DnsError::Io)?;
+        let tcp_stream = tokio::time::timeout(self.timeout, tokio::net::TcpStream::connect(&addr))
+            .await
+            .map_err(|_| DnsError::Timeout)?
+            .map_err(DnsError::Io)?;
 
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|e| DnsError::Tls(format!("Invalid server name: {}", e)))?;
@@ -245,11 +248,14 @@ impl DohClient {
 
         // Parse HTTP response
         let response_str = String::from_utf8_lossy(&response_buf);
-        
+
         // Check status code
         if !response_str.starts_with("HTTP/1.1 200") && !response_str.starts_with("HTTP/1.0 200") {
             let status_line = response_str.lines().next().unwrap_or("Unknown");
-            return Err(DnsError::Http(format!("DoH server returned: {}", status_line)));
+            return Err(DnsError::Http(format!(
+                "DoH server returned: {}",
+                status_line
+            )));
         }
 
         // Find body (after \r\n\r\n)
@@ -268,8 +274,8 @@ impl DohClient {
 
         let mut ips = Vec::new();
 
-        for answer in message.answers() {
-            match answer.data() {
+        for answer in &message.answers {
+            match &answer.data {
                 RData::A(a) => ips.push(IpAddr::V4(a.0)),
                 RData::AAAA(aaaa) => ips.push(IpAddr::V6(aaaa.0)),
                 _ => {}
@@ -285,7 +291,6 @@ impl DohClient {
         self.url.as_str()
     }
 }
-
 
 /// DoH resolver with multiple upstream servers and load balancing
 pub struct DohResolver {
@@ -318,7 +323,9 @@ impl DohResolver {
         }
 
         if clients.is_empty() {
-            return Err(DnsError::Config("No valid DoH servers configured".to_string()));
+            return Err(DnsError::Config(
+                "No valid DoH servers configured".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -348,7 +355,9 @@ impl DohResolver {
         }
 
         if clients.is_empty() {
-            return Err(DnsError::Config("No valid DoH servers configured".to_string()));
+            return Err(DnsError::Config(
+                "No valid DoH servers configured".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -391,10 +400,19 @@ impl DohResolver {
                     return Ok(ips);
                 }
                 Ok(_) => {
-                    debug!("DoH returned empty result for {} via {}", domain, client.url());
+                    debug!(
+                        "DoH returned empty result for {} via {}",
+                        domain,
+                        client.url()
+                    );
                 }
                 Err(e) => {
-                    debug!("DoH resolution failed for {} via {}: {}", domain, client.url(), e);
+                    debug!(
+                        "DoH resolution failed for {} via {}: {}",
+                        domain,
+                        client.url(),
+                        e
+                    );
                     last_error = Some(e);
                 }
             }
@@ -431,7 +449,10 @@ impl DohResolver {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            DnsError::QueryFailed(format!("All DoH servers failed for {} {:?}", domain, record_type))
+            DnsError::QueryFailed(format!(
+                "All DoH servers failed for {} {:?}",
+                domain, record_type
+            ))
         }))
     }
 

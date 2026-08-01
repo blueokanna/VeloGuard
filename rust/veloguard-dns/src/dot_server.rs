@@ -5,7 +5,7 @@
 use crate::error::{DnsError, Result};
 use crate::resolver::DnsResolver;
 use crate::RecordType;
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::{RData, Record};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -99,7 +99,9 @@ impl DotServer {
             .collect();
 
         if certs.is_empty() {
-            return Err(DnsError::Config("No certificates found in file".to_string()));
+            return Err(DnsError::Config(
+                "No certificates found in file".to_string(),
+            ));
         }
 
         Ok(certs)
@@ -264,18 +266,15 @@ impl DotServer {
         let request = Message::from_bytes(query_bytes)
             .map_err(|e| DnsError::Protocol(format!("Invalid DNS message: {}", e)))?;
 
-        let mut response = Message::new();
-        response.set_id(request.id());
-        response.set_message_type(MessageType::Response);
-        response.set_op_code(OpCode::Query);
-        response.set_recursion_desired(request.recursion_desired());
-        response.set_recursion_available(true);
+        let mut response = Message::response(request.metadata.id, request.metadata.op_code);
+        response.metadata.recursion_desired = request.metadata.recursion_desired;
+        response.metadata.recursion_available = true;
 
-        for query in request.queries() {
+        for query in &request.queries {
             response.add_query(query.clone());
         }
 
-        for query in request.queries() {
+        for query in &request.queries {
             let name = query.name().to_string();
             let record_type = RecordType::from(query.query_type());
 
@@ -293,15 +292,15 @@ impl DotServer {
                         response.add_answer(record);
                     }
 
-                    if response.answers().is_empty() {
-                        response.set_response_code(ResponseCode::NXDomain);
+                    if response.answers.is_empty() {
+                        response.metadata.response_code = ResponseCode::NXDomain;
                     } else {
-                        response.set_response_code(ResponseCode::NoError);
+                        response.metadata.response_code = ResponseCode::NoError;
                     }
                 }
                 Err(e) => {
                     warn!("DoT resolution failed for {}: {}", name, e);
-                    response.set_response_code(ResponseCode::ServFail);
+                    response.metadata.response_code = ResponseCode::ServFail;
                 }
             }
         }

@@ -90,7 +90,9 @@ impl FakeIpPool {
                 }
             } else if let Some(suffix) = pattern.strip_prefix('+') {
                 // ".example.com"
-                if domain_lower.ends_with(suffix) || domain_lower == suffix.strip_prefix('.').unwrap_or(suffix) {
+                if domain_lower.ends_with(suffix)
+                    || domain_lower == suffix.strip_prefix('.').unwrap_or(suffix)
+                {
                     return true;
                 }
             } else if domain_lower == pattern.to_lowercase() {
@@ -224,11 +226,14 @@ impl FakeIpPool {
 
 impl Default for FakeIpPool {
     fn default() -> Self {
-        Self::new("198.18.0.0/16", vec![
-            "*.lan".to_string(),
-            "*.local".to_string(),
-            "localhost".to_string(),
-        ])
+        Self::new(
+            "198.18.0.0/16",
+            vec![
+                "*.lan".to_string(),
+                "*.local".to_string(),
+                "localhost".to_string(),
+            ],
+        )
         .expect("Default Fake-IP range should be valid")
     }
 }

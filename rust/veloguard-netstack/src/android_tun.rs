@@ -3,17 +3,18 @@
 //! This module provides socket protection for Android VPN to prevent
 //! proxy connections from being routed back through TUN.
 
+use parking_lot::RwLock as SyncRwLock;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::collections::HashMap;
 use tokio::sync::RwLock;
-use parking_lot::RwLock as SyncRwLock;
 use tracing::{debug, info, warn};
 
 /// Global socket protect callback
 /// Use RwLock to allow resetting on VPN restart
-static PROTECT_CALLBACK: SyncRwLock<Option<Box<dyn Fn(RawFd) -> bool + Send + Sync>>> = SyncRwLock::new(None);
+static PROTECT_CALLBACK: SyncRwLock<Option<Box<dyn Fn(RawFd) -> bool + Send + Sync>>> =
+    SyncRwLock::new(None);
 
 /// Set the socket protect callback
 /// Called from JNI to register VpnService.protect()
@@ -84,7 +85,7 @@ impl FakeIpPool {
     /// Allocate a fake IP for a domain
     pub async fn allocate(&self, domain: &str) -> Ipv4Addr {
         let domain = domain.to_lowercase();
-        
+
         // Check if already allocated
         if let Some(ip) = self.domain_to_ip.read().await.get(&domain) {
             return *ip;

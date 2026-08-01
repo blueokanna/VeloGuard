@@ -388,7 +388,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.blueokanna.veloguard.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/catclash";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VeloGuard";
 			};
 			name = Debug;
 		};
@@ -402,7 +402,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.blueokanna.veloguard.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/catclash";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VeloGuard";
 			};
 			name = Release;
 		};
@@ -416,7 +416,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.blueokanna.veloguard.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/catclash";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/veloguard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VeloGuard";
 			};
 			name = Profile;
 		};
