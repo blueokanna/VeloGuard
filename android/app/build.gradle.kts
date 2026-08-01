@@ -55,9 +55,7 @@ android {
             useLegacyPackaging = true
         }
     }
-    
-    // 禁用 lint 检查以避免文件锁定问题
-    lint {
+        lint {
         checkReleaseBuilds = false
         abortOnError = false
     }
