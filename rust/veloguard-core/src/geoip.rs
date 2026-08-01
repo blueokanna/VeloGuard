@@ -5,6 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+const EMBEDDED_COUNTRY_DATABASE: &[u8] = include_bytes!("../../../assets/Country.mmdb");
+
 pub struct GeoIpDatabase {
     reader: Option<Reader<Vec<u8>>>,
 }
@@ -78,6 +80,17 @@ impl GeoIpManager {
         }
     }
 
+    /// Creates a manager backed by the country database shipped with VeloGuard.
+    ///
+    /// Routing must not silently run with an empty database: doing so makes every
+    /// `GEOIP` rule miss and sends traffic to the fallback outbound.
+    pub fn from_embedded_country_database() -> Result<Self> {
+        let database = GeoIpDatabase::load_from_bytes(EMBEDDED_COUNTRY_DATABASE.to_vec())?;
+        Ok(Self {
+            database: Arc::new(RwLock::new(database)),
+        })
+    }
+
     pub async fn load_database<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let db = GeoIpDatabase::load_from_file(path)?;
         let mut guard = self.database.write().await;
@@ -136,6 +149,10 @@ fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
+pub(crate) fn is_local_or_private_ip(ip: IpAddr) -> bool {
+    is_private_ip(ip)
+}
+
 fn is_cgnat(ip: std::net::Ipv4Addr) -> bool {
     let octets = ip.octets();
     octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127)
@@ -181,5 +198,25 @@ mod tests {
         assert!(db.matches_country("LAN", IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(db.matches_country("PRIVATE", IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
         assert!(!db.matches_country("US", IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+    }
+
+    #[test]
+    fn test_embedded_country_database_identifies_cn_without_false_positive() {
+        let manager = GeoIpManager::from_embedded_country_database()
+            .expect("embedded Country.mmdb must be valid");
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        runtime.block_on(async {
+            assert!(
+                manager
+                    .matches_country("CN", IpAddr::V4(Ipv4Addr::new(114, 114, 114, 114)))
+                    .await
+            );
+            assert!(
+                !manager
+                    .matches_country("CN", IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))
+                    .await
+            );
+        });
     }
 }

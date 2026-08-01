@@ -66,4 +66,50 @@ rules:
       'process_name': null,
     });
   });
+
+  test('missing MATCH falls back to the first proxy group', () {
+    const yaml = '''
+proxies:
+  - name: node-1
+    type: socks5
+    server: 127.0.0.1
+    port: 1080
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies: [node-1]
+rules:
+  - DOMAIN-SUFFIX,cn,DIRECT
+''';
+
+    final converted =
+        jsonDecode(ConfigConverter.convertClashYamlToJson(yaml))
+            as Map<String, dynamic>;
+    final rules = converted['rules'] as List<dynamic>;
+
+    expect(rules.last, {
+      'rule_type': 'match',
+      'payload': '',
+      'outbound': 'PROXY',
+      'process_name': null,
+    });
+  });
+
+  test('missing MATCH falls back to the first proxy when no group exists', () {
+    const yaml = '''
+proxies:
+  - name: node-1
+    type: socks5
+    server: 127.0.0.1
+    port: 1080
+rules: []
+''';
+
+    final converted =
+        jsonDecode(ConfigConverter.convertClashYamlToJson(yaml))
+            as Map<String, dynamic>;
+    final rules = converted['rules'] as List<dynamic>;
+
+    expect(rules.single['outbound'], 'node-1');
+  });
 }

@@ -598,12 +598,36 @@ class ConfigConverter {
       rules.add({
         'rule_type': 'match',
         'payload': '',
-        'outbound': 'DIRECT',
+        'outbound': _defaultRuleOutbound(clash),
         'process_name': null,
       });
     }
 
     return rules;
+  }
+
+  static String _defaultRuleOutbound(Map<String, dynamic> clash) {
+    final proxyGroups = clash['proxy-groups'] as List? ?? const [];
+    for (final group in proxyGroups) {
+      if (group is Map && group['name'] != null) {
+        final name = group['name'].toString().trim();
+        if (name.isNotEmpty && name != 'DIRECT' && name != 'REJECT') {
+          return name;
+        }
+      }
+    }
+
+    final proxies = clash['proxies'] as List? ?? const [];
+    for (final proxy in proxies) {
+      if (proxy is Map && proxy['name'] != null) {
+        final name = proxy['name'].toString().trim();
+        if (name.isNotEmpty && name != 'DIRECT' && name != 'REJECT') {
+          return name;
+        }
+      }
+    }
+
+    return 'DIRECT';
   }
 
   static String _mapRuleType(String clashRuleType) {

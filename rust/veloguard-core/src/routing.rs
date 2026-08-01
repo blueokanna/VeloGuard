@@ -1,20 +1,40 @@
 use crate::config::{Config, Mode, RuleConfig, RuleType};
 use crate::error::{Error, Result};
-use crate::geoip::GeoIpManager;
+use crate::geoip::{is_local_or_private_ip, GeoIpManager};
 use crate::rule_provider::RuleProviderConfig;
 use crate::rule_provider::RuleProviderManager;
 use ipnet::IpNet;
+use lru::LruCache;
 use regex::Regex;
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
-use tokio::sync::RwLock;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock};
 
 static RUNTIME_PROXY_MODE: AtomicI32 = AtomicI32::new(0);
 static RUNTIME_RULE_PROVIDERS: once_cell::sync::Lazy<StdRwLock<Vec<RuleProviderConfig>>> =
     once_cell::sync::Lazy::new(|| StdRwLock::new(Vec::new()));
+const DNS_CACHE_CAPACITY: usize = 4096;
+const DNS_CACHE_TTL: Duration = Duration::from_secs(300);
+const DNS_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(30);
+const DNS_LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[derive(Clone)]
+struct CachedResolution {
+    addresses: Vec<IpAddr>,
+    expires_at: Instant,
+}
+
+static DNS_CACHE: once_cell::sync::Lazy<Mutex<LruCache<String, CachedResolution>>> =
+    once_cell::sync::Lazy::new(|| {
+        Mutex::new(LruCache::new(
+            NonZeroUsize::new(DNS_CACHE_CAPACITY).expect("DNS cache capacity must be non-zero"),
+        ))
+    });
 
 pub fn set_runtime_proxy_mode(mode: i32) {
     tracing::info!("Setting runtime proxy mode to {}", mode);
@@ -59,7 +79,7 @@ struct CompiledRule {
 impl Router {
     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
         let rules = Self::compile_rules(&config.read().await.rules)?;
-        let geoip_manager = GeoIpManager::new();
+        let geoip_manager = GeoIpManager::from_embedded_country_database()?;
         let rule_provider_manager = RuleProviderManager::new();
         let provider_configs = runtime_rule_providers();
         let configured_names: HashSet<&str> = provider_configs
@@ -122,14 +142,55 @@ impl Router {
         port: Option<u16>,
         process_name: Option<&str>,
     ) -> String {
-        let config = self.config.read().await;
-
         let runtime_mode = get_runtime_proxy_mode();
-        let effective_mode = match runtime_mode {
-            1 => Mode::Global,
-            2 => Mode::Direct,
-            3 => Mode::Rule,
-            _ => config.general.mode,
+        let (effective_mode, direct_outbound, global_outbound, default_outbound) = {
+            let config = self.config.read().await;
+            let effective_mode = match runtime_mode {
+                1 => Mode::Global,
+                2 => Mode::Direct,
+                3 => Mode::Rule,
+                _ => config.general.mode,
+            };
+            let direct_outbound = config
+                .outbounds
+                .iter()
+                .find(|outbound| outbound.outbound_type == crate::config::OutboundType::Direct)
+                .map(|outbound| outbound.tag.clone())
+                .unwrap_or_else(|| "DIRECT".to_string());
+            let global_outbound = config
+                .outbounds
+                .iter()
+                .find(|outbound| {
+                    matches!(
+                        outbound.outbound_type,
+                        crate::config::OutboundType::Selector
+                            | crate::config::OutboundType::Urltest
+                            | crate::config::OutboundType::Fallback
+                            | crate::config::OutboundType::Loadbalance
+                    )
+                })
+                .or_else(|| {
+                    config.outbounds.iter().find(|outbound| {
+                        !matches!(
+                            outbound.outbound_type,
+                            crate::config::OutboundType::Direct
+                                | crate::config::OutboundType::Reject
+                        )
+                    })
+                })
+                .map(|outbound| outbound.tag.clone());
+            let default_outbound = config
+                .outbounds
+                .first()
+                .map(|outbound| outbound.tag.clone())
+                .unwrap_or_else(|| direct_outbound.clone());
+
+            (
+                effective_mode,
+                direct_outbound,
+                global_outbound,
+                default_outbound,
+            )
         };
 
         tracing::debug!(
@@ -141,44 +202,59 @@ impl Router {
         );
 
         if matches!(effective_mode, Mode::Global) {
-            for outbound in &config.outbounds {
-                let tag_lower = outbound.tag.to_lowercase();
-                if tag_lower == "direct" || tag_lower == "reject" {
-                    continue;
-                }
-                if matches!(
-                    outbound.outbound_type,
-                    crate::config::OutboundType::Selector
-                        | crate::config::OutboundType::Urltest
-                        | crate::config::OutboundType::Fallback
-                        | crate::config::OutboundType::Loadbalance
-                ) {
-                    tracing::info!("Global mode: routing to proxy group '{}'", outbound.tag);
-                    return outbound.tag.clone();
-                }
+            if let Some(outbound) = global_outbound {
+                tracing::info!("Global mode: routing to proxy outbound '{}'", outbound);
+                return outbound;
             }
-            for outbound in &config.outbounds {
-                let tag_lower = outbound.tag.to_lowercase();
-                if tag_lower != "direct" && tag_lower != "reject" {
-                    tracing::info!("Global mode: routing to proxy '{}'", outbound.tag);
-                    return outbound.tag.clone();
-                }
-            }
-            return "DIRECT".to_string();
+            return direct_outbound;
         }
 
         if matches!(effective_mode, Mode::Direct) {
-            tracing::debug!("Direct mode: routing to DIRECT");
-            return "DIRECT".to_string();
+            tracing::debug!("Direct mode: routing to '{}'", direct_outbound);
+            return direct_outbound;
+        }
+
+        if Self::is_mainland_china_domain(domain) {
+            tracing::info!(
+                "Mainland China domain identified: domain={:?} -> '{}'",
+                domain,
+                direct_outbound
+            );
+            return direct_outbound;
+        }
+
+        let resolved_ips = Self::resolve_destination_ips(domain, ip).await;
+        if self.is_mainland_china_ip(&resolved_ips).await {
+            tracing::info!(
+                "Mainland China destination identified: domain={:?}, ips={:?} -> '{}'",
+                domain,
+                resolved_ips,
+                direct_outbound
+            );
+            return direct_outbound;
         }
 
         let rules = self.rules.read().await;
 
         for rule in rules.iter() {
-            if self
+            let mut matched = self
                 .matches_rule(rule, domain, ip, port, process_name)
-                .await
+                .await;
+            if !matched
+                && ip.is_none()
+                && matches!(rule.rule_type, RuleType::Geoip | RuleType::IpCidr)
             {
+                for resolved_ip in &resolved_ips {
+                    if self
+                        .matches_rule(rule, domain, Some(*resolved_ip), port, process_name)
+                        .await
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if matched {
                 tracing::info!(
                     "Rule matched: {:?} '{}' -> '{}'",
                     rule.rule_type,
@@ -189,17 +265,109 @@ impl Router {
             }
         }
 
-        let default_outbound = config
-            .outbounds
-            .first()
-            .map(|o| o.tag.clone())
-            .unwrap_or_else(|| "direct".to_string());
-
         tracing::debug!(
             "No rule matched, using default outbound: {}",
             default_outbound
         );
         default_outbound
+    }
+
+    fn is_mainland_china_domain(domain: Option<&str>) -> bool {
+        let Some(domain) = domain else {
+            return false;
+        };
+        let normalized = domain.trim().trim_end_matches('.');
+        normalized.eq_ignore_ascii_case("cn")
+            || normalized
+                .get(normalized.len().saturating_sub(3)..)
+                .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".cn"))
+    }
+
+    async fn is_mainland_china_ip(&self, addresses: &[IpAddr]) -> bool {
+        for address in addresses {
+            if is_local_or_private_ip(*address)
+                || self.geoip_manager.matches_country("CN", *address).await
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    async fn resolve_destination_ips(domain: Option<&str>, ip: Option<IpAddr>) -> Vec<IpAddr> {
+        if let Some(ip) = ip {
+            return vec![ip];
+        }
+
+        let Some(domain) = domain else {
+            return Vec::new();
+        };
+        let normalized = domain
+            .trim()
+            .trim_end_matches('.')
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_ascii_lowercase();
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+        if let Ok(ip) = normalized.parse::<IpAddr>() {
+            return vec![ip];
+        }
+
+        let now = Instant::now();
+        {
+            let mut cache = DNS_CACHE.lock().await;
+            if let Some(cached) = cache.get(&normalized) {
+                if cached.expires_at > now {
+                    return cached.addresses.clone();
+                }
+            }
+            cache.pop(&normalized);
+        }
+
+        let lookup = tokio::time::timeout(
+            DNS_LOOKUP_TIMEOUT,
+            tokio::net::lookup_host((normalized.clone(), 0)),
+        )
+        .await;
+        let addresses = match lookup {
+            Ok(Ok(resolved)) => {
+                let mut addresses = Vec::new();
+                for socket_address in resolved {
+                    let address = socket_address.ip();
+                    if !addresses.contains(&address) {
+                        addresses.push(address);
+                    }
+                }
+                addresses
+            }
+            Ok(Err(error)) => {
+                tracing::debug!("Failed to resolve '{}' for routing: {}", normalized, error);
+                Vec::new()
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "DNS resolution for '{}' exceeded {:?}; continuing with domain rules",
+                    normalized,
+                    DNS_LOOKUP_TIMEOUT
+                );
+                Vec::new()
+            }
+        };
+        let ttl = if addresses.is_empty() {
+            DNS_NEGATIVE_CACHE_TTL
+        } else {
+            DNS_CACHE_TTL
+        };
+        DNS_CACHE.lock().await.put(
+            normalized,
+            CachedResolution {
+                addresses: addresses.clone(),
+                expires_at: now + ttl,
+            },
+        );
+        addresses
     }
 
     pub async fn reload(&self) -> Result<()> {
@@ -390,7 +558,87 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{OutboundConfig, OutboundType};
     use std::net::{Ipv4Addr, Ipv6Addr};
+
+    fn mainland_routing_test_router() -> Router {
+        let config = Config {
+            outbounds: vec![
+                OutboundConfig {
+                    outbound_type: OutboundType::Direct,
+                    tag: "bypass".to_string(),
+                    server: None,
+                    port: None,
+                    options: Default::default(),
+                },
+                OutboundConfig {
+                    outbound_type: OutboundType::Socks5,
+                    tag: "proxy".to_string(),
+                    server: Some("127.0.0.1".to_string()),
+                    port: Some(1080),
+                    options: Default::default(),
+                },
+            ],
+            rules: vec![RuleConfig {
+                rule_type: RuleType::Match,
+                payload: String::new(),
+                outbound: "proxy".to_string(),
+                process_name: None,
+            }],
+            ..Config::default()
+        };
+        let rules = Router::compile_rules(&config.rules).unwrap();
+
+        Router {
+            config: Arc::new(RwLock::new(config)),
+            rules: RwLock::new(rules),
+            geoip_manager: GeoIpManager::from_embedded_country_database().unwrap(),
+            rule_provider_manager: RuleProviderManager::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mainland_cn_domain_overrides_proxy_match_rule() {
+        let router = mainland_routing_test_router();
+
+        let outbound = router
+            .match_outbound(Some("WWW.EXAMPLE.CN."), None, Some(443), None)
+            .await;
+
+        assert_eq!(outbound, "bypass");
+    }
+
+    #[tokio::test]
+    async fn mainland_cn_ip_overrides_proxy_match_rule() {
+        let router = mainland_routing_test_router();
+
+        let outbound = router
+            .match_outbound(
+                None,
+                Some(IpAddr::V4(Ipv4Addr::new(114, 114, 114, 114))),
+                Some(53),
+                None,
+            )
+            .await;
+
+        assert_eq!(outbound, "bypass");
+    }
+
+    #[tokio::test]
+    async fn foreign_ip_still_uses_configured_proxy_rule() {
+        let router = mainland_routing_test_router();
+
+        let outbound = router
+            .match_outbound(
+                None,
+                Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))),
+                Some(53),
+                None,
+            )
+            .await;
+
+        assert_eq!(outbound, "proxy");
+    }
 
     #[test]
     fn test_matches_cidr_ipv4() {
