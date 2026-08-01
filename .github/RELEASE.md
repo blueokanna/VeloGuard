@@ -11,5 +11,10 @@ Configure these GitHub Actions secrets before creating the first tag:
 - `VELOGUARD_KEY_PASSWORD`: release key password
 
 The same keystore must be retained for every release so Android can upgrade an
-installed version. Add a matching section to `CHANGELOG.md`, then push the
-stable tag. Pre-release and Nightly tags are rejected by design.
+installed version. Add a matching section to `CHANGELOG.md`, then either run
+`Stable Release` manually from the repository's default branch or push the
+matching stable tag. Manual runs derive the tag from `pubspec.yaml`.
+
+Published release assets are immutable. Increase the application version and
+add a new changelog section for every subsequent release. Pre-release and
+Nightly tags are rejected by design.

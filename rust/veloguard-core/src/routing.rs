@@ -5,6 +5,7 @@ use crate::rule_provider::RuleProviderConfig;
 use crate::rule_provider::RuleProviderManager;
 use ipnet::IpNet;
 use regex::Regex;
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
@@ -60,14 +61,38 @@ impl Router {
         let rules = Self::compile_rules(&config.read().await.rules)?;
         let geoip_manager = GeoIpManager::new();
         let rule_provider_manager = RuleProviderManager::new();
-        let load_results = futures::future::join_all(
-            runtime_rule_providers()
-                .into_iter()
-                .map(|provider| rule_provider_manager.add_provider(provider)),
-        )
-        .await;
-        for error in load_results.into_iter().filter_map(|result| result.err()) {
-            tracing::warn!("Rule provider could not be loaded: {}", error);
+        let provider_configs = runtime_rule_providers();
+        let configured_names: HashSet<&str> = provider_configs
+            .iter()
+            .map(|provider| provider.name.as_str())
+            .collect();
+        for provider_name in rules
+            .iter()
+            .filter(|rule| rule.rule_type == RuleType::RuleSet)
+            .map(|rule| rule.pattern.as_str())
+        {
+            if !configured_names.contains(provider_name) {
+                return Err(Error::config(format!(
+                    "Rule references missing provider '{provider_name}'"
+                )));
+            }
+        }
+
+        let load_results =
+            futures::future::join_all(provider_configs.into_iter().map(|provider| {
+                let provider_name = provider.name.clone();
+                let manager = &rule_provider_manager;
+                async move {
+                    manager.add_provider(provider).await.map_err(|error| {
+                        Error::config(format!(
+                            "Failed to load rule provider '{provider_name}': {error}"
+                        ))
+                    })
+                }
+            }))
+            .await;
+        for result in load_results {
+            result?;
         }
 
         Ok(Self {
@@ -291,7 +316,7 @@ impl Router {
             }
             RuleType::RuleSet => {
                 self.rule_provider_manager
-                    .matches(&rule.pattern, domain, ip)
+                    .matches(&rule.pattern, domain, ip, process_name)
                     .await
             }
             RuleType::Match => true,

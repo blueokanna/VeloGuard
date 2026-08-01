@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:veloguard/src/l10n/app_localizations.dart';
 import 'package:veloguard/src/providers/update_provider.dart';
 
 class UpdatePromptHost extends StatefulWidget {
@@ -30,18 +31,24 @@ class _UpdatePromptHostState extends State<UpdatePromptHost> {
   Future<void> _showUpdateDialog(UpdateProvider updater) async {
     final update = updater.availableUpdate;
     if (update == null) return;
+    final l10n = AppLocalizations.of(context);
+    final publishedAt = update.publishedAt
+        .toLocal()
+        .toString()
+        .split('.')
+        .first;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.system_update_alt_rounded),
         title: Text('VeloGuard ${update.version}'),
         content: Text(
-          'Published ${update.publishedAt.toLocal().toString().split('.').first}',
+          l10n?.publishedOn(publishedAt) ?? 'Published $publishedAt',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Later'),
+            child: Text(l10n?.cancel ?? 'Cancel'),
           ),
           FilledButton.icon(
             onPressed: () {
@@ -49,7 +56,7 @@ class _UpdatePromptHostState extends State<UpdatePromptHost> {
               updater.downloadAndInstall();
             },
             icon: const Icon(Icons.download_rounded),
-            label: const Text('Download'),
+            label: Text(l10n?.download ?? 'Download'),
           ),
         ],
       ),

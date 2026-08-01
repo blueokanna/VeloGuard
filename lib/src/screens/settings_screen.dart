@@ -395,22 +395,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Consumer<UpdateProvider>(
                         builder: (context, updater, child) {
                           final update = updater.availableUpdate;
+                          final updateVersion = update?.version ?? '';
                           final busy =
                               updater.state == UpdateState.checking ||
                               updater.state == UpdateState.downloading ||
                               updater.state == UpdateState.installing;
                           final subtitle = switch (updater.state) {
                             UpdateState.available =>
-                              'VeloGuard ${update!.version} is available',
+                              l10n?.updateAvailable(updateVersion) ??
+                                  'VeloGuard $updateVersion is available',
                             UpdateState.downloading =>
-                              'Downloading ${(updater.downloadProgress * 100).round()}%',
-                            UpdateState.installing => 'Opening installer',
+                              l10n?.downloadingProgress(
+                                    (updater.downloadProgress * 100).round(),
+                                  ) ??
+                                  'Downloading ${(updater.downloadProgress * 100).round()}%',
+                            UpdateState.installing =>
+                              l10n?.openingInstaller ?? 'Opening installer',
                             UpdateState.error =>
-                              'Update failed: ${updater.lastError}',
-                            _ => 'Check stable GitHub Releases',
+                              l10n?.updateFailed('${updater.lastError}') ??
+                                  'Update failed: ${updater.lastError}',
+                            _ =>
+                              l10n?.stableReleaseCheckDescription ??
+                                  'Check stable GitHub Releases',
                           };
                           return AdaptiveListTile(
-                            title: const Text('Check for updates'),
+                            title: Text(
+                              l10n?.checkForUpdates ?? 'Check for updates',
+                            ),
                             subtitle: Text(subtitle),
                             leading: Icon(
                               Icons.system_update_alt_rounded,

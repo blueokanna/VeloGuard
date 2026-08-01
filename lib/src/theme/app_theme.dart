@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:veloguard/src/theme/app_shapes.dart';
 
 class AppTheme {
   static const String _fontFamily = 'Roboto';
@@ -139,6 +140,8 @@ class AppTheme {
       switchTheme: _createSwitchTheme(colorScheme),
       dropdownMenuTheme: _createDropdownMenuTheme(colorScheme),
       popupMenuTheme: _createPopupMenuTheme(colorScheme),
+      iconButtonTheme: _createIconButtonTheme(colorScheme),
+      segmentedButtonTheme: _createSegmentedButtonTheme(colorScheme),
       elevatedButtonTheme: _createElevatedButtonTheme(colorScheme),
       filledButtonTheme: _createFilledButtonTheme(colorScheme),
       outlinedButtonTheme: _createOutlinedButtonTheme(colorScheme),
@@ -159,6 +162,17 @@ class AppTheme {
       highlightColor: colorScheme.primary.withValues(alpha: 0.04),
       hoverColor: colorScheme.primary.withValues(alpha: 0.04),
       focusColor: colorScheme.primary.withValues(alpha: 0.12),
+      tooltipTheme: TooltipThemeData(
+        decoration: ShapeDecoration(
+          color: colorScheme.inverseSurface,
+          shape: AppShapes.card,
+        ),
+        textStyle: _textStyle(
+          fontSize: 12,
+          color: colorScheme.onInverseSurface,
+        ),
+        waitDuration: const Duration(milliseconds: 500),
+      ),
     );
   }
 
@@ -272,7 +286,7 @@ class AppTheme {
   static CardThemeData _createCardTheme(ColorScheme colorScheme) {
     return CardThemeData(
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: AppShapes.card,
       color: colorScheme.surfaceContainerLow,
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
@@ -287,7 +301,7 @@ class AppTheme {
       iconColor: colorScheme.onSurfaceVariant,
       textColor: colorScheme.onSurface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: AppShapes.control,
     );
   }
 
@@ -334,9 +348,7 @@ class AppTheme {
         ),
         surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
         elevation: WidgetStateProperty.all(3),
-        shape: WidgetStateProperty.all(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
+        shape: WidgetStateProperty.all(AppShapes.control),
         padding: WidgetStateProperty.all(
           const EdgeInsets.symmetric(vertical: 8),
         ),
@@ -345,7 +357,7 @@ class AppTheme {
         filled: true,
         fillColor: colorScheme.surfaceContainerHighest,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppShapes.medium,
           borderSide: BorderSide.none,
         ),
         contentPadding: const EdgeInsets.symmetric(
@@ -361,8 +373,50 @@ class AppTheme {
       color: colorScheme.surfaceContainerHigh,
       surfaceTintColor: Colors.transparent,
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: AppShapes.control,
       textStyle: _textStyle(fontSize: 14, color: colorScheme.onSurface),
+    );
+  }
+
+  static IconButtonThemeData _createIconButtonTheme(ColorScheme colorScheme) {
+    return IconButtonThemeData(
+      style: ButtonStyle(
+        shape: const WidgetStatePropertyAll(AppShapes.circle),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return colorScheme.onSurface.withValues(alpha: 0.38);
+          }
+          return colorScheme.onSurfaceVariant;
+        }),
+        overlayColor: WidgetStatePropertyAll(
+          colorScheme.primary.withValues(alpha: 0.08),
+        ),
+      ),
+    );
+  }
+
+  static SegmentedButtonThemeData _createSegmentedButtonTheme(
+    ColorScheme colorScheme,
+  ) {
+    return SegmentedButtonThemeData(
+      style: ButtonStyle(
+        shape: const WidgetStatePropertyAll(AppShapes.control),
+        side: WidgetStatePropertyAll(
+          BorderSide(color: colorScheme.outlineVariant),
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.secondaryContainer;
+          }
+          return Colors.transparent;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return colorScheme.onSecondaryContainer;
+          }
+          return colorScheme.onSurface;
+        }),
+      ),
     );
   }
 
@@ -375,7 +429,7 @@ class AppTheme {
         backgroundColor: colorScheme.surfaceContainerHigh,
         foregroundColor: colorScheme.primary,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+        shape: AppShapes.pill,
         textStyle: _textStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
     );
@@ -389,7 +443,7 @@ class AppTheme {
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+        shape: AppShapes.pill,
         textStyle: _textStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
     );
@@ -402,7 +456,7 @@ class AppTheme {
       style: OutlinedButton.styleFrom(
         foregroundColor: colorScheme.primary,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+        shape: AppShapes.pill,
         side: BorderSide(color: colorScheme.outline, width: 1),
         textStyle: _textStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
@@ -414,7 +468,7 @@ class AppTheme {
       style: TextButton.styleFrom(
         foregroundColor: colorScheme.primary,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+        shape: AppShapes.pill,
         textStyle: _textStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
     );
@@ -430,7 +484,7 @@ class AppTheme {
       focusElevation: 0,
       hoverElevation: 1,
       highlightElevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: AppShapes.floatingAction,
     );
   }
 
@@ -443,6 +497,7 @@ class AppTheme {
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       indicatorColor: colorScheme.secondaryContainer,
+      indicatorShape: AppShapes.pill,
       labelTextStyle: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
           return _textStyle(
@@ -476,6 +531,7 @@ class AppTheme {
       backgroundColor: colorScheme.surface,
       elevation: 0,
       indicatorColor: colorScheme.secondaryContainer,
+      indicatorShape: AppShapes.pill,
       selectedIconTheme: IconThemeData(
         color: colorScheme.onSecondaryContainer,
         size: 24,
@@ -503,9 +559,7 @@ class AppTheme {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       modalElevation: 1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
+      shape: AppShapes.bottomSheet,
       dragHandleColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
       dragHandleSize: const Size(32, 4),
     );
@@ -516,7 +570,7 @@ class AppTheme {
       backgroundColor: colorScheme.surfaceContainerHigh,
       surfaceTintColor: Colors.transparent,
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: AppShapes.dialog,
       titleTextStyle: _textStyle(
         fontSize: 24,
         fontWeight: FontWeight.w600,
@@ -539,7 +593,7 @@ class AppTheme {
         color: colorScheme.onInverseSurface,
       ),
       actionTextColor: colorScheme.inversePrimary,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: AppShapes.card,
       behavior: SnackBarBehavior.floating,
       elevation: 0,
     );
@@ -561,7 +615,7 @@ class AppTheme {
         color: colorScheme.onSecondaryContainer,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: AppShapes.card,
       side: BorderSide.none,
     );
   }
@@ -573,19 +627,19 @@ class AppTheme {
       filled: true,
       fillColor: colorScheme.surfaceContainerHighest,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppShapes.medium,
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppShapes.medium,
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppShapes.medium,
         borderSide: BorderSide(color: colorScheme.primary, width: 2),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppShapes.medium,
         borderSide: BorderSide(color: colorScheme.error, width: 1),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

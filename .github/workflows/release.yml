@@ -3,20 +3,21 @@ name: Stable Release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: stable-release-${{ github.ref }}
+  group: stable-release-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   android:
     name: Build and publish Android release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       VELOGUARD_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.jks
       VELOGUARD_KEYSTORE_PASSWORD: ${{ secrets.VELOGUARD_KEYSTORE_PASSWORD }}
@@ -29,18 +30,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate stable tag and changelog
+      - name: Resolve and validate stable release
+        id: release
         shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          version="$(sed -nE 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)(\+[0-9]+)?$/\1/p' pubspec.yaml)"
+          test -n "$version"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+              echo "Manual releases must run from the default branch '$DEFAULT_BRANCH'" >&2
+              exit 1
+            fi
+            tag="v$version"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Only stable vMAJOR.MINOR.PATCH tags can be released" >&2
             exit 1
           fi
-          version="$(sed -nE 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)(\+[0-9]+)?$/\1/p' pubspec.yaml)"
-          test -n "$version"
           test "$tag" = "v$version"
+
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            test "$(git rev-list -n 1 "$tag")" = "$(git rev-parse HEAD)" || {
+              echo "Tag '$tag' already points to a different commit" >&2
+              exit 1
+            }
+          fi
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release '$tag' already exists; published assets are immutable" >&2
+            exit 1
+          fi
+
           awk -v version="$version" '
             $0 == "## " version { found=1; next }
             found && /^## / { exit }
@@ -50,20 +78,11 @@ jobs:
           {
             echo '**Official changelog:**'
             echo
-            sed '/^[[:space:]]*$/d' changelog-section.md
+            sed -nE 's/^- (.*)$/\1/p' changelog-section.md
           } > release-notes.md
 
-      - name: Validate signing secrets
-        shell: bash
-        env:
-          KEYSTORE_BASE64: ${{ secrets.VELOGUARD_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-          test -n "$KEYSTORE_BASE64"
-          test -n "$VELOGUARD_KEYSTORE_PASSWORD"
-          test -n "$VELOGUARD_KEY_ALIAS"
-          test -n "$VELOGUARD_KEY_PASSWORD"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$VELOGUARD_KEYSTORE_PATH"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -74,13 +93,31 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.44.6'
           channel: stable
           cache: true
 
       - name: Set up Rust Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.97.0'
           targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
+
+      - name: Validate release signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VELOGUARD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?Missing VELOGUARD_KEYSTORE_BASE64 secret}"
+          : "${VELOGUARD_KEYSTORE_PASSWORD:?Missing VELOGUARD_KEYSTORE_PASSWORD secret}"
+          : "${VELOGUARD_KEY_ALIAS:?Missing VELOGUARD_KEY_ALIAS secret}"
+          : "${VELOGUARD_KEY_PASSWORD:?Missing VELOGUARD_KEY_PASSWORD secret}"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$VELOGUARD_KEYSTORE_PATH"
+          keytool -list \
+            -keystore "$VELOGUARD_KEYSTORE_PATH" \
+            -storepass "$VELOGUARD_KEYSTORE_PASSWORD" \
+            -alias "$VELOGUARD_KEY_ALIAS" >/dev/null
 
       - name: Resolve dependencies and test
         run: |
@@ -94,18 +131,20 @@ jobs:
 
       - name: Create verified update metadata
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          asset="VeloGuard-${GITHUB_REF_NAME}-android.apk"
+          asset="VeloGuard-${RELEASE_TAG}-android.apk"
           cp build/app/outputs/flutter-apk/app-release.apk "dist/$asset"
           checksum="$(sha256sum "dist/$asset" | cut -d' ' -f1)"
           published_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          version="${GITHUB_REF_NAME#v}"
-          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${asset}"
-          jq -n \
-            --arg tag "$GITHUB_REF_NAME" \
-            --arg version "$version" \
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}"
+          jq -e -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg version "$RELEASE_VERSION" \
             --arg published_at "$published_at" \
             --arg name "$asset" \
             --arg url "$url" \
@@ -117,12 +156,15 @@ jobs:
       - name: Publish stable GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: VeloGuard ${{ github.ref_name }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: VeloGuard ${{ steps.release.outputs.tag }}
           body_path: release-notes.md
+          draft: false
           prerelease: false
           make_latest: true
           fail_on_unmatched_files: true
           files: |
-            dist/VeloGuard-${{ github.ref_name }}-android.apk
+            dist/VeloGuard-${{ steps.release.outputs.tag }}-android.apk
             dist/update-manifest.json
             dist/SHA256SUMS

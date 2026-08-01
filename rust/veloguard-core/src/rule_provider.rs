@@ -63,6 +63,7 @@ pub enum ClassicalRuleType {
     DomainRegex,
     IpCidr,
     SrcIpCidr,
+    ProcessName,
 }
 
 pub struct RuleProvider {
@@ -95,6 +96,12 @@ impl RuleProvider {
         };
 
         let rules = self.parse_rules(&content)?;
+        if rules.is_empty() {
+            return Err(Error::config(format!(
+                "Rule provider '{}' did not contain any supported rules",
+                self.config.name
+            )));
+        }
 
         let mut rules_guard = self.rules.write().await;
         *rules_guard = rules;
@@ -329,13 +336,12 @@ impl RuleProvider {
     }
 
     fn parse_classical_entry(&self, entry: &str) -> Option<CompiledRuleEntry> {
-        let parts: Vec<&str> = entry.splitn(2, ',').collect();
-        if parts.len() < 2 {
+        let mut parts = entry.split(',');
+        let rule_type_str = parts.next()?.trim().to_uppercase();
+        let pattern = parts.next()?.trim().to_string();
+        if pattern.is_empty() {
             return None;
         }
-
-        let rule_type_str = parts[0].trim().to_uppercase();
-        let pattern = parts[1].trim().to_string();
 
         match rule_type_str.as_str() {
             "DOMAIN" => Some(CompiledRuleEntry::Classical {
@@ -371,15 +377,25 @@ impl RuleProvider {
                 pattern,
                 regex: None,
             }),
+            "PROCESS-NAME" => Some(CompiledRuleEntry::Classical {
+                rule_type: ClassicalRuleType::ProcessName,
+                pattern,
+                regex: None,
+            }),
             _ => None,
         }
     }
 
-    pub async fn matches(&self, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
+    pub async fn matches(
+        &self,
+        domain: Option<&str>,
+        ip: Option<IpAddr>,
+        process_name: Option<&str>,
+    ) -> bool {
         let rules = self.rules.read().await;
 
         for rule in rules.iter() {
-            if self.matches_entry(rule, domain, ip) {
+            if self.matches_entry_with_process(rule, domain, ip, process_name) {
                 return true;
             }
         }
@@ -392,6 +408,16 @@ impl RuleProvider {
         entry: &CompiledRuleEntry,
         domain: Option<&str>,
         ip: Option<IpAddr>,
+    ) -> bool {
+        self.matches_entry_with_process(entry, domain, ip, None)
+    }
+
+    fn matches_entry_with_process(
+        &self,
+        entry: &CompiledRuleEntry,
+        domain: Option<&str>,
+        ip: Option<IpAddr>,
+        process_name: Option<&str>,
     ) -> bool {
         match entry {
             CompiledRuleEntry::Domain(pattern) => {
@@ -411,7 +437,9 @@ impl RuleProvider {
                 rule_type,
                 pattern,
                 regex,
-            } => self.matches_classical(rule_type, pattern, regex.as_ref(), domain, ip),
+            } => {
+                self.matches_classical(rule_type, pattern, regex.as_ref(), domain, ip, process_name)
+            }
         }
     }
 
@@ -422,6 +450,7 @@ impl RuleProvider {
         regex: Option<&Regex>,
         domain: Option<&str>,
         ip: Option<IpAddr>,
+        process_name: Option<&str>,
     ) -> bool {
         match rule_type {
             ClassicalRuleType::Domain => domain.is_some_and(|d| d.eq_ignore_ascii_case(pattern)),
@@ -447,7 +476,26 @@ impl RuleProvider {
                     false
                 }
             }
+            ClassicalRuleType::ProcessName => {
+                process_name.is_some_and(|process| Self::matches_process_name(pattern, process))
+            }
         }
+    }
+
+    fn matches_process_name(pattern: &str, process_name: &str) -> bool {
+        let process_basename = process_name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(process_name);
+        if process_basename.eq_ignore_ascii_case(pattern) {
+            return true;
+        }
+
+        let pattern_stem = pattern.strip_suffix(".exe").unwrap_or(pattern);
+        let process_stem = process_basename
+            .strip_suffix(".exe")
+            .unwrap_or(process_basename);
+        pattern_stem.eq_ignore_ascii_case(process_stem)
     }
 
     pub async fn update(&self) -> Result<()> {
@@ -525,10 +573,11 @@ impl RuleProviderManager {
         provider_name: &str,
         domain: Option<&str>,
         ip: Option<IpAddr>,
+        process_name: Option<&str>,
     ) -> bool {
         let providers = self.providers.read().await;
         if let Some(provider) = providers.get(provider_name) {
-            provider.matches(domain, ip).await
+            provider.matches(domain, ip, process_name).await
         } else {
             false
         }
@@ -665,5 +714,47 @@ mod tests {
 
         assert!(provider.matches_entry(&entry, None, Some("192.168.1.1".parse().unwrap())));
         assert!(!provider.matches_entry(&entry, None, Some("10.0.0.1".parse().unwrap())));
+    }
+
+    #[test]
+    fn test_classical_process_name_matches_reference_rules() {
+        let provider = RuleProvider::new(RuleProviderConfig {
+            name: "applications".to_string(),
+            provider_type: RuleProviderType::File,
+            behavior: RuleProviderBehavior::Classical,
+            url: None,
+            path: Some("applications.txt".to_string()),
+            interval: 86400,
+        });
+
+        let entry = provider
+            .parse_classical_entry("PROCESS-NAME,qBittorrent.exe")
+            .expect("PROCESS-NAME should be supported");
+
+        assert!(provider.matches_entry_with_process(
+            &entry,
+            None,
+            None,
+            Some(r"C:\Program Files\qBittorrent\qbittorrent.exe"),
+        ));
+        assert!(!provider.matches_entry_with_process(&entry, None, None, Some("firefox.exe"),));
+    }
+
+    #[test]
+    fn test_classical_rule_ignores_trailing_modifiers() {
+        let provider = RuleProvider::new(RuleProviderConfig {
+            name: "networks".to_string(),
+            provider_type: RuleProviderType::File,
+            behavior: RuleProviderBehavior::Classical,
+            url: None,
+            path: Some("networks.txt".to_string()),
+            interval: 86400,
+        });
+
+        let entry = provider
+            .parse_classical_entry("IP-CIDR,10.0.0.0/8,no-resolve")
+            .expect("IP-CIDR should be supported");
+
+        assert!(provider.matches_entry(&entry, None, Some("10.20.30.40".parse().unwrap()),));
     }
 }

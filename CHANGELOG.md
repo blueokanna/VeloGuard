@@ -10,3 +10,7 @@
 - Added signed stable-release update checks using release tag, publication date, and SHA256.
 - Added validated HTTP and TLS traffic sniffing settings.
 - Unified the interface on Material Design 3 with the bundled Roboto font.
+- Added manual stable-release dispatch with immutable versioned assets.
+- Fixed Classical `PROCESS-NAME` and trailing rule modifier handling.
+- Added centralized Material 3 shape tokens and removed continuous proxy-card marquees.
+- Localized update status and installation prompts across all supported languages.

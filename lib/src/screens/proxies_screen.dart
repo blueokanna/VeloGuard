@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:veloguard/src/providers/proxies_provider.dart';
 import 'package:veloguard/src/services/config_converter.dart';
 import 'package:veloguard/src/l10n/app_localizations.dart';
+import 'package:veloguard/src/theme/app_shapes.dart';
 import 'package:veloguard/src/utils/animation_utils.dart';
 
 class ProxiesScreen extends StatefulWidget {
@@ -13,28 +14,13 @@ class ProxiesScreen extends StatefulWidget {
   State<ProxiesScreen> createState() => _ProxiesScreenState();
 }
 
-class _ProxiesScreenState extends State<ProxiesScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _headerController;
-
+class _ProxiesScreenState extends State<ProxiesScreen> {
   @override
   void initState() {
     super.initState();
-    _headerController = AnimationController(
-      vsync: this,
-      duration: AnimationUtils.durationMedium4,
-    );
-    _headerController.forward();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProxiesProvider>().loadFromActiveProfile();
     });
-  }
-
-  @override
-  void dispose() {
-    _headerController.dispose();
-    super.dispose();
   }
 
   @override
@@ -432,6 +418,8 @@ class _ProxiesScreenState extends State<ProxiesScreen>
 
     final screenWidth = MediaQuery.of(context).size.width;
     final crossAxisCount = _calculateColumns(screenWidth);
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final cardExtent = 148.0 + (textScale - 1).clamp(0, 1) * 32;
 
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
@@ -439,7 +427,7 @@ class _ProxiesScreenState extends State<ProxiesScreen>
         crossAxisCount: crossAxisCount,
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
-        childAspectRatio: 1.2, // 调整比例以适应三行内容
+        mainAxisExtent: cardExtent,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -600,7 +588,7 @@ class _ProxyCard extends StatelessWidget {
           color: isSelected
               ? colorScheme.primaryContainer
               : colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppShapes.small,
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -662,7 +650,7 @@ class _ProxyCard extends StatelessWidget {
               const SizedBox(height: 6),
               // 名称 - 单独一行，可滚�?
               Expanded(
-                child: _MarqueeText(
+                child: _FittedLabel(
                   text: displayName,
                   style: textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
@@ -693,7 +681,7 @@ class _ProxyCard extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: AppShapes.extraSmall,
       ),
       child: Icon(icon, size: 14, color: iconColor),
     );
@@ -706,7 +694,7 @@ class _ProxyCard extends StatelessWidget {
         color: isSelected
             ? colorScheme.primary.withValues(alpha: 0.15)
             : colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: AppShapes.extraSmall,
       ),
       child: Text(
         type,
@@ -728,7 +716,7 @@ class _ProxyCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
         color: latencyColor.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: AppShapes.extraSmall,
       ),
       child: Text(
         latencyText,
@@ -804,93 +792,21 @@ class _ProxyCard extends StatelessWidget {
 }
 
 /// 滚动文字组件 - 文字过长时自动滚�?
-class _MarqueeText extends StatefulWidget {
+class _FittedLabel extends StatelessWidget {
   final String text;
   final TextStyle? style;
 
-  const _MarqueeText({required this.text, this.style});
-
-  @override
-  State<_MarqueeText> createState() => _MarqueeTextState();
-}
-
-class _MarqueeTextState extends State<_MarqueeText>
-    with SingleTickerProviderStateMixin {
-  late ScrollController _scrollController;
-  bool _needsScroll = false;
-  bool _isScrolling = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
-  }
-
-  @override
-  void didUpdateWidget(_MarqueeText oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.text != oldWidget.text) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
-    }
-  }
-
-  void _checkOverflow() {
-    if (!mounted) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    setState(() {
-      _needsScroll = maxScroll > 0;
-    });
-    if (_needsScroll && !_isScrolling) {
-      _startScrolling();
-    }
-  }
-
-  void _startScrolling() async {
-    if (!mounted || !_needsScroll) return;
-    _isScrolling = true;
-
-    while (mounted && _needsScroll) {
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) break;
-
-      final maxScroll = _scrollController.position.maxScrollExtent;
-      if (maxScroll <= 0) break;
-
-      await _scrollController.animateTo(
-        maxScroll,
-        duration: Duration(
-          milliseconds: (maxScroll * 30).toInt().clamp(1000, 5000),
-        ),
-        curve: Curves.linear,
-      );
-
-      if (!mounted) break;
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (!mounted) break;
-      await _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeOut,
-      );
-    }
-    _isScrolling = false;
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
+  const _FittedLabel({required this.text, this.style});
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      controller: _scrollController,
-      scrollDirection: Axis.horizontal,
-      physics: const NeverScrollableScrollPhysics(),
-      child: Text(widget.text, style: widget.style, maxLines: 1),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(text, style: style, maxLines: 1, softWrap: false),
+      ),
     );
   }
 }
@@ -946,7 +862,7 @@ class _SpecialCard extends StatelessWidget {
           color: isSelected
               ? colorScheme.primaryContainer
               : colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppShapes.small,
           boxShadow: isSelected
               ? [
                   BoxShadow(

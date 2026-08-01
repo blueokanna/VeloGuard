@@ -29,6 +29,7 @@ class _StatusCardState extends State<StatusCard> with TickerProviderStateMixin {
   late AnimationController _statusController;
   late Animation<double> _pulseAnimation;
   late Animation<double> _statusScaleAnimation;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
@@ -60,18 +61,33 @@ class _StatusCardState extends State<StatusCard> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion == reduceMotion) return;
+    _reduceMotion = reduceMotion;
+    _updateAnimations();
+    if (_reduceMotion) {
+      _statusController.value = 1;
+    }
+  }
+
+  @override
   void didUpdateWidget(StatusCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isRunning != oldWidget.isRunning ||
         widget.isLoading != oldWidget.isLoading) {
       _updateAnimations();
-      _statusController.reset();
-      _statusController.forward();
+      if (_reduceMotion) {
+        _statusController.value = 1;
+      } else {
+        _statusController.forward(from: 0);
+      }
     }
   }
 
   void _updateAnimations() {
-    if (widget.isRunning && !widget.isLoading) {
+    if (!_reduceMotion && widget.isRunning && !widget.isLoading) {
       _pulseController.repeat(reverse: true);
     } else {
       _pulseController.stop();
@@ -226,7 +242,7 @@ class _StatusCardState extends State<StatusCard> with TickerProviderStateMixin {
         // 状态标题
         AnimatedSwitcher(
           duration: AnimationUtils.stateChangeDuration,
-          switchInCurve: AnimationUtils.curveSpring,
+          switchInCurve: AnimationUtils.curveEmphasizedDecelerate,
           transitionBuilder: (child, animation) {
             return SlideTransition(
               position: Tween<Offset>(

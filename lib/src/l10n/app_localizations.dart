@@ -27,17 +27,21 @@ class AppLocalizations {
   ];
 
   static final Map<String, Map<String, String>> _localizedValues = {
-    'de': {..._deStrings, ..._deAdvancedStrings},
-    'en': _enStrings,
-    'es': {..._esStrings, ..._esAdvancedStrings},
-    'fr': {..._frStrings, ..._frAdvancedStrings},
-    'it': {..._itStrings, ..._itAdvancedStrings},
-    'ja': {..._jaStrings, ..._jaAdvancedStrings},
-    'ko': {..._koStrings, ..._koAdvancedStrings},
-    'pt': {..._ptStrings, ..._ptAdvancedStrings},
-    'ru': {..._ruStrings, ..._ruAdvancedStrings},
-    'zh_CN': _zhCNStrings,
-    'zh_TW': {..._zhTWStrings, ..._zhTWAdvancedStrings},
+    'de': {..._deStrings, ..._deAdvancedStrings, ..._updateStrings['de']!},
+    'en': {..._enStrings, ..._updateStrings['en']!},
+    'es': {..._esStrings, ..._esAdvancedStrings, ..._updateStrings['es']!},
+    'fr': {..._frStrings, ..._frAdvancedStrings, ..._updateStrings['fr']!},
+    'it': {..._itStrings, ..._itAdvancedStrings, ..._updateStrings['it']!},
+    'ja': {..._jaStrings, ..._jaAdvancedStrings, ..._updateStrings['ja']!},
+    'ko': {..._koStrings, ..._koAdvancedStrings, ..._updateStrings['ko']!},
+    'pt': {..._ptStrings, ..._ptAdvancedStrings, ..._updateStrings['pt']!},
+    'ru': {..._ruStrings, ..._ruAdvancedStrings, ..._updateStrings['ru']!},
+    'zh_CN': {..._zhCNStrings, ..._updateStrings['zh_CN']!},
+    'zh_TW': {
+      ..._zhTWStrings,
+      ..._zhTWAdvancedStrings,
+      ..._updateStrings['zh_TW']!,
+    },
   };
 
   static Set<String> missingTranslationKeys(Locale locale) {
@@ -47,10 +51,10 @@ class AppLocalizations {
     final translations = _localizedValues[localeKey];
 
     if (translations == null) {
-      return _enStrings.keys.toSet();
+      return _localizedValues['en']!.keys.toSet();
     }
 
-    return _enStrings.keys
+    return _localizedValues['en']!.keys
         .where((key) => translations[key]?.trim().isEmpty ?? true)
         .toSet();
   }
@@ -68,7 +72,9 @@ class AppLocalizations {
       localeKey = 'en';
     }
 
-    return _localizedValues[localeKey]?[key] ?? _enStrings[key] ?? key;
+    return _localizedValues[localeKey]?[key] ??
+        _localizedValues['en']?[key] ??
+        key;
   }
 
   // Navigation
@@ -124,6 +130,23 @@ class AppLocalizations {
   String get about => _getLocalizedString('about');
   String get appVersion => _getLocalizedString('appVersion');
   String get buildInfo => _getLocalizedString('buildInfo');
+  String get checkForUpdates => _getLocalizedString('checkForUpdates');
+  String get stableReleaseCheckDescription =>
+      _getLocalizedString('stableReleaseCheckDescription');
+  String get openingInstaller => _getLocalizedString('openingInstaller');
+
+  String updateAvailable(String version) =>
+      _getLocalizedString('updateAvailable').replaceAll('{version}', version);
+
+  String downloadingProgress(int progress) => _getLocalizedString(
+    'downloadingProgress',
+  ).replaceAll('{progress}', '$progress');
+
+  String updateFailed(String error) =>
+      _getLocalizedString('updateFailed').replaceAll('{error}', error);
+
+  String publishedOn(String date) =>
+      _getLocalizedString('publishedOn').replaceAll('{date}', date);
 
   // Appearance
   String get appearance => _getLocalizedString('appearance');
@@ -487,6 +510,108 @@ class _AppLocalizationsDelegate
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
+
+const Map<String, Map<String, String>> _updateStrings = {
+  'de': {
+    'checkForUpdates': 'Nach Updates suchen',
+    'stableReleaseCheckDescription': 'Stabile GitHub-Releases prüfen',
+    'updateAvailable': 'VeloGuard {version} ist verfügbar',
+    'downloadingProgress': 'Download läuft: {progress} %',
+    'openingInstaller': 'Installationsprogramm wird geöffnet',
+    'updateFailed': 'Update fehlgeschlagen: {error}',
+    'publishedOn': 'Veröffentlicht am {date}',
+  },
+  'en': {
+    'checkForUpdates': 'Check for updates',
+    'stableReleaseCheckDescription': 'Check stable GitHub Releases',
+    'updateAvailable': 'VeloGuard {version} is available',
+    'downloadingProgress': 'Downloading {progress}%',
+    'openingInstaller': 'Opening installer',
+    'updateFailed': 'Update failed: {error}',
+    'publishedOn': 'Published {date}',
+  },
+  'es': {
+    'checkForUpdates': 'Buscar actualizaciones',
+    'stableReleaseCheckDescription': 'Buscar versiones estables en GitHub',
+    'updateAvailable': 'VeloGuard {version} está disponible',
+    'downloadingProgress': 'Descargando {progress} %',
+    'openingInstaller': 'Abriendo el instalador',
+    'updateFailed': 'Error de actualización: {error}',
+    'publishedOn': 'Publicado el {date}',
+  },
+  'fr': {
+    'checkForUpdates': 'Rechercher des mises à jour',
+    'stableReleaseCheckDescription': 'Vérifier les versions stables GitHub',
+    'updateAvailable': 'VeloGuard {version} est disponible',
+    'downloadingProgress': 'Téléchargement : {progress} %',
+    'openingInstaller': 'Ouverture du programme d’installation',
+    'updateFailed': 'Échec de la mise à jour : {error}',
+    'publishedOn': 'Publié le {date}',
+  },
+  'it': {
+    'checkForUpdates': 'Controlla aggiornamenti',
+    'stableReleaseCheckDescription': 'Controlla le versioni stabili GitHub',
+    'updateAvailable': 'VeloGuard {version} è disponibile',
+    'downloadingProgress': 'Download {progress}%',
+    'openingInstaller': 'Apertura del programma di installazione',
+    'updateFailed': 'Aggiornamento non riuscito: {error}',
+    'publishedOn': 'Pubblicato il {date}',
+  },
+  'ja': {
+    'checkForUpdates': 'アップデートを確認',
+    'stableReleaseCheckDescription': 'GitHub の安定版を確認します',
+    'updateAvailable': 'VeloGuard {version} を利用できます',
+    'downloadingProgress': 'ダウンロード中 {progress}%',
+    'openingInstaller': 'インストーラーを開いています',
+    'updateFailed': 'アップデートに失敗しました: {error}',
+    'publishedOn': '{date} に公開',
+  },
+  'ko': {
+    'checkForUpdates': '업데이트 확인',
+    'stableReleaseCheckDescription': 'GitHub 안정 버전 확인',
+    'updateAvailable': 'VeloGuard {version} 사용 가능',
+    'downloadingProgress': '다운로드 중 {progress}%',
+    'openingInstaller': '설치 프로그램 여는 중',
+    'updateFailed': '업데이트 실패: {error}',
+    'publishedOn': '{date} 게시',
+  },
+  'pt': {
+    'checkForUpdates': 'Procurar atualizações',
+    'stableReleaseCheckDescription': 'Verificar versões estáveis no GitHub',
+    'updateAvailable': 'VeloGuard {version} está disponível',
+    'downloadingProgress': 'Baixando {progress}%',
+    'openingInstaller': 'Abrindo o instalador',
+    'updateFailed': 'Falha na atualização: {error}',
+    'publishedOn': 'Publicado em {date}',
+  },
+  'ru': {
+    'checkForUpdates': 'Проверить обновления',
+    'stableReleaseCheckDescription': 'Проверить стабильные выпуски GitHub',
+    'updateAvailable': 'Доступна VeloGuard {version}',
+    'downloadingProgress': 'Загрузка: {progress} %',
+    'openingInstaller': 'Открытие установщика',
+    'updateFailed': 'Ошибка обновления: {error}',
+    'publishedOn': 'Опубликовано {date}',
+  },
+  'zh_CN': {
+    'checkForUpdates': '检查更新',
+    'stableReleaseCheckDescription': '检查 GitHub 正式版本',
+    'updateAvailable': 'VeloGuard {version} 已发布',
+    'downloadingProgress': '正在下载 {progress}%',
+    'openingInstaller': '正在打开安装程序',
+    'updateFailed': '更新失败：{error}',
+    'publishedOn': '发布于 {date}',
+  },
+  'zh_TW': {
+    'checkForUpdates': '檢查更新',
+    'stableReleaseCheckDescription': '檢查 GitHub 正式版本',
+    'updateAvailable': 'VeloGuard {version} 已發佈',
+    'downloadingProgress': '正在下載 {progress}%',
+    'openingInstaller': '正在開啟安裝程式',
+    'updateFailed': '更新失敗：{error}',
+    'publishedOn': '發佈於 {date}',
+  },
+};
 
 // =============================================================================
 // German (Deutsch) - de
