@@ -9,9 +9,6 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     
     <!-- VPN 权限 -->
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" 
-        tools:ignore="ProtectedPermissions" />
-    
     <!-- 前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -91,7 +88,7 @@
                 android:value="vpn" />
             <meta-data
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
-                android:value="true" />
+                android:value="false" />
         </service>
         
         <!-- 代理服务 -->

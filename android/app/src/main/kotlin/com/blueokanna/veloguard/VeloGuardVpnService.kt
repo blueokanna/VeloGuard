@@ -118,6 +118,15 @@ class VeloGuardVpnService : VpnService() {
         @Synchronized
         fun resetAllState() {
             Log.d(TAG, "=== Resetting all VPN static state ===")
+            // A live service owns the ParcelFileDescriptor. Clearing only the
+            // companion state would orphan that descriptor and leave the VPN
+            // route installed while Flutter believes it has stopped.
+            instance?.let { runningService ->
+                Log.d(TAG, "Stopping live VPN service before resetting state")
+                runningService.stopVpnInternal()
+                return
+            }
+
             _isRunning.set(false)
             _connectionCount.set(0)
             _jniInitialized.set(false)
@@ -384,7 +393,7 @@ class VeloGuardVpnService : VpnService() {
                     Log.d(TAG, "VPN start already in progress, ignoring duplicate request")
                     return START_NOT_STICKY
                 }
-                
+
                 val mode = intent.getStringExtra("mode") ?: "rule"
                 currentMode = when (mode.lowercase()) {
                     "global" -> ProxyMode.GLOBAL
@@ -392,6 +401,10 @@ class VeloGuardVpnService : VpnService() {
                     else -> ProxyMode.RULE
                 }
                 _proxyMode = currentMode
+
+                // Android gives startForegroundService() only a short deadline
+                // to publish its notification. VPN takeover/retry can exceed it.
+                startForeground(NOTIFICATION_ID, createNotification())
                 
                 startVpn()
             }
@@ -509,8 +522,6 @@ class VeloGuardVpnService : VpnService() {
                 _vpnFd = fd
                 _isRunning.set(true)
                 
-                startForeground(NOTIFICATION_ID, createNotification())
-                
                 Log.d(TAG, "=== VPN STARTED SUCCESSFULLY ===")
                 Log.d(TAG, "  fd=$fd")
                 Log.d(TAG, "  JNI initialized=${_jniInitialized.get()}")
@@ -527,6 +538,8 @@ class VeloGuardVpnService : VpnService() {
                 _isRunning.set(false)
                 _vpnFd = -1
                 startLatch?.countDown()
+                stopForegroundCompat()
+                stopSelf()
             }
         } catch (e: Exception) {
             Log.e(TAG, "=== VPN START EXCEPTION ===", e)
@@ -534,6 +547,8 @@ class VeloGuardVpnService : VpnService() {
             _isRunning.set(false)
             _vpnFd = -1
             startLatch?.countDown()
+            stopForegroundCompat()
+            stopSelf()
         } finally {
             isStarting.set(false)
         }
@@ -547,6 +562,9 @@ class VeloGuardVpnService : VpnService() {
         _isRunning.set(false)
         _connectionCount.set(0)
         _vpnFd = -1
+        _isStarting.set(false)
+        startLatch?.countDown()
+        startLatch = null
         isStarting.set(false)
         
         // Close VPN interface
@@ -572,12 +590,7 @@ class VeloGuardVpnService : VpnService() {
         }
         
         // Stop foreground service
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        stopForegroundCompat()
         
         // Stop the service
         stopSelf()
@@ -586,6 +599,15 @@ class VeloGuardVpnService : VpnService() {
         instance = null
         
         Log.d(TAG, "=== VPN service stopped completely ===")
+    }
+
+    private fun stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
     }
 
     private fun createNotificationChannel() {

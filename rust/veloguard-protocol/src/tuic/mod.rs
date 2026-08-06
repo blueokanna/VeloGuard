@@ -5,50 +5,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 use quinn::{ClientConfig as QuinnClientConfig, ServerConfig as QuinnServerConfig, Endpoint, Connection};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Serialize, Deserialize};
-
-#[derive(Debug)]
-struct NoVerifier;
-
-impl rustls::client::danger::ServerCertVerifier for NoVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ED25519,
-        ]
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum TuicError {
@@ -144,19 +102,48 @@ impl TuicClient {
     }
 
     pub async fn connect(&self) -> Result<TuicConnection, TuicError> {
-        let crypto = quinn::rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(NoVerifier))
+        let mut root_store = rustls::RootCertStore::empty();
+        let native_certs = rustls_native_certs::load_native_certs();
+        for cert in native_certs.certs {
+            root_store.add(cert).map_err(TuicError::Rustls)?;
+        }
+        if root_store.is_empty() {
+            return Err(TuicError::Protocol(
+                "no trusted platform certificates are available".to_string(),
+            ));
+        }
+
+        let mut crypto = quinn::rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
             .with_no_client_auth();
-        
-        let _client_config = QuinnClientConfig::new(Arc::new(
+        crypto.alpn_protocols = self
+            .config
+            .alpn
+            .clone()
+            .unwrap_or_else(|| vec!["h3".to_string()])
+            .into_iter()
+            .map(String::into_bytes)
+            .collect();
+
+        let client_config = QuinnClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
                 .map_err(|e| TuicError::Protocol(e.to_string()))?
         ));
 
-        let endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+        let bind_addr = if self.config.server_addr.is_ipv6() {
+            "[::]:0".parse().expect("valid IPv6 wildcard address")
+        } else {
+            "0.0.0.0:0".parse().expect("valid IPv4 wildcard address")
+        };
+        let mut endpoint = Endpoint::client(bind_addr)?;
+        endpoint.set_default_client_config(client_config);
 
-        let server_name = self.config.certificate.as_deref().unwrap_or("tuic-server");
+        let default_server_name = self.config.server_addr.ip().to_string();
+        let server_name = self
+            .config
+            .certificate
+            .as_deref()
+            .unwrap_or(&default_server_name);
         let connection = endpoint.connect(self.config.server_addr, server_name)?
             .await?;
 
@@ -164,6 +151,7 @@ impl TuicClient {
 
         Ok(TuicConnection {
             connection,
+            _endpoint: endpoint,
             _config: self.config.clone(),
         })
     }
@@ -178,13 +166,55 @@ impl TuicClient {
             password: password.clone(),
         };
 
-        let auth_data = rustbinary::serialize(&auth_request)
+        // RustBinary 0.1.4 changed the top-level helpers to the compact V1
+        // profile. Keep this pre-existing packet format explicit so dependency
+        // upgrades cannot silently change bytes sent over the network.
+        let auth_data = rustbinary::legacy_options()
+            .with_limit(64 * 1024)
+            .reject_trailing_bytes()
+            .serialize(&auth_request)
             .map_err(|e| TuicError::Protocol(e.to_string()))?;
 
         auth_stream.write_all(&auth_data).await?;
         auth_stream.finish()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_auth_wire_format_is_stable_across_rustbinary_upgrade() {
+        let request = AuthRequest {
+            version: TUIC_PROTOCOL_VERSION,
+            uuid: Uuid::from_bytes([0x11; 16]),
+            password: "secret".to_string(),
+        };
+
+        let encoded = rustbinary::legacy_options()
+            .with_limit(64 * 1024)
+            .reject_trailing_bytes()
+            .serialize(&request)
+            .expect("legacy TUIC auth request must serialize");
+        let decoded: AuthRequest = rustbinary::legacy_options()
+            .with_limit(64 * 1024)
+            .reject_trailing_bytes()
+            .deserialize(&encoded)
+            .expect("legacy TUIC auth request must deserialize");
+
+        assert_eq!(decoded.version, request.version);
+        assert_eq!(decoded.uuid, request.uuid);
+        assert_eq!(decoded.password, request.password);
+
+        let mut expected = vec![TUIC_PROTOCOL_VERSION];
+        expected.extend_from_slice(&36u64.to_le_bytes());
+        expected.extend_from_slice(b"11111111-1111-1111-1111-111111111111");
+        expected.extend_from_slice(&6u64.to_le_bytes());
+        expected.extend_from_slice(b"secret");
+        assert_eq!(encoded, expected);
     }
 }
 
@@ -221,6 +251,7 @@ impl TuicServer {
 
 pub struct TuicConnection {
     connection: Connection,
+    _endpoint: Endpoint,
     _config: ClientConfig,
 }
 
