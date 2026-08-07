@@ -62,8 +62,6 @@
 //! ```
 
 #[cfg(target_os = "android")]
-pub mod android_tun;
-#[cfg(target_os = "android")]
 pub mod android_vpn;
 pub mod error;
 pub mod route;
@@ -133,9 +131,6 @@ pub use tun::{
 
 #[cfg(target_os = "android")]
 pub use android_vpn::{AndroidVpnProcessor, VpnTrafficStats};
-
-#[cfg(target_os = "android")]
-pub use android_tun::{AndroidTunProcessor, FakeIpPool as AndroidFakeIpPool};
 
 #[cfg(target_os = "android")]
 pub use solidtcp::{

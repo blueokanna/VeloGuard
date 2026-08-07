@@ -1,8 +1,7 @@
 use bytes::Bytes;
 use parking_lot::RwLock;
 use quinn::{
-    crypto::rustls::QuicClientConfig, Connection, Endpoint,
-    TransportConfig as QuinnTransportConfig,
+    crypto::rustls::QuicClientConfig, Connection, Endpoint, TransportConfig as QuinnTransportConfig,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,7 +12,7 @@ use tracing::{debug, info, warn};
 use super::address::Address;
 use super::config::{ClientConfig, CongestionControl};
 use super::crypto::CryptoContext;
-use super::error::{Result, QuicError};
+use super::error::{QuicError, Result};
 use super::protocol::{Request, Response};
 use super::stream::{QuicStream, StreamType};
 
@@ -86,25 +85,31 @@ impl QuicClient {
         let mut client_config = quinn::ClientConfig::new(Arc::new(quic_config));
 
         let mut transport = QuinnTransportConfig::default();
-        transport.max_idle_timeout(Some(
-            self.config.transport.idle_timeout.try_into().unwrap(),
-        ));
+        transport.max_idle_timeout(Some(self.config.transport.idle_timeout.try_into().unwrap()));
         if let Some(keep_alive) = self.config.transport.keep_alive_interval {
             transport.keep_alive_interval(Some(keep_alive));
         }
-        transport.max_concurrent_bidi_streams(self.config.transport.max_concurrent_bi_streams.into());
-        transport.max_concurrent_uni_streams(self.config.transport.max_concurrent_uni_streams.into());
+        transport
+            .max_concurrent_bidi_streams(self.config.transport.max_concurrent_bi_streams.into());
+        transport
+            .max_concurrent_uni_streams(self.config.transport.max_concurrent_uni_streams.into());
         transport.initial_rtt(self.config.transport.initial_rtt);
 
         match self.config.transport.congestion_control {
             CongestionControl::Cubic => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::CubicConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::CubicConfig::default(),
+                ));
             }
             CongestionControl::NewReno => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::NewRenoConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::NewRenoConfig::default(),
+                ));
             }
             CongestionControl::Bbr => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::BbrConfig::default(),
+                ));
             }
         }
 
@@ -116,11 +121,8 @@ impl QuicClient {
             .clone()
             .unwrap_or_else(|| self.config.server_addr.ip().to_string());
 
-        let connecting = endpoint.connect_with(
-            client_config,
-            self.config.server_addr,
-            &server_name,
-        )?;
+        let connecting =
+            endpoint.connect_with(client_config, self.config.server_addr, &server_name)?;
 
         let connection = if self.config.transport.zero_rtt {
             match connecting.into_0rtt() {
@@ -166,8 +168,7 @@ impl QuicClient {
             root_store.add(cert).ok();
         }
 
-        let builder = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store);
+        let builder = rustls::ClientConfig::builder().with_root_certificates(root_store);
 
         let mut config = if self.config.skip_cert_verify {
             let verifier = Arc::new(SkipServerVerification);
@@ -308,9 +309,9 @@ impl ClientConnection {
             )));
         }
 
-        let bound_addr = response.address.ok_or_else(|| {
-            QuicError::Protocol("No bound address in UDP response".to_string())
-        })?;
+        let bound_addr = response
+            .address
+            .ok_or_else(|| QuicError::Protocol("No bound address in UDP response".to_string()))?;
 
         debug!("UDP session opened, bound to {}", bound_addr);
         Ok(UdpSession::new(stream, bound_addr))

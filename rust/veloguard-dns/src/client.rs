@@ -100,7 +100,9 @@ impl DnsClient {
         let addr = self.resolve_address().await?;
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-        let data = message.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let data = message
+            .to_bytes()
+            .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
         socket.send_to(&data, addr).await?;
 
@@ -125,7 +127,9 @@ impl DnsClient {
             .await
             .map_err(|_| DnsError::Timeout)??;
 
-        let data = message.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let data = message
+            .to_bytes()
+            .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
         // TCP DNS uses 2-byte length prefix
         let len = (data.len() as u16).to_be_bytes();
@@ -145,17 +149,17 @@ impl DnsClient {
             .await
             .map_err(|_| DnsError::Timeout)??;
 
-        let response = Message::from_bytes(&buf)
-            .map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let response = Message::from_bytes(&buf).map_err(|e| DnsError::Protocol(e.to_string()))?;
         Ok(response)
     }
 
     /// Query via DNS over TLS (DoT)
     async fn query_dot(&self, message: &Message) -> Result<Message> {
         let addr = self.resolve_address().await?;
-        let connector = self.tls_connector.as_ref().ok_or(DnsError::Tls(
-            "TLS connector not initialized".to_string(),
-        ))?;
+        let connector = self
+            .tls_connector
+            .as_ref()
+            .ok_or(DnsError::Tls("TLS connector not initialized".to_string()))?;
 
         let server_name = self
             .config
@@ -176,7 +180,9 @@ impl DnsClient {
             .map_err(|_| DnsError::Timeout)?
             .map_err(|e| DnsError::Tls(e.to_string()))?;
 
-        let data = message.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let data = message
+            .to_bytes()
+            .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
         // TCP DNS uses 2-byte length prefix
         let len = (data.len() as u16).to_be_bytes();
@@ -196,14 +202,15 @@ impl DnsClient {
             .await
             .map_err(|_| DnsError::Timeout)??;
 
-        let response = Message::from_bytes(&buf)
-            .map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let response = Message::from_bytes(&buf).map_err(|e| DnsError::Protocol(e.to_string()))?;
         Ok(response)
     }
 
     /// Query via DNS over HTTPS (DoH)
     async fn query_doh(&self, message: &Message) -> Result<Message> {
-        let data = message.to_bytes().map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let data = message
+            .to_bytes()
+            .map_err(|e| DnsError::Protocol(e.to_string()))?;
 
         // Build DoH URL
         let host = &self.config.address;
@@ -211,10 +218,8 @@ impl DnsClient {
         let port = self.config.port.unwrap_or(443);
 
         // Use base64url encoding for GET request
-        let _encoded = base64::Engine::encode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            &data,
-        );
+        let _encoded =
+            base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &data);
 
         let url = format!("https://{}:{}{}", host, port, path);
 
@@ -223,9 +228,10 @@ impl DnsClient {
         debug!("DoH query to {}", url);
 
         // Create TLS connection
-        let connector = self.tls_connector.as_ref().ok_or(DnsError::Tls(
-            "TLS connector not initialized".to_string(),
-        ))?;
+        let connector = self
+            .tls_connector
+            .as_ref()
+            .ok_or(DnsError::Tls("TLS connector not initialized".to_string()))?;
 
         let server_name = rustls::pki_types::ServerName::try_from(host.as_str())
             .map_err(|e| DnsError::Tls(format!("Invalid server name: {}", e)))?
@@ -273,8 +279,7 @@ impl DnsClient {
 
         let body = &response_buf[body_start..];
 
-        let response = Message::from_bytes(body)
-            .map_err(|e| DnsError::Protocol(e.to_string()))?;
+        let response = Message::from_bytes(body).map_err(|e| DnsError::Protocol(e.to_string()))?;
         Ok(response)
     }
 
@@ -294,14 +299,14 @@ impl DnsClient {
         });
 
         // Use tokio's built-in DNS resolution (system resolver)
-        let addrs: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:{}", self.config.address, port))
-            .await?
-            .collect();
+        let addrs: Vec<SocketAddr> =
+            tokio::net::lookup_host(format!("{}:{}", self.config.address, port))
+                .await?
+                .collect();
 
-        addrs
-            .into_iter()
-            .next()
-            .ok_or(DnsError::QueryFailed("Failed to resolve upstream DNS server".to_string()))
+        addrs.into_iter().next().ok_or(DnsError::QueryFailed(
+            "Failed to resolve upstream DNS server".to_string(),
+        ))
     }
 
     /// Get protocol type
@@ -326,9 +331,7 @@ pub fn create_clients(servers: &[String], timeout: Duration) -> Vec<DnsClient> {
     servers
         .iter()
         .filter_map(|s| {
-            UpstreamConfig::parse(s).and_then(|config| {
-                DnsClient::new(config, timeout).ok()
-            })
+            UpstreamConfig::parse(s).and_then(|config| DnsClient::new(config, timeout).ok())
         })
         .collect()
 }

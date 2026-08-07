@@ -76,13 +76,15 @@ class AdaptiveListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    
-    final adaptiveDensity = visualDensity ??
+
+    final adaptiveDensity =
+        visualDensity ??
         (PlatformUtils.isDesktop
             ? VisualDensity.comfortable
             : VisualDensity.standard);
 
-    final adaptivePadding = contentPadding ??
+    final adaptivePadding =
+        contentPadding ??
         EdgeInsets.symmetric(
           horizontal: PlatformUtils.isDesktop ? 16 : 12,
           vertical: PlatformUtils.isDesktop ? 8 : 4,
@@ -93,14 +95,15 @@ class AdaptiveListTile extends StatelessWidget {
 
     // Use transparent tile color to let Card background show through
     final effectiveTileColor = tileColor ?? Colors.transparent;
-    
+
     // Selected tile color with proper opacity
-    final effectiveSelectedTileColor = selectedTileColor ?? 
+    final effectiveSelectedTileColor =
+        selectedTileColor ??
         colorScheme.primaryContainer.withValues(alpha: 0.3);
 
     // Hover color that works well with both dynamic and static themes
-    final effectiveHoverColor = hoverColor ?? 
-        colorScheme.onSurface.withValues(alpha: 0.04);
+    final effectiveHoverColor =
+        hoverColor ?? colorScheme.onSurface.withValues(alpha: 0.04);
 
     return ListTile(
       leading: leading,
@@ -110,9 +113,13 @@ class AdaptiveListTile extends StatelessWidget {
       isThreeLine: isThreeLine,
       dense: dense,
       visualDensity: isAdaptive == true ? adaptiveDensity : visualDensity,
-      shape: shape ?? RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(PlatformUtils.isDesktop ? 8 : 12),
-      ),
+      shape:
+          shape ??
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(
+              PlatformUtils.isDesktop ? 8 : 12,
+            ),
+          ),
       style: style,
       selectedColor: selectedColor ?? colorScheme.primary,
       iconColor: iconColor ?? colorScheme.onSurfaceVariant,
@@ -126,7 +133,8 @@ class AdaptiveListTile extends StatelessWidget {
       enabled: enabled,
       onTap: onTap,
       onLongPress: PlatformUtils.shouldShowContextMenu() ? onLongPress : null,
-      mouseCursor: mouseCursor ??
+      mouseCursor:
+          mouseCursor ??
           (PlatformUtils.isDesktop
               ? SystemMouseCursors.click
               : MouseCursor.defer),
@@ -139,8 +147,11 @@ class AdaptiveListTile extends StatelessWidget {
       tileColor: effectiveTileColor,
       selectedTileColor: effectiveSelectedTileColor,
       enableFeedback: enableFeedback ?? PlatformUtils.isMobile,
-      horizontalTitleGap: horizontalTitleGap ?? (PlatformUtils.isDesktop ? 16 : 12),
-      minVerticalPadding: isAdaptive == true ? adaptiveMinVerticalPadding : minVerticalPadding,
+      horizontalTitleGap:
+          horizontalTitleGap ?? (PlatformUtils.isDesktop ? 16 : 12),
+      minVerticalPadding: isAdaptive == true
+          ? adaptiveMinVerticalPadding
+          : minVerticalPadding,
       minLeadingWidth: minLeadingWidth ?? (PlatformUtils.isDesktop ? 48 : 40),
     );
   }

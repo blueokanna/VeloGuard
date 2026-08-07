@@ -65,11 +65,8 @@ jobs:
           fi
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release '$tag' already exists; published assets are immutable"
-            echo "tag=$tag" >> "$GITHUB_OUTPUT"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "Release '$tag' already exists and published assets are immutable" >&2
+            exit 1
           fi
 
           awk -v version="$version" '
@@ -81,22 +78,19 @@ jobs:
           {
             echo '**Official changelog:**'
             echo
-            sed -nE 's/^- (.*)$/\1/p' changelog-section.md
+            cat changelog-section.md
           } > release-notes.md
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
-        if: steps.release.outputs.skip != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Flutter
-        if: steps.release.outputs.skip != 'true'
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.6'
@@ -104,14 +98,13 @@ jobs:
           cache: true
 
       - name: Set up Rust Android targets
-        if: steps.release.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.0'
+          components: rustfmt,clippy
           targets: armv7-linux-androideabi,aarch64-linux-android,i686-linux-android,x86_64-linux-android
 
       - name: Validate release signing key
-        if: steps.release.outputs.skip != 'true'
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.VELOGUARD_KEYSTORE_BASE64 }}
@@ -128,19 +121,23 @@ jobs:
             -alias "$VELOGUARD_KEY_ALIAS" >/dev/null
 
       - name: Resolve dependencies and test
-        if: steps.release.outputs.skip != 'true'
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
+          dart format --output=none --set-exit-if-changed lib test
           flutter analyze
           flutter test
-          cargo test --manifest-path rust/Cargo.toml -p veloguard-core -p veloguard-lib
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --all-features --locked
 
       - name: Build signed release APK
-        if: steps.release.outputs.skip != 'true'
         run: flutter build apk --release
 
-      - name: Create verified update metadata
-        if: steps.release.outputs.skip != 'true'
+      - name: Lint Android release
+        working-directory: android
+        run: ./gradlew lintRelease
+
+      - name: Create checksum-verified update metadata
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -165,7 +162,6 @@ jobs:
           (cd dist && sha256sum "$asset" update-manifest.json > SHA256SUMS)
 
       - name: Publish stable GitHub Release
-        if: steps.release.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}

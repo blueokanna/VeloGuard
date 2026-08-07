@@ -52,8 +52,8 @@ impl FakeIpPool {
     }
 
     pub fn with_config(config: FakeIpConfig) -> Self {
-        let sz = NonZeroUsize::new(config.pool_size as usize)
-            .unwrap_or(NonZeroUsize::new(1).unwrap());
+        let sz =
+            NonZeroUsize::new(config.pool_size as usize).unwrap_or(NonZeroUsize::new(1).unwrap());
         Self {
             config,
             domain_to_ip: DashMap::new(),
@@ -192,7 +192,6 @@ pub struct DnsHandler {
     fake_ip_pool: Arc<FakeIpPool>,
 }
 
-
 impl DnsHandler {
     pub fn new(pool: Arc<FakeIpPool>) -> Self {
         Self { fake_ip_pool: pool }
@@ -308,17 +307,30 @@ impl DnsHandler {
         match query.qtype {
             DnsQueryType::A => {
                 let ip = self.fake_ip_pool.allocate(&query.domain)?;
-                info!("DNS A query: {} -> {} (Fake-IP allocated)", query.domain, ip);
+                info!(
+                    "DNS A query: {} -> {} (Fake-IP allocated)",
+                    query.domain, ip
+                );
                 let response = self.build_response(&query, ip);
-                info!("DNS response built: {} bytes for {}", response.len(), query.domain);
+                info!(
+                    "DNS response built: {} bytes for {}",
+                    response.len(),
+                    query.domain
+                );
                 Ok((response, Some(query.domain)))
             }
             DnsQueryType::AAAA => {
-                info!("DNS AAAA query: {} -> empty response (force IPv4)", query.domain);
+                info!(
+                    "DNS AAAA query: {} -> empty response (force IPv4)",
+                    query.domain
+                );
                 Ok((self.build_empty_response(&query), None))
             }
             _ => {
-                info!("DNS other query type {:?}: {} -> NXDOMAIN", query.qtype, query.domain);
+                info!(
+                    "DNS other query type {:?}: {} -> NXDOMAIN",
+                    query.qtype, query.domain
+                );
                 Ok((self.build_nxdomain(&query), None))
             }
         }

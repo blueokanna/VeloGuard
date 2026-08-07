@@ -38,12 +38,15 @@ impl StackStats {
     }
 
     pub fn uptime(&self) -> Duration {
-        self.start_time.map(|t| t.elapsed()).unwrap_or(Duration::ZERO)
+        self.start_time
+            .map(|t| t.elapsed())
+            .unwrap_or(Duration::ZERO)
     }
 
     pub fn record_received(&self, bytes: usize) {
         self.packets_received.fetch_add(1, Ordering::Relaxed);
-        self.bytes_received.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.bytes_received
+            .fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     pub fn record_sent(&self, bytes: usize) {
@@ -197,7 +200,9 @@ pub struct StatsSnapshot {
 
 impl StatsSnapshot {
     pub fn packets_per_second(&self, previous: &StatsSnapshot, interval: Duration) -> f64 {
-        let delta = self.packets_received.saturating_sub(previous.packets_received);
+        let delta = self
+            .packets_received
+            .saturating_sub(previous.packets_received);
         delta as f64 / interval.as_secs_f64()
     }
 

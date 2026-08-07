@@ -281,11 +281,13 @@ impl TcpStack {
         let id = TcpConnectionId { src_addr, dst_addr };
 
         let conn = Arc::new(TcpConnection::new(id, self.event_tx.clone()));
-        
+
         {
             let mut connections = self.connections.lock();
             if connections.contains_key(&id) {
-                return Err(NetStackError::TcpError("Connection already exists".to_string()));
+                return Err(NetStackError::TcpError(
+                    "Connection already exists".to_string(),
+                ));
             }
             connections.insert(id, conn.clone());
         }
@@ -446,7 +448,10 @@ impl AsyncWrite for TcpStream {
         inner.send_buffer.extend_from_slice(buf);
         inner.upload_bytes += buf.len() as u64;
 
-        let _ = this.conn.stack_tx.try_send(TcpStackEvent::DataReady(this.conn.id));
+        let _ = this
+            .conn
+            .stack_tx
+            .try_send(TcpStackEvent::DataReady(this.conn.id));
 
         Poll::Ready(Ok(buf.len()))
     }
@@ -458,7 +463,10 @@ impl AsyncWrite for TcpStream {
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         let this = self.project();
         this.conn.close();
-        let _ = this.conn.stack_tx.try_send(TcpStackEvent::Close(this.conn.id));
+        let _ = this
+            .conn
+            .stack_tx
+            .try_send(TcpStackEvent::Close(this.conn.id));
         Poll::Ready(Ok(()))
     }
 }

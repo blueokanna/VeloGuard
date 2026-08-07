@@ -1,11 +1,11 @@
+mod error;
+pub mod grpc;
+pub mod h2;
 pub mod tls;
 pub mod websocket;
-pub mod h2;
-pub mod grpc;
-mod error;
 
-pub use error::{TransportError, Result};
-pub use tls::{TlsTransport, TlsConfig, TlsFingerprint, TlsStream};
-pub use websocket::{WebSocketTransport, WebSocketConfig, WsStream, WsSink, WsReader};
-pub use h2::{H2Transport, H2Config, H2Stream};
-pub use grpc::{GrpcTransport, GrpcConfig, GrpcMode, GrpcStream};
+pub use error::{Result, TransportError};
+pub use grpc::{GrpcConfig, GrpcMode, GrpcStream, GrpcTransport};
+pub use h2::{H2Config, H2Stream, H2Transport};
+pub use tls::{TlsConfig, TlsFingerprint, TlsStream, TlsTransport};
+pub use websocket::{WebSocketConfig, WebSocketTransport, WsReader, WsSink, WsStream};

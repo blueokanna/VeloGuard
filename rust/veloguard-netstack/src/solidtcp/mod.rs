@@ -58,7 +58,10 @@ pub use device::{DeviceConfig, DeviceStats, VirtualDevice};
 pub use dns::{DnsHandler, DnsQuery, FakeIpConfig, FakeIpPool};
 pub use error::{Result, SolidTcpError};
 pub use nat::{NatConfig, NatEntry, NatKey, NatState, NatTable};
-pub use packet::{PacketBuilder, PacketParser, ParsedPacket, TcpFlags, build_ipv4_tcp, build_ipv4_udp, parse_packet};
+pub use packet::{
+    build_ipv4_tcp, build_ipv4_udp, parse_packet, PacketBuilder, PacketParser, ParsedPacket,
+    TcpFlags,
+};
 pub use stack::{SolidStack, StackBuilder, StackConfig};
 pub use stats::{ConnectionStats, StackStats, StatsSnapshot};
 pub use tcp::{TcpAction, TcpConfig, TcpConnection, TcpManager, TcpState};
@@ -66,7 +69,9 @@ pub use udp::{UdpConfig, UdpManager, UdpSession, UdpSessionState};
 
 // Android-specific exports for socket protection
 #[cfg(target_os = "android")]
-pub use stack::{set_protect_callback, protect_socket, has_protect_callback, clear_protect_callback};
+pub use stack::{
+    clear_protect_callback, has_protect_callback, protect_socket, set_protect_callback,
+};
 
 /// Prelude module for common imports
 pub mod prelude {

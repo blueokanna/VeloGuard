@@ -1,12 +1,12 @@
 package com.blueokanna.veloguard
 
+import android.annotation.SuppressLint
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import androidx.annotation.RequiresApi
 
-@RequiresApi(Build.VERSION_CODES.N)
 class VeloGuardTileService : TileService() {
     
     override fun onStartListening() {
@@ -27,10 +27,26 @@ class VeloGuardTileService : TileService() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra("start_vpn", true)
             }
-            startActivityAndCollapse(intent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pendingIntent = PendingIntent.getActivity(
+                    this,
+                    0,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                startActivityAndCollapse(pendingIntent)
+            } else {
+                startActivityAndCollapseCompat(intent)
+            }
         }
         
         updateTile()
+    }
+
+    @SuppressLint("StartActivityAndCollapseDeprecated")
+    @Suppress("DEPRECATION")
+    private fun startActivityAndCollapseCompat(intent: Intent) {
+        startActivityAndCollapse(intent)
     }
     
     private fun updateTile() {

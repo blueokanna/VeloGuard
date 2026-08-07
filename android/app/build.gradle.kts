@@ -4,6 +4,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigningValues = mapOf(
+    "VELOGUARD_KEYSTORE_PATH" to System.getenv("VELOGUARD_KEYSTORE_PATH"),
+    "VELOGUARD_KEYSTORE_PASSWORD" to System.getenv("VELOGUARD_KEYSTORE_PASSWORD"),
+    "VELOGUARD_KEY_ALIAS" to System.getenv("VELOGUARD_KEY_ALIAS"),
+    "VELOGUARD_KEY_PASSWORD" to System.getenv("VELOGUARD_KEY_PASSWORD"),
+)
+val hasAnyReleaseSigningValue = releaseSigningValues.values.any { !it.isNullOrBlank() }
+val hasCompleteReleaseSigningConfig = releaseSigningValues.values.all { !it.isNullOrBlank() }
+require(!hasAnyReleaseSigningValue || hasCompleteReleaseSigningConfig) {
+    "Release signing requires all VELOGUARD_KEYSTORE_* environment variables"
+}
+
 android {
     namespace = "com.blueokanna.veloguard"
     compileSdk = flutter.compileSdkVersion
@@ -31,20 +43,21 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            val keystorePath = System.getenv("VELOGUARD_KEYSTORE_PATH")
-            if (!keystorePath.isNullOrBlank()) {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("VELOGUARD_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("VELOGUARD_KEY_ALIAS")
-                keyPassword = System.getenv("VELOGUARD_KEY_PASSWORD")
+        if (hasCompleteReleaseSigningConfig) {
+            create("release") {
+                storeFile = file(releaseSigningValues.getValue("VELOGUARD_KEYSTORE_PATH")!!)
+                storePassword = releaseSigningValues.getValue("VELOGUARD_KEYSTORE_PASSWORD")
+                keyAlias = releaseSigningValues.getValue("VELOGUARD_KEY_ALIAS")
+                keyPassword = releaseSigningValues.getValue("VELOGUARD_KEY_PASSWORD")
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasCompleteReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
         }
@@ -55,10 +68,6 @@ android {
             useLegacyPackaging = true
         }
     }
-        lint {
-        checkReleaseBuilds = false
-        abortOnError = false
-    }
 }
 
 flutter {
@@ -66,6 +75,6 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }

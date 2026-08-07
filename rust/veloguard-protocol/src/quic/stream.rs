@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::crypto::CryptoContext;
-use super::error::{Result, QuicError};
+use super::error::{QuicError, Result};
 use super::MAX_PAYLOAD_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

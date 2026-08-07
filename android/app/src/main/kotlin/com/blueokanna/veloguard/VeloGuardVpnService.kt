@@ -16,7 +16,6 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -35,9 +34,6 @@ class VeloGuardVpnService : VpnService() {
         
         private val _isRunning = AtomicBoolean(false)
         val isRunning: Boolean get() = _isRunning.get()
-        
-        private val _connectionCount = AtomicInteger(0)
-        val connectionCount: Int get() = _connectionCount.get()
         
         private var _proxyMode = ProxyMode.RULE
         val proxyMode: ProxyMode get() = _proxyMode
@@ -128,7 +124,6 @@ class VeloGuardVpnService : VpnService() {
             }
 
             _isRunning.set(false)
-            _connectionCount.set(0)
             _jniInitialized.set(false)
             _vpnFd = -1
             _isStarting.set(false)
@@ -232,7 +227,6 @@ class VeloGuardVpnService : VpnService() {
             _isRunning.set(false)
             _vpnFd = -1
             _isStarting.set(false)
-            _connectionCount.set(0)
             
             // Stop the instance if available
             instance?.let { vpnInstance ->
@@ -259,9 +253,6 @@ class VeloGuardVpnService : VpnService() {
             Log.d(TAG, "Proxy mode set to: $mode")
         }
         
-        fun updateConnectionCount(count: Int) {
-            _connectionCount.set(count)
-        }
     }
     
     enum class ProxyMode {
@@ -560,7 +551,6 @@ class VeloGuardVpnService : VpnService() {
         
         // Set all flags to stopped state
         _isRunning.set(false)
-        _connectionCount.set(0)
         _vpnFd = -1
         _isStarting.set(false)
         startLatch?.countDown()
@@ -602,12 +592,7 @@ class VeloGuardVpnService : VpnService() {
     }
 
     private fun stopForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     private fun createNotificationChannel() {

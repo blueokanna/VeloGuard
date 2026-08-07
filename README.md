@@ -43,7 +43,7 @@
 | Linux | 有 | GNOME 设置路径 | 已实现仅 IPv4 的 global 模式路径 | 仍需 root/实机验证；在完成 socket mark 或物理网卡绑定前，rule/direct 模式会主动拒绝 |
 | macOS | 有 | `networksetup` 路径 | 未实现 Network Extension | 不能宣称全局代理支持 |
 | iOS | 有 | 不适用 | 未实现 Packet Tunnel Extension | 仅应用壳 |
-| HarmonyOS NEXT | 有工程骨架 | 不适用 | VPN FD 回传与 Rust 网络栈尚未打通 | 不可发布 |
+| HarmonyOS NEXT | 有工程骨架 | 不适用 | 明确返回 `OHOS_VPN_UNSUPPORTED` | 不可发布 |
 
 ## 架构
 
@@ -106,23 +106,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate_icons.ps1
 
 脚本会生成 Android、iOS、macOS、Windows、Linux、Web 和 HarmonyOS 所需资源，并校验源图尺寸。不要手工编辑生成图标。
 
-## 本次自检结果
+## 自动化验证
 
-- `cargo metadata --no-deps --format-version 1`：通过。
-- `cargo check --workspace --all-targets --locked --offline`：通过。
-- WSL Ubuntu 原生执行 `cargo check --workspace --all-targets --locked --offline`：通过。
-- WSL Ubuntu 原生执行 `cargo test --workspace --all-targets --locked --offline`：通过，299 个测试通过，6 个测试忽略（5 个需要外网，1 个需要 Linux `CAP_NET_ADMIN`），0 失败。
-- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`：默认生产特性通过。
-- WSL root 单独执行 `tun::tests::linux_tun_lifecycle`：通过；真实创建并释放临时 TUN 接口，未修改默认路由或 DNS。
-- `cargo build -p veloguard-lib --target aarch64-linux-android --release --locked --offline`：通过；产物为 AArch64 ELF 共享库，JNI/FRB 导出与绑定哈希已核对。
-- ADB 真机连接：通过；OnePlus PLK110、Android 16、API 36、`arm64-v8a`。
-- 全平台图标尺寸与 Windows ICO 目录结构：通过。
-- 全特性 Clippy：未完成；离线缓存缺少可选依赖 `hyper-timeout`。
-- 全工作区 `cargo fmt --all -- --check`：未通过；现有 Rust 文件存在大范围格式漂移，本次未执行会制造大量无关差异的全库格式化。
-- Dart 格式检查：通过。
-- Flutter analyze/test 与 Android APK 安装：未完成；已移除未使用的 `ffigen`，当前离线缓存缺少 `window_manager`，联网 `flutter pub get` 仍需明确授权。
-- Android VPN 真机数据路径尚未验证；现有证据只覆盖设备连接、Android arm64 Rust Release 库和 JNI/FRB 符号，不等于 VPN 启停或协议互操作通过。
-- macOS、iOS、Linux Flutter 桌面包与 HarmonyOS 构建：当前主机未完成。
+每次 push 和 pull request 都会执行 Dart 格式检查、Flutter 分析与测试、Android Debug APK 构建、Android Release lint、Rust 格式检查、将警告视为错误的 Clippy，以及 Rust 全工作区测试。发布工作流会在生成签名 APK 时重复这些检查。
+
+自动构建通过不等于 VPN 行为或协议互操作已经得到证明。Android VPN 真实流量、Windows/Linux 特权 TUN 路由、Apple Network Extension、HarmonyOS VPN FD 处理，以及真实服务端协议兼容性，仍必须满足下方发布门槛。
+
+## GitHub 发布配置
+
+手动执行发布工作流或推送发布标签前，必须配置以下仓库 Actions Secrets：
+
+- `VELOGUARD_KEYSTORE_BASE64`
+- `VELOGUARD_KEYSTORE_PASSWORD`
+- `VELOGUARD_KEY_ALIAS`
+- `VELOGUARD_KEY_PASSWORD`
+
+`pubspec.yaml` 中的 `version`、变更日志顶部版本和 `vMAJOR.MINOR.PATCH` 标签必须一致。手动发布只能从默认分支执行。已经发布的 Release 及其产物不可变，工作流会明确失败，不会静默覆盖或把既有产物当作本次成功。
 
 ## 发布门槛
 

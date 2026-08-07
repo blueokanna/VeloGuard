@@ -7,13 +7,13 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.net.Uri
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -84,9 +84,6 @@ class MainActivity : FlutterActivity() {
                 "getVpnFd" -> {
                     result.success(VeloGuardVpnService.vpnFd)
                 }
-                "getVpnConnectionCount" -> {
-                    result.success(VeloGuardVpnService.connectionCount)
-                }
                 "setProxyMode" -> {
                     val mode = call.argument<String>("mode") ?: "rule"
                     val proxyMode = when (mode.lowercase()) {
@@ -99,16 +96,6 @@ class MainActivity : FlutterActivity() {
                 }
                 "getProxyMode" -> {
                     result.success(VeloGuardVpnService.proxyMode.name.lowercase())
-                }
-                "enableProxy" -> {
-                    result.success(false)
-                }
-                "disableProxy" -> {
-                    result.success(true)
-                }
-                "requestBatteryOptimization" -> {
-                    requestIgnoreBatteryOptimization()
-                    result.success(true)
                 }
                 "getInstalledApps" -> {
                     result.success(getInstalledApps())
@@ -130,11 +117,6 @@ class MainActivity : FlutterActivity() {
                 "getNativeLibraryInfo" -> {
                     result.success(VeloGuardVpnService.getLibraryInfo(this))
                 }
-                "updateConnectionCount" -> {
-                    val count = call.argument<Int>("count") ?: 0
-                    VeloGuardVpnService.updateConnectionCount(count)
-                    result.success(true)
-                }
                 else -> {
                     result.notImplemented()
                 }
@@ -155,7 +137,7 @@ class MainActivity : FlutterActivity() {
             !packageManager.canRequestPackageInstalls()) {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                    data = Uri.parse("package:$packageName")
+                    data = "package:$packageName".toUri()
                 }
             )
             result.success(mapOf("launched" to false, "requiresPermission" to true))
@@ -308,19 +290,6 @@ class MainActivity : FlutterActivity() {
     private fun stopVpnService() {
         Log.d(TAG, "Stopping VPN service...")
         VeloGuardVpnService.stopVpnFromOutside(this)
-    }
-    
-    private fun requestIgnoreBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to request battery optimization: ${e.message}")
-            }
-        }
     }
     
     private fun getInstalledApps(): List<Map<String, String>> {

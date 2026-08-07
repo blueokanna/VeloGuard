@@ -147,8 +147,12 @@ class PlatformProxyService {
         return await _enableOhosVpn(mode: mode);
       }
       if (Platform.isMacOS || Platform.isLinux) {
-        _tunModeEnabled = true;
-        return true;
+        final status = await rust_api.enableTunModeWithMode(mode: mode.name);
+        _tunModeEnabled = status.enabled;
+        if (status.error case final error?) {
+          debugPrint('Failed to enable TUN mode: $error');
+        }
+        return status.enabled;
       }
       return false;
     } catch (e) {
@@ -169,8 +173,13 @@ class PlatformProxyService {
         return await _disableOhosVpn();
       }
       if (Platform.isMacOS || Platform.isLinux) {
-        _tunModeEnabled = false;
-        return true;
+        final status = await rust_api.disableTunMode();
+        _tunModeEnabled = status.enabled;
+        if (status.error case final error?) {
+          debugPrint('Failed to disable TUN mode: $error');
+          return false;
+        }
+        return !status.enabled;
       }
       return false;
     } catch (e) {
@@ -617,21 +626,6 @@ class PlatformProxyService {
     return false;
   }
 
-  Future<int> getVpnConnectionCount() async {
-    if (Platform.isAndroid) {
-      return await getAndroidVpnConnectionCount();
-    } else if (PlatformUtils.isOHOS) {
-      try {
-        return await _ohosChannel.invokeMethod('getVpnConnectionCount')
-                as int? ??
-            0;
-      } catch (e) {
-        return 0;
-      }
-    }
-    return 0;
-  }
-
   Future<bool> setAndroidProxyMode(ProxyMode mode) async {
     if (!Platform.isAndroid) return false;
     try {
@@ -646,15 +640,6 @@ class PlatformProxyService {
     } catch (e) {
       debugPrint('Failed to set proxy mode: $e');
       return false;
-    }
-  }
-
-  Future<int> getAndroidVpnConnectionCount() async {
-    if (!Platform.isAndroid) return 0;
-    try {
-      return await _channel.invokeMethod('getVpnConnectionCount') as int? ?? 0;
-    } catch (e) {
-      return 0;
     }
   }
 
@@ -845,7 +830,13 @@ class PlatformProxyService {
   /// Returns true if the Rust native library was loaded successfully
   Future<bool> isNativeLibraryLoaded() async {
     if (!Platform.isAndroid) {
-      return true; // On other platforms, assume loaded
+      try {
+        await rust_api.getVersion();
+        return true;
+      } catch (e) {
+        debugPrint('Failed to load native library: $e');
+        return false;
+      }
     }
     try {
       final result = await _channel.invokeMethod('isNativeLibraryLoaded');

@@ -327,6 +327,48 @@ class ProfilesProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> getProfileConfigContent(String id) {
+    return StorageService.instance.getProfileConfig(id);
+  }
+
+  Future<bool> saveProfileConfigContent(String id, String content) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final normalizedContent = content.trim();
+      if (normalizedContent.isEmpty) {
+        throw const FormatException('Configuration cannot be empty');
+      }
+
+      // Reject malformed or unsupported Clash configuration before replacing
+      // the profile that is currently usable on disk.
+      ConfigConverter.convertClashYamlToJson(normalizedContent);
+
+      final index = _profiles.indexWhere((profile) => profile.id == id);
+      if (index == -1) {
+        throw StateError('Profile not found');
+      }
+
+      final updatedProfile = _profiles[index].copyWith(
+        configContent: normalizedContent,
+        lastUpdated: DateTime.now(),
+      );
+      await StorageService.instance.saveProfileConfig(id, normalizedContent);
+      await StorageService.instance.updateProfile(updatedProfile);
+      _profiles[index] = updatedProfile;
+      return true;
+    } catch (error) {
+      _error = error.toString();
+      debugPrint('Failed to save profile configuration: $error');
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Select a profile without starting the proxy
   /// This just marks the profile as active and loads its config
   /// The proxy will be started separately from the home screen

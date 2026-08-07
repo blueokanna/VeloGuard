@@ -70,8 +70,9 @@ impl WebSocketTransport {
         let scheme = if self.use_tls { "wss" } else { "ws" };
         let host = self.config.host.as_deref().unwrap_or(&self.server);
         let uri_str = format!("{}://{}:{}{}", scheme, host, self.port, self.config.path);
-        
-        let uri: Uri = uri_str.parse()
+
+        let uri: Uri = uri_str
+            .parse()
             .map_err(|e| TransportError::InvalidConfig(format!("Invalid WebSocket URI: {}", e)))?;
 
         let mut request = Request::builder()
@@ -86,16 +87,22 @@ impl WebSocketTransport {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let request = request.body(())
-            .map_err(|e| TransportError::InvalidConfig(format!("Failed to build request: {}", e)))?;
+        let request = request.body(()).map_err(|e| {
+            TransportError::InvalidConfig(format!("Failed to build request: {}", e))
+        })?;
 
-        let (ws_stream, _response) = tokio_tungstenite::client_async(request, stream).await
+        let (ws_stream, _response) = tokio_tungstenite::client_async(request, stream)
+            .await
             .map_err(|e| TransportError::Handshake(format!("WebSocket handshake failed: {}", e)))?;
 
         Ok(WsStream::new(ws_stream))
     }
 
-    pub async fn connect_with_early_data<S>(&self, stream: S, early_data: &[u8]) -> Result<WsStream<S>>
+    pub async fn connect_with_early_data<S>(
+        &self,
+        stream: S,
+        early_data: &[u8],
+    ) -> Result<WsStream<S>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -105,21 +112,29 @@ impl WebSocketTransport {
 
         let scheme = if self.use_tls { "wss" } else { "ws" };
         let host = self.config.host.as_deref().unwrap_or(&self.server);
-        
+
         let early_data_encoded = if early_data.len() <= self.config.max_early_data {
             base64::engine::general_purpose::STANDARD.encode(early_data)
         } else {
-            base64::engine::general_purpose::STANDARD.encode(&early_data[..self.config.max_early_data])
+            base64::engine::general_purpose::STANDARD
+                .encode(&early_data[..self.config.max_early_data])
         };
 
         let path_with_early_data = if let Some(ref header_name) = self.config.early_data_header {
-            format!("{}?{}={}", self.config.path, header_name, early_data_encoded)
+            format!(
+                "{}?{}={}",
+                self.config.path, header_name, early_data_encoded
+            )
         } else {
             format!("{}?ed={}", self.config.path, early_data_encoded)
         };
 
-        let uri_str = format!("{}://{}:{}{}", scheme, host, self.port, path_with_early_data);
-        let uri: Uri = uri_str.parse()
+        let uri_str = format!(
+            "{}://{}:{}{}",
+            scheme, host, self.port, path_with_early_data
+        );
+        let uri: Uri = uri_str
+            .parse()
             .map_err(|e| TransportError::InvalidConfig(format!("Invalid WebSocket URI: {}", e)))?;
 
         let mut request = Request::builder()
@@ -134,10 +149,12 @@ impl WebSocketTransport {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let request = request.body(())
-            .map_err(|e| TransportError::InvalidConfig(format!("Failed to build request: {}", e)))?;
+        let request = request.body(()).map_err(|e| {
+            TransportError::InvalidConfig(format!("Failed to build request: {}", e))
+        })?;
 
-        let (ws_stream, _response) = tokio_tungstenite::client_async(request, stream).await
+        let (ws_stream, _response) = tokio_tungstenite::client_async(request, stream)
+            .await
             .map_err(|e| TransportError::Handshake(format!("WebSocket handshake failed: {}", e)))?;
 
         Ok(WsStream::new(ws_stream))
@@ -195,60 +212,52 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsStream<S> {
             let to_copy = std::cmp::min(remaining.len(), buf.remaining());
             buf.put_slice(&remaining[..to_copy]);
             self.read_pos += to_copy;
-            
+
             if self.read_pos >= self.read_buffer.len() {
                 self.read_buffer.clear();
                 self.read_pos = 0;
             }
-            
+
             return Poll::Ready(Ok(()));
         }
 
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(msg))) => {
-                match msg {
-                    Message::Binary(data) => {
-                        let to_copy = std::cmp::min(data.len(), buf.remaining());
-                        buf.put_slice(&data[..to_copy]);
-                        
-                        if to_copy < data.len() {
-                            self.read_buffer = data[to_copy..].to_vec();
-                            self.read_pos = 0;
-                        }
-                        
-                        Poll::Ready(Ok(()))
+            Poll::Ready(Some(Ok(msg))) => match msg {
+                Message::Binary(data) => {
+                    let to_copy = std::cmp::min(data.len(), buf.remaining());
+                    buf.put_slice(&data[..to_copy]);
+
+                    if to_copy < data.len() {
+                        self.read_buffer = data[to_copy..].to_vec();
+                        self.read_pos = 0;
                     }
-                    Message::Text(text) => {
-                        let data = text.as_bytes();
-                        let to_copy = std::cmp::min(data.len(), buf.remaining());
-                        buf.put_slice(&data[..to_copy]);
-                        
-                        if to_copy < data.len() {
-                            self.read_buffer = data[to_copy..].to_vec();
-                            self.read_pos = 0;
-                        }
-                        
-                        Poll::Ready(Ok(()))
-                    }
-                    Message::Ping(_) | Message::Pong(_) => {
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                    Message::Close(_) => {
-                        Poll::Ready(Ok(()))
-                    }
-                    Message::Frame(_) => {
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
+
+                    Poll::Ready(Ok(()))
                 }
-            }
-            Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Err(io::Error::other(e.to_string())))
-            }
-            Poll::Ready(None) => {
-                Poll::Ready(Ok(()))
-            }
+                Message::Text(text) => {
+                    let data = text.as_bytes();
+                    let to_copy = std::cmp::min(data.len(), buf.remaining());
+                    buf.put_slice(&data[..to_copy]);
+
+                    if to_copy < data.len() {
+                        self.read_buffer = data[to_copy..].to_vec();
+                        self.read_pos = 0;
+                    }
+
+                    Poll::Ready(Ok(()))
+                }
+                Message::Ping(_) | Message::Pong(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Message::Close(_) => Poll::Ready(Ok(())),
+                Message::Frame(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            },
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Err(io::Error::other(e.to_string()))),
+            Poll::Ready(None) => Poll::Ready(Ok(())),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -268,9 +277,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
                     Err(e) => Poll::Ready(Err(io::Error::other(e.to_string()))),
                 }
             }
-            Poll::Ready(Err(e)) => {
-                Poll::Ready(Err(io::Error::other(e.to_string())))
-            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::other(e.to_string()))),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -316,9 +323,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsSink<S> {
                     Err(e) => Poll::Ready(Err(io::Error::other(e.to_string()))),
                 }
             }
-            Poll::Ready(Err(e)) => {
-                Poll::Ready(Err(io::Error::other(e.to_string())))
-            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::other(e.to_string()))),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -367,60 +372,52 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsReader<S> {
             let to_copy = std::cmp::min(remaining.len(), buf.remaining());
             buf.put_slice(&remaining[..to_copy]);
             self.read_pos += to_copy;
-            
+
             if self.read_pos >= self.read_buffer.len() {
                 self.read_buffer.clear();
                 self.read_pos = 0;
             }
-            
+
             return Poll::Ready(Ok(()));
         }
 
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(msg))) => {
-                match msg {
-                    Message::Binary(data) => {
-                        let to_copy = std::cmp::min(data.len(), buf.remaining());
-                        buf.put_slice(&data[..to_copy]);
-                        
-                        if to_copy < data.len() {
-                            self.read_buffer = data[to_copy..].to_vec();
-                            self.read_pos = 0;
-                        }
-                        
-                        Poll::Ready(Ok(()))
+            Poll::Ready(Some(Ok(msg))) => match msg {
+                Message::Binary(data) => {
+                    let to_copy = std::cmp::min(data.len(), buf.remaining());
+                    buf.put_slice(&data[..to_copy]);
+
+                    if to_copy < data.len() {
+                        self.read_buffer = data[to_copy..].to_vec();
+                        self.read_pos = 0;
                     }
-                    Message::Text(text) => {
-                        let data = text.as_bytes();
-                        let to_copy = std::cmp::min(data.len(), buf.remaining());
-                        buf.put_slice(&data[..to_copy]);
-                        
-                        if to_copy < data.len() {
-                            self.read_buffer = data[to_copy..].to_vec();
-                            self.read_pos = 0;
-                        }
-                        
-                        Poll::Ready(Ok(()))
-                    }
-                    Message::Ping(_) | Message::Pong(_) => {
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                    Message::Close(_) => {
-                        Poll::Ready(Ok(()))
-                    }
-                    Message::Frame(_) => {
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
+
+                    Poll::Ready(Ok(()))
                 }
-            }
-            Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Err(io::Error::other(e.to_string())))
-            }
-            Poll::Ready(None) => {
-                Poll::Ready(Ok(()))
-            }
+                Message::Text(text) => {
+                    let data = text.as_bytes();
+                    let to_copy = std::cmp::min(data.len(), buf.remaining());
+                    buf.put_slice(&data[..to_copy]);
+
+                    if to_copy < data.len() {
+                        self.read_buffer = data[to_copy..].to_vec();
+                        self.read_pos = 0;
+                    }
+
+                    Poll::Ready(Ok(()))
+                }
+                Message::Ping(_) | Message::Pong(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Message::Close(_) => Poll::Ready(Ok(())),
+                Message::Frame(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            },
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Err(io::Error::other(e.to_string()))),
+            Poll::Ready(None) => Poll::Ready(Ok(())),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -453,7 +450,7 @@ mod tests {
     fn test_websocket_config_with_headers() {
         let mut headers = HashMap::new();
         headers.insert("X-Custom-Header".to_string(), "value".to_string());
-        
+
         let config = WebSocketConfig {
             path: "/ws".to_string(),
             host: Some("custom.host.com".to_string()),
@@ -461,10 +458,13 @@ mod tests {
             max_early_data: 2048,
             early_data_header: Some("Sec-WebSocket-Protocol".to_string()),
         };
-        
+
         assert_eq!(config.path, "/ws");
         assert_eq!(config.host, Some("custom.host.com".to_string()));
-        assert_eq!(config.headers.get("X-Custom-Header"), Some(&"value".to_string()));
+        assert_eq!(
+            config.headers.get("X-Custom-Header"),
+            Some(&"value".to_string())
+        );
         assert_eq!(config.max_early_data, 2048);
     }
 
@@ -477,10 +477,10 @@ mod tests {
             max_early_data: 1024,
             early_data_header: None,
         };
-        
+
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: WebSocketConfig = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.path, config.path);
         assert_eq!(deserialized.host, config.host);
         assert_eq!(deserialized.max_early_data, config.max_early_data);
@@ -490,11 +490,13 @@ mod tests {
     fn test_generate_ws_key() {
         let key1 = generate_ws_key();
         let key2 = generate_ws_key();
-        
+
         assert_ne!(key1, key2);
         assert!(!key1.is_empty());
-        
-        let decoded = base64::engine::general_purpose::STANDARD.decode(&key1).unwrap();
+
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&key1)
+            .unwrap();
         assert_eq!(decoded.len(), 16);
     }
 }

@@ -2,7 +2,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::io::Cursor;
 
 use super::address::Address;
-use super::error::{Result, QuicError};
+use super::error::{QuicError, Result};
 use super::PROTOCOL_VERSION;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,7 +175,11 @@ impl Response {
     }
 
     pub fn to_bytes(&self) -> Bytes {
-        let addr_len = self.address.as_ref().map(|a| a.serialized_len()).unwrap_or(0);
+        let addr_len = self
+            .address
+            .as_ref()
+            .map(|a| a.serialized_len())
+            .unwrap_or(0);
         let mut buf = BytesMut::with_capacity(3 + addr_len);
 
         buf.put_u8(self.version);

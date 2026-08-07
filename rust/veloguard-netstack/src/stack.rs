@@ -2,10 +2,7 @@ use crate::error::{NetStackError, Result};
 use crate::tcp::{TcpListener, TcpStack};
 use crate::tun::{TunConfig, TunDevice};
 use crate::udp::{UdpListener, UdpStack};
-use smoltcp::wire::{
-    IpProtocol, Ipv4Packet, Ipv6Packet,
-    TcpPacket, UdpPacket as SmolUdpPacket,
-};
+use smoltcp::wire::{IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket as SmolUdpPacket};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -131,8 +128,12 @@ impl NetStack {
     pub async fn create_tun(&mut self, name: &str, addr: &str, netmask: &str) -> Result<()> {
         let mut config = self.config.tun.clone();
         config.name = name.to_string();
-        config.address = addr.parse().map_err(|e| NetStackError::Parse(format!("{}", e)))?;
-        config.netmask = netmask.parse().map_err(|e| NetStackError::Parse(format!("{}", e)))?;
+        config.address = addr
+            .parse()
+            .map_err(|e| NetStackError::Parse(format!("{}", e)))?;
+        config.netmask = netmask
+            .parse()
+            .map_err(|e| NetStackError::Parse(format!("{}", e)))?;
 
         let tun = TunDevice::with_config(config).await?;
         self.tun_device = Some(tun);
@@ -158,16 +159,26 @@ impl NetStack {
         if let Some(tun) = &mut self.tun_device {
             tun.start().await?;
         } else {
-            return Err(NetStackError::TunError("TUN device not created".to_string()));
+            return Err(NetStackError::TunError(
+                "TUN device not created".to_string(),
+            ));
         }
 
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         self.shutdown_tx = Some(shutdown_tx);
 
         // Get TUN packet channels
-        let _tun_sender = self.tun_device.as_ref().unwrap().get_sender()
+        let _tun_sender = self
+            .tun_device
+            .as_ref()
+            .unwrap()
+            .get_sender()
             .ok_or_else(|| NetStackError::TunError("TUN sender not available".to_string()))?;
-        let mut tun_receiver = self.tun_device.as_mut().unwrap().take_receiver()
+        let mut tun_receiver = self
+            .tun_device
+            .as_mut()
+            .unwrap()
+            .take_receiver()
             .ok_or_else(|| NetStackError::TunError("TUN receiver not available".to_string()))?;
 
         let running = self.running.clone();
@@ -190,7 +201,7 @@ impl NetStack {
                     // Receive packet from TUN
                     Some(packet) = tun_receiver.recv() => {
                         stats.packets_received.fetch_add(1, Ordering::Relaxed);
-                        
+
                         if let Err(e) = process_ip_packet(&packet, &stats, enable_tcp, enable_udp) {
                             trace!("Failed to process packet: {}", e);
                             stats.packets_dropped.fetch_add(1, Ordering::Relaxed);
@@ -297,7 +308,10 @@ fn process_ip_packet(
     match version {
         4 => process_ipv4_packet(packet, stats, enable_tcp, enable_udp),
         6 => process_ipv6_packet(packet, stats, enable_tcp, enable_udp),
-        _ => Err(NetStackError::InvalidPacket(format!("Unknown IP version: {}", version))),
+        _ => Err(NetStackError::InvalidPacket(format!(
+            "Unknown IP version: {}",
+            version
+        ))),
     }
 }
 
@@ -401,11 +415,19 @@ fn process_tcp_packet(
     } else {
         trace!(
             "TCP {} -> {} syn={} ack={} fin={} rst={} len={}",
-            src_addr, dst_addr, syn, ack, fin, rst, payload_len
+            src_addr,
+            dst_addr,
+            syn,
+            ack,
+            fin,
+            rst,
+            payload_len
         );
     }
 
-    stats.bytes_uploaded.fetch_add(payload_len as u64, Ordering::Relaxed);
+    stats
+        .bytes_uploaded
+        .fetch_add(payload_len as u64, Ordering::Relaxed);
 
     // TCP connection handling would be done here
     // For now, we just log the packet
@@ -430,12 +452,11 @@ fn process_udp_packet(
 
     let payload_len = udp.payload().len();
 
-    trace!(
-        "UDP {} -> {} len={}",
-        src_addr, dst_addr, payload_len
-    );
+    trace!("UDP {} -> {} len={}", src_addr, dst_addr, payload_len);
 
-    stats.bytes_uploaded.fetch_add(payload_len as u64, Ordering::Relaxed);
+    stats
+        .bytes_uploaded
+        .fetch_add(payload_len as u64, Ordering::Relaxed);
 
     // UDP session handling would be done here
     // For now, we just log the packet

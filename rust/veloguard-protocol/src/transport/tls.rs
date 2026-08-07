@@ -72,8 +72,11 @@ pub struct TlsTransport {
 impl TlsTransport {
     pub fn new(config: TlsConfig, server_name: &str) -> Result<Self> {
         let connector = Self::build_connector(&config)?;
-        let sni = config.sni.clone().unwrap_or_else(|| server_name.to_string());
-        
+        let sni = config
+            .sni
+            .clone()
+            .unwrap_or_else(|| server_name.to_string());
+
         Ok(Self {
             config,
             connector,
@@ -83,14 +86,13 @@ impl TlsTransport {
 
     fn build_connector(config: &TlsConfig) -> Result<TlsConnector> {
         let mut root_store = rustls::RootCertStore::empty();
-        
+
         let certs = rustls_native_certs::load_native_certs();
         for cert in certs.certs {
             root_store.add(cert).ok();
         }
 
-        let builder = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store);
+        let builder = rustls::ClientConfig::builder().with_root_certificates(root_store);
 
         let mut tls_config = if config.skip_cert_verify {
             let verifier = Arc::new(SkipServerVerification);
@@ -140,14 +142,21 @@ impl TlsTransport {
         }
     }
 
-    pub async fn connect<S>(&self, stream: S) -> Result<TlsStream<tokio_rustls::client::TlsStream<S>>>
+    pub async fn connect<S>(
+        &self,
+        stream: S,
+    ) -> Result<TlsStream<tokio_rustls::client::TlsStream<S>>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let server_name = ServerName::try_from(self.server_name.clone())
-            .map_err(|_| TransportError::InvalidConfig(format!("Invalid SNI: {}", self.server_name)))?;
+        let server_name = ServerName::try_from(self.server_name.clone()).map_err(|_| {
+            TransportError::InvalidConfig(format!("Invalid SNI: {}", self.server_name))
+        })?;
 
-        let tls_stream = self.connector.connect(server_name, stream).await
+        let tls_stream = self
+            .connector
+            .connect(server_name, stream)
+            .await
             .map_err(|e| TransportError::Handshake(format!("TLS handshake failed: {}", e)))?;
 
         Ok(TlsStream::new(tls_stream))
@@ -305,10 +314,10 @@ mod tests {
             min_version: None,
             max_version: None,
         };
-        
+
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: TlsConfig = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.sni, config.sni);
         assert_eq!(deserialized.alpn, config.alpn);
         assert_eq!(deserialized.skip_cert_verify, config.skip_cert_verify);

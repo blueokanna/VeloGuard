@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use quinn::{
-    Endpoint, ServerConfig as QuinnServerConfig,
-    TransportConfig as QuinnTransportConfig, Connection,
+    Connection, Endpoint, ServerConfig as QuinnServerConfig,
+    TransportConfig as QuinnTransportConfig,
 };
 use rustls::pki_types::CertificateDer;
 use std::net::SocketAddr;
@@ -14,9 +14,9 @@ use tracing::{debug, error, info};
 use super::address::Address;
 use super::config::{CongestionControl, ServerConfig};
 use super::crypto::CryptoContext;
-use super::error::{Result, QuicError};
+use super::error::{QuicError, Result};
 use super::protocol::{Command, Request, Response, ResponseStatus, UdpHeader};
-use super::stream::{QuicStream, StreamType, QuicSendStream, QuicRecvStream};
+use super::stream::{QuicRecvStream, QuicSendStream, QuicStream, StreamType};
 
 pub struct QuicServer {
     config: ServerConfig,
@@ -69,7 +69,11 @@ impl QuicServer {
                 ));
 
                 self.connections.insert(conn_id, server_conn.clone());
-                info!("New connection {} from {}", conn_id, server_conn.remote_addr());
+                info!(
+                    "New connection {} from {}",
+                    conn_id,
+                    server_conn.remote_addr()
+                );
 
                 Ok(Some(server_conn))
             }
@@ -108,7 +112,9 @@ impl QuicServer {
             .collect();
 
         if certs.is_empty() {
-            return Err(QuicError::InvalidConfig("No certificates found".to_string()));
+            return Err(QuicError::InvalidConfig(
+                "No certificates found".to_string(),
+            ));
         }
 
         let key_pem = self.config.private_key.as_bytes();
@@ -121,15 +127,21 @@ impl QuicServer {
             .with_single_cert(certs, key)
             .map_err(QuicError::Tls)?;
 
-        tls_config.alpn_protocols = self.config.alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
+        tls_config.alpn_protocols = self
+            .config
+            .alpn
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect();
 
         if self.config.transport.zero_rtt {
             tls_config.max_early_data_size = u32::MAX;
         }
 
-        let quic_config: quinn::crypto::rustls::QuicServerConfig = tls_config.try_into().map_err(|e| {
-            QuicError::InvalidConfig(format!("Failed to create QUIC server config: {:?}", e))
-        })?;
+        let quic_config: quinn::crypto::rustls::QuicServerConfig =
+            tls_config.try_into().map_err(|e| {
+                QuicError::InvalidConfig(format!("Failed to create QUIC server config: {:?}", e))
+            })?;
         let mut server_config = QuinnServerConfig::with_crypto(Arc::new(quic_config));
 
         let mut transport = QuinnTransportConfig::default();
@@ -137,19 +149,27 @@ impl QuicServer {
         if let Some(keep_alive) = self.config.transport.keep_alive_interval {
             transport.keep_alive_interval(Some(keep_alive));
         }
-        transport.max_concurrent_bidi_streams(self.config.transport.max_concurrent_bi_streams.into());
-        transport.max_concurrent_uni_streams(self.config.transport.max_concurrent_uni_streams.into());
+        transport
+            .max_concurrent_bidi_streams(self.config.transport.max_concurrent_bi_streams.into());
+        transport
+            .max_concurrent_uni_streams(self.config.transport.max_concurrent_uni_streams.into());
         transport.initial_rtt(self.config.transport.initial_rtt);
 
         match self.config.transport.congestion_control {
             CongestionControl::Cubic => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::CubicConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::CubicConfig::default(),
+                ));
             }
             CongestionControl::NewReno => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::NewRenoConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::NewRenoConfig::default(),
+                ));
             }
             CongestionControl::Bbr => {
-                transport.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+                transport.congestion_controller_factory(Arc::new(
+                    quinn::congestion::BbrConfig::default(),
+                ));
             }
         }
 
@@ -195,12 +215,24 @@ impl ServerConnection {
         udp_relay_enabled: bool,
         fallback: Option<SocketAddr>,
     ) -> Self {
-        Self { id, inner: connection, crypto, udp_relay_enabled, fallback }
+        Self {
+            id,
+            inner: connection,
+            crypto,
+            udp_relay_enabled,
+            fallback,
+        }
     }
 
-    pub fn id(&self) -> u64 { self.id }
-    pub fn remote_addr(&self) -> SocketAddr { self.inner.remote_address() }
-    pub fn is_closed(&self) -> bool { self.inner.close_reason().is_some() }
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.inner.remote_address()
+    }
+    pub fn is_closed(&self) -> bool {
+        self.inner.close_reason().is_some()
+    }
 
     pub async fn handle(&self) -> Result<()> {
         loop {
@@ -234,9 +266,16 @@ impl ServerConnection {
         Ok(())
     }
 
-    async fn handle_stream(mut stream: QuicStream, fallback: Option<SocketAddr>, udp_enabled: bool) -> Result<()> {
+    async fn handle_stream(
+        mut stream: QuicStream,
+        fallback: Option<SocketAddr>,
+        udp_enabled: bool,
+    ) -> Result<()> {
         let mut req_buf = vec![0u8; 512];
-        let n = stream.read_raw(&mut req_buf).await?.ok_or(QuicError::ConnectionClosed)?;
+        let n = stream
+            .read_raw(&mut req_buf)
+            .await?
+            .ok_or(QuicError::ConnectionClosed)?;
 
         let request = Request::from_bytes(&req_buf[..n])?;
         debug!("Received request: {:?}", request.command);
@@ -260,7 +299,11 @@ impl ServerConnection {
         }
     }
 
-    async fn handle_tcp_connect(mut stream: QuicStream, request: Request, _fallback: Option<SocketAddr>) -> Result<()> {
+    async fn handle_tcp_connect(
+        mut stream: QuicStream,
+        request: Request,
+        _fallback: Option<SocketAddr>,
+    ) -> Result<()> {
         let target_addr = match &request.address {
             Address::SocketAddr(addr) => *addr,
             Address::DomainName(domain, port) => {
@@ -270,13 +313,17 @@ impl ServerConnection {
                         None => {
                             let response = Response::error(ResponseStatus::HostUnreachable);
                             stream.write_raw(&response.to_bytes()).await?;
-                            return Err(QuicError::AddressParse("Failed to resolve domain".to_string()));
+                            return Err(QuicError::AddressParse(
+                                "Failed to resolve domain".to_string(),
+                            ));
                         }
                     },
                     Err(_) => {
                         let response = Response::error(ResponseStatus::HostUnreachable);
                         stream.write_raw(&response.to_bytes()).await?;
-                        return Err(QuicError::AddressParse("Failed to resolve domain".to_string()));
+                        return Err(QuicError::AddressParse(
+                            "Failed to resolve domain".to_string(),
+                        ));
                     }
                 }
             }
@@ -328,7 +375,9 @@ impl ServerConnection {
             loop {
                 match quic_recv.read_raw(&mut buf).await {
                     Ok(Some(n)) if n > 0 => {
-                        if tcp_write.write_all(&buf[..n]).await.is_err() { break; }
+                        if tcp_write.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
                     }
                     _ => break,
                 }
@@ -340,7 +389,9 @@ impl ServerConnection {
             loop {
                 match tcp_read.read(&mut buf).await {
                     Ok(n) if n > 0 => {
-                        if quic_send.write_raw(&buf[..n]).await.is_err() { break; }
+                        if quic_send.write_raw(&buf[..n]).await.is_err() {
+                            break;
+                        }
                     }
                     _ => break,
                 }
@@ -381,27 +432,27 @@ impl ServerConnection {
         let client_to_server = async {
             loop {
                 match quic_recv.read_encrypted().await {
-                    Ok(Some(data)) => {
-                        match UdpHeader::from_bytes(&data) {
-                            Ok((header, header_len)) => {
-                                let payload = &data[header_len..];
-                                let target = match &header.address {
-                                    Address::SocketAddr(addr) => *addr,
-                                    Address::DomainName(domain, port) => {
-                                        match tokio::net::lookup_host(format!("{}:{}", domain, port)).await {
-                                            Ok(mut addrs) => match addrs.next() {
-                                                Some(addr) => addr,
-                                                None => continue,
-                                            },
-                                            Err(_) => continue,
-                                        }
+                    Ok(Some(data)) => match UdpHeader::from_bytes(&data) {
+                        Ok((header, header_len)) => {
+                            let payload = &data[header_len..];
+                            let target = match &header.address {
+                                Address::SocketAddr(addr) => *addr,
+                                Address::DomainName(domain, port) => {
+                                    match tokio::net::lookup_host(format!("{}:{}", domain, port))
+                                        .await
+                                    {
+                                        Ok(mut addrs) => match addrs.next() {
+                                            Some(addr) => addr,
+                                            None => continue,
+                                        },
+                                        Err(_) => continue,
                                     }
-                                };
-                                let _ = socket_clone.send_to(payload, target).await;
-                            }
-                            Err(_) => continue,
+                                }
+                            };
+                            let _ = socket_clone.send_to(payload, target).await;
                         }
-                    }
+                        Err(_) => continue,
+                    },
                     _ => break,
                 }
             }
@@ -419,7 +470,9 @@ impl ServerConnection {
                         packet.extend_from_slice(&header_bytes);
                         packet.extend_from_slice(&buf[..n]);
 
-                        if quic_send.write_encrypted(&packet).await.is_err() { break; }
+                        if quic_send.write_encrypted(&packet).await.is_err() {
+                            break;
+                        }
                     }
                     Err(_) => break,
                 }

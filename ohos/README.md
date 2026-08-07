@@ -1,6 +1,6 @@
 # VeloGuard HarmonyOS NEXT 构建指南
 
-> 当前工程可以用于 UI/HAP 构建调试，但 VPN Extension 尚未完成文件描述符回传、Rust OHOS 网络栈接入和端到端生命周期管理，不能作为可用 VPN 发布。
+> 当前工程仅用于 UI/HAP 构建调试。VPN MethodChannel 会明确返回 `OHOS_VPN_UNSUPPORTED`；仓库未包含可发布的 HarmonyOS NEXT VPN 数据路径。
 
 ## 环境要求
 
@@ -19,7 +19,6 @@ ohos/
 │   ├── src/main/
 │   │   ├── ets/
 │   │   │   ├── entryability/   # 主 Ability
-│   │   │   ├── vpnextension/   # VPN 扩展
 │   │   │   ├── plugins/        # Flutter 插件
 │   │   │   └── pages/          # 页面
 │   │   ├── resources/          # 模块资源
@@ -88,21 +87,19 @@ flutter build har --release
 }
 ```
 
-## VPN 权限说明
+## 权限说明
 
-VeloGuard 需要以下权限：
+当前 UI/HAP 工程声明以下权限：
 
 | 权限 | 说明 |
 |------|------|
 | `ohos.permission.INTERNET` | 网络访问 |
 | `ohos.permission.GET_NETWORK_INFO` | 获取网络信息 |
 | `ohos.permission.SET_NETWORK_INFO` | 设置网络信息 |
-| `ohos.permission.MANAGE_VPN` | VPN 管理 |
-| `ohos.permission.KEEP_BACKGROUND_RUNNING` | 后台运行 |
 
 ## 注意事项
 
-1. **VPN 权限**: HarmonyOS NEXT 的 VPN 权限需要特殊申请，请联系华为开发者支持
+1. **VPN 能力**: 在完成官方 VPN API、FD 回传、Rust 网络栈接入和真机验证前，不声明 VPN 权限，也不返回启动成功
 2. **Rust 支持**: 需要配置 OHOS NDK 进行 Rust 交叉编译
 3. **测试设备**: 建议使用 HarmonyOS NEXT 真机测试
 

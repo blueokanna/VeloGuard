@@ -61,7 +61,8 @@ impl H2Transport {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let (send_request, connection) = client::handshake(stream).await
+        let (send_request, connection) = client::handshake(stream)
+            .await
             .map_err(|e| TransportError::Handshake(format!("H2 handshake failed: {}", e)))?;
 
         tokio::spawn(async move {
@@ -72,11 +73,14 @@ impl H2Transport {
 
         let host = self.config.host.as_deref().unwrap_or(&self.server);
         let uri_str = format!("https://{}:{}{}", host, self.port, self.config.path);
-        let uri: Uri = uri_str.parse()
+        let uri: Uri = uri_str
+            .parse()
             .map_err(|e| TransportError::InvalidConfig(format!("Invalid H2 URI: {}", e)))?;
 
-        let method = self.config.method.parse::<Method>()
-            .map_err(|e| TransportError::InvalidConfig(format!("Invalid HTTP method: {}", e)))?;
+        let method =
+            self.config.method.parse::<Method>().map_err(|e| {
+                TransportError::InvalidConfig(format!("Invalid HTTP method: {}", e))
+            })?;
 
         let mut request = Request::builder()
             .method(method)
@@ -87,8 +91,9 @@ impl H2Transport {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let request = request.body(())
-            .map_err(|e| TransportError::InvalidConfig(format!("Failed to build request: {}", e)))?;
+        let request = request.body(()).map_err(|e| {
+            TransportError::InvalidConfig(format!("Failed to build request: {}", e))
+        })?;
 
         Ok(H2Stream::new(send_request, request))
     }
@@ -126,21 +131,30 @@ impl H2Stream {
             return Ok(());
         }
 
-        self.send_request.clone().ready().await
+        self.send_request
+            .clone()
+            .ready()
+            .await
             .map_err(|e| TransportError::H2(format!("H2 not ready: {}", e)))?;
 
         let request = Request::builder()
             .method(self.request_template.method().clone())
             .uri(self.request_template.uri().clone())
             .body(())
-            .map_err(|e| TransportError::InvalidConfig(format!("Failed to build request: {}", e)))?;
+            .map_err(|e| {
+                TransportError::InvalidConfig(format!("Failed to build request: {}", e))
+            })?;
 
-        let (response, send_stream) = self.send_request.clone().send_request(request, false)
+        let (response, send_stream) = self
+            .send_request
+            .clone()
+            .send_request(request, false)
             .map_err(|e| TransportError::H2(format!("Failed to send H2 request: {}", e)))?;
 
         self.send_stream = Some(send_stream);
 
-        let response = response.await
+        let response = response
+            .await
             .map_err(|e| TransportError::H2(format!("Failed to get H2 response: {}", e)))?;
 
         let (_, recv_stream) = response.into_parts();
@@ -162,45 +176,43 @@ impl AsyncRead for H2Stream {
             let to_copy = std::cmp::min(remaining.len(), buf.remaining());
             buf.put_slice(&remaining[..to_copy]);
             self.read_pos += to_copy;
-            
+
             if self.read_pos >= self.read_buffer.len() {
                 self.read_buffer.clear();
                 self.read_pos = 0;
             }
-            
+
             return Poll::Ready(Ok(()));
         }
 
         let recv_stream = match self.recv_stream.as_mut() {
             Some(s) => s,
-            None => return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "H2 stream not initialized"
-            ))),
+            None => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "H2 stream not initialized",
+                )))
+            }
         };
 
         match Pin::new(recv_stream).poll_data(cx) {
             Poll::Ready(Some(Ok(data))) => {
                 let to_copy = std::cmp::min(data.len(), buf.remaining());
                 buf.put_slice(&data[..to_copy]);
-                
+
                 if to_copy < data.len() {
                     self.read_buffer = data[to_copy..].to_vec();
                     self.read_pos = 0;
                 }
-                
+
                 if let Some(ref mut recv) = self.recv_stream {
                     let _ = recv.flow_control().release_capacity(data.len());
                 }
-                
+
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Err(io::Error::other(e.to_string())))
-            }
-            Poll::Ready(None) => {
-                Poll::Ready(Ok(()))
-            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Err(io::Error::other(e.to_string()))),
+            Poll::Ready(None) => Poll::Ready(Ok(())),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -214,10 +226,12 @@ impl AsyncWrite for H2Stream {
     ) -> Poll<io::Result<usize>> {
         let send_stream = match self.send_stream.as_mut() {
             Some(s) => s,
-            None => return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "H2 stream not initialized"
-            ))),
+            None => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "H2 stream not initialized",
+                )))
+            }
         };
 
         let data = Bytes::copy_from_slice(buf);
@@ -265,14 +279,14 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("X-Custom-Header".to_string(), "value".to_string());
         headers.insert("Authorization".to_string(), "Bearer token".to_string());
-        
+
         let config = H2Config {
             path: "/api/stream".to_string(),
             host: Some("api.example.com".to_string()),
             headers,
             method: "PUT".to_string(),
         };
-        
+
         assert_eq!(config.path, "/api/stream");
         assert_eq!(config.host, Some("api.example.com".to_string()));
         assert_eq!(config.headers.len(), 2);
@@ -287,10 +301,10 @@ mod tests {
             headers: HashMap::new(),
             method: "POST".to_string(),
         };
-        
+
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: H2Config = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.path, config.path);
         assert_eq!(deserialized.host, config.host);
         assert_eq!(deserialized.method, config.method);

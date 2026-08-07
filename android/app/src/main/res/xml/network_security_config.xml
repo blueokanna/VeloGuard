@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
     <!-- 允许明文流量（代理需要） -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Proxy endpoints and subscriptions may explicitly use plaintext protocols. -->
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
     
@@ -15,4 +17,10 @@
         <domain includeSubdomains="true">10.0.0.0</domain>
         <domain includeSubdomains="true">192.168.0.0</domain>
     </domain-config>
+
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

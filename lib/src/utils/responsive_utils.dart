@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
@@ -1821,11 +1821,11 @@ class SafeAreaWrapper extends StatelessWidget {
 /// 璁惧鐗瑰畾 UI 浼樺寲宸ュ叿
 class DeviceOptimizedUI {
   DeviceOptimizedUI._();
-  
+
   /// 鏍规嵁璁惧鍝佺墝鑾峰彇浼樺寲鐨勫渾瑙掑崐寰?
   static double getBorderRadiusForBrand(BuildContext context, String brand) {
     final baseBorderRadius = ResponsiveUtils.getBorderRadius(context);
-    
+
     switch (brand.toUpperCase()) {
       case 'SAMSUNG':
         // Samsung One UI 椋庢牸 - 鏇村ぇ鐨勫渾瑙?
@@ -1860,10 +1860,10 @@ class DeviceOptimizedUI {
         return baseBorderRadius;
     }
   }
-  
+
   /// 鏍规嵁璁惧鍝佺墝鑾峰彇浼樺寲鐨勫崱鐗囬槾褰?
   static List<BoxShadow> getCardShadowForBrand(
-    BuildContext context, 
+    BuildContext context,
     String brand,
     ColorScheme colorScheme,
   ) {
@@ -1906,7 +1906,7 @@ class DeviceOptimizedUI {
         ];
     }
   }
-  
+
   /// 鏍规嵁璁惧鍝佺墝鑾峰彇浼樺寲鐨勫姩鐢绘椂闀?
   static Duration getAnimationDurationForBrand(String brand) {
     switch (brand.toUpperCase()) {
@@ -1923,11 +1923,11 @@ class DeviceOptimizedUI {
         return const Duration(milliseconds: 300);
     }
   }
-  
+
   /// 鏍规嵁璁惧鍝佺墝鑾峰彇浼樺寲鐨勫浘鏍囧ぇ灏?
   static double getIconSizeForBrand(BuildContext context, String brand) {
     final baseIconSize = ResponsiveUtils.getIconSize(context);
-    
+
     switch (brand.toUpperCase()) {
       case 'SAMSUNG':
         return baseIconSize * 1.1;
@@ -1937,7 +1937,7 @@ class DeviceOptimizedUI {
         return baseIconSize;
     }
   }
-  
+
   /// 鏍规嵁璁惧鍝佺墝鑾峰彇浼樺寲鐨勫瓧浣撴潈閲?
   static FontWeight getTitleFontWeightForBrand(String brand) {
     switch (brand.toUpperCase()) {

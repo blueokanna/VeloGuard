@@ -964,6 +964,78 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     }
   }
 
+  Future<void> _openConfigEditor() async {
+    final content = await widget.provider.getProfileConfigContent(
+      widget.profile.id,
+    );
+    if (!mounted) return;
+    if (content == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configuration file was not found')),
+      );
+      return;
+    }
+
+    final controller = TextEditingController(text: content);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit configuration'),
+        content: SizedBox(
+          width: 720,
+          height: MediaQuery.sizeOf(dialogContext).height * 0.6,
+          child: TextField(
+            controller: controller,
+            expands: true,
+            maxLines: null,
+            minLines: null,
+            textAlignVertical: TextAlignVertical.top,
+            autocorrect: false,
+            enableSuggestions: false,
+            keyboardType: TextInputType.multiline,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final success = await widget.provider.saveProfileConfigContent(
+                widget.profile.id,
+                controller.text,
+              );
+              if (!dialogContext.mounted) return;
+              if (success) {
+                Navigator.pop(dialogContext, true);
+              } else {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      widget.provider.error ?? 'Invalid configuration',
+                    ),
+                  ),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (saved == true && mounted) {
+      await _loadConfigSize();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Configuration saved')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -1142,12 +1214,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       children: [
                         // Edit config button
                         OutlinedButton.icon(
-                          onPressed: () {
-                            // TODO: Open config editor
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('配置编辑器即将推出')),
-                            );
-                          },
+                          onPressed: _isSaving ? null : _openConfigEditor,
                           icon: const Icon(Icons.edit_outlined, size: 18),
                           label: const Text('编辑'),
                           style: OutlinedButton.styleFrom(

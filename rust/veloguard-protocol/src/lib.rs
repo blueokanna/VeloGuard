@@ -24,27 +24,27 @@ pub use error::{ProtocolError, Result};
 pub mod prelude {
     pub use crate::address::{Address, AddressType};
     pub use crate::error::{ProtocolError, Result};
-    
+
     pub use crate::transport::{
-        TransportError,
-        TlsTransport, TlsConfig, TlsFingerprint, TlsStream,
-        WebSocketTransport, WebSocketConfig, WsStream,
-        H2Transport, H2Config, H2Stream,
-        GrpcTransport, GrpcConfig, GrpcMode, GrpcStream,
+        GrpcConfig, GrpcMode, GrpcStream, GrpcTransport, H2Config, H2Stream, H2Transport,
+        TlsConfig, TlsFingerprint, TlsStream, TlsTransport, TransportError, WebSocketConfig,
+        WebSocketTransport, WsStream,
     };
-    
+
     #[cfg(feature = "quic")]
     pub use crate::quic::prelude::*;
-    
+
     #[cfg(feature = "tls")]
-    pub use crate::tls::{TlsConnector, TlsAcceptor, TlsStream as TlsModuleStream};
-    
+    pub use crate::tls::{TlsAcceptor, TlsConnector, TlsStream as TlsModuleStream};
+
     #[cfg(feature = "wireguard")]
-    pub use crate::wireguard::{WireGuard, DeviceConfig, PeerConfig};
-    
+    pub use crate::wireguard::{WireGuardError, WireGuardTunnel};
+
     #[cfg(feature = "tuic")]
-    pub use crate::tuic::{TuicClient, TuicServer, TuicConnection};
-    
+    pub use crate::tuic::{TuicClient, TuicConnection, TuicServer};
+
     #[cfg(feature = "tuic-quinn")]
-    pub use crate::tuic_quinn::{TuicQuinnEndpoint, TuicQuinnConnection, TuicQuinnConfig, TuicQuinnError};
+    pub use crate::tuic_quinn::{
+        TuicQuinnConfig, TuicQuinnConnection, TuicQuinnEndpoint, TuicQuinnError,
+    };
 }

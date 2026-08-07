@@ -1,12 +1,12 @@
-//! TUIC protocol implementation for VeloGuard
-
+use quinn::{
+    ClientConfig as QuinnClientConfig, Connection, Endpoint, ServerConfig as QuinnServerConfig,
+};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
-use quinn::{ClientConfig as QuinnClientConfig, ServerConfig as QuinnServerConfig, Endpoint, Connection};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Error)]
 pub enum TuicError {
@@ -127,7 +127,7 @@ impl TuicClient {
 
         let client_config = QuinnClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
-                .map_err(|e| TuicError::Protocol(e.to_string()))?
+                .map_err(|e| TuicError::Protocol(e.to_string()))?,
         ));
 
         let bind_addr = if self.config.server_addr.is_ipv6() {
@@ -144,7 +144,8 @@ impl TuicClient {
             .certificate
             .as_deref()
             .unwrap_or(&default_server_name);
-        let connection = endpoint.connect(self.config.server_addr, server_name)?
+        let connection = endpoint
+            .connect(self.config.server_addr, server_name)?
             .await?;
 
         self.authenticate(&connection).await?;
@@ -158,7 +159,11 @@ impl TuicClient {
 
     async fn authenticate(&self, connection: &Connection) -> Result<(), TuicError> {
         let mut auth_stream = connection.open_uni().await?;
-        let password = self.config.password.first().ok_or(TuicError::InvalidConfig)?;
+        let password = self
+            .config
+            .password
+            .first()
+            .ok_or(TuicError::InvalidConfig)?;
 
         let auth_request = AuthRequest {
             version: TUIC_PROTOCOL_VERSION,
@@ -182,42 +187,6 @@ impl TuicClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_auth_wire_format_is_stable_across_rustbinary_upgrade() {
-        let request = AuthRequest {
-            version: TUIC_PROTOCOL_VERSION,
-            uuid: Uuid::from_bytes([0x11; 16]),
-            password: "secret".to_string(),
-        };
-
-        let encoded = rustbinary::legacy_options()
-            .with_limit(64 * 1024)
-            .reject_trailing_bytes()
-            .serialize(&request)
-            .expect("legacy TUIC auth request must serialize");
-        let decoded: AuthRequest = rustbinary::legacy_options()
-            .with_limit(64 * 1024)
-            .reject_trailing_bytes()
-            .deserialize(&encoded)
-            .expect("legacy TUIC auth request must deserialize");
-
-        assert_eq!(decoded.version, request.version);
-        assert_eq!(decoded.uuid, request.uuid);
-        assert_eq!(decoded.password, request.password);
-
-        let mut expected = vec![TUIC_PROTOCOL_VERSION];
-        expected.extend_from_slice(&36u64.to_le_bytes());
-        expected.extend_from_slice(b"11111111-1111-1111-1111-111111111111");
-        expected.extend_from_slice(&6u64.to_le_bytes());
-        expected.extend_from_slice(b"secret");
-        assert_eq!(encoded, expected);
-    }
-}
-
 pub struct TuicServer {
     config: ServerConfig,
 }
@@ -237,7 +206,7 @@ impl TuicServer {
             .map_err(TuicError::Rustls)?;
         let server_config = QuinnServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)
-                .map_err(|e| TuicError::Protocol(e.to_string()))?
+                .map_err(|e| TuicError::Protocol(e.to_string()))?,
         ));
 
         let endpoint = Endpoint::server(server_config, self.config.listen_addr)?;
@@ -280,5 +249,41 @@ impl TuicConnection {
         stream.write_all(&command_data).await?;
         stream.finish()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_auth_wire_format_is_stable_across_rustbinary_upgrade() {
+        let request = AuthRequest {
+            version: TUIC_PROTOCOL_VERSION,
+            uuid: Uuid::from_bytes([0x11; 16]),
+            password: "secret".to_string(),
+        };
+
+        let encoded = rustbinary::legacy_options()
+            .with_limit(64 * 1024)
+            .reject_trailing_bytes()
+            .serialize(&request)
+            .expect("legacy TUIC auth request must serialize");
+        let decoded: AuthRequest = rustbinary::legacy_options()
+            .with_limit(64 * 1024)
+            .reject_trailing_bytes()
+            .deserialize(&encoded)
+            .expect("legacy TUIC auth request must deserialize");
+
+        assert_eq!(decoded.version, request.version);
+        assert_eq!(decoded.uuid, request.uuid);
+        assert_eq!(decoded.password, request.password);
+
+        let mut expected = vec![TUIC_PROTOCOL_VERSION];
+        expected.extend_from_slice(&36u64.to_le_bytes());
+        expected.extend_from_slice(b"11111111-1111-1111-1111-111111111111");
+        expected.extend_from_slice(&6u64.to_le_bytes());
+        expected.extend_from_slice(b"secret");
+        assert_eq!(encoded, expected);
     }
 }

@@ -6,7 +6,7 @@ use tracing::{debug, error, info};
 
 use super::address::Address;
 use super::client::QuicClient;
-use super::error::{Result, QuicError};
+use super::error::{QuicError, Result};
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_NONE: u8 = 0x00;
@@ -68,7 +68,9 @@ async fn handle_socks5_connection(mut stream: TcpStream, client: Arc<QuicClient>
         return Err(QuicError::Protocol("No supported auth method".to_string()));
     }
 
-    stream.write_all(&[SOCKS5_VERSION, SOCKS5_AUTH_NONE]).await?;
+    stream
+        .write_all(&[SOCKS5_VERSION, SOCKS5_AUTH_NONE])
+        .await?;
 
     let mut header = [0u8; 4];
     stream.read_exact(&mut header).await?;
@@ -153,7 +155,11 @@ async fn send_reply(stream: &mut TcpStream, rep: u8, bind_addr: Option<SocketAdd
     Ok(())
 }
 
-async fn handle_tcp_connect(stream: &mut TcpStream, client: Arc<QuicClient>, target: Address) -> Result<()> {
+async fn handle_tcp_connect(
+    stream: &mut TcpStream,
+    client: Arc<QuicClient>,
+    target: Address,
+) -> Result<()> {
     debug!("TCP CONNECT to {}", target);
 
     let conn = match client.connect().await {
@@ -170,7 +176,9 @@ async fn handle_tcp_connect(stream: &mut TcpStream, client: Arc<QuicClient>, tar
         Err(e) => {
             let rep = match &e {
                 QuicError::Protocol(msg) if msg.contains("refused") => SOCKS5_REP_CONN_REFUSED,
-                QuicError::Protocol(msg) if msg.contains("unreachable") => SOCKS5_REP_HOST_UNREACHABLE,
+                QuicError::Protocol(msg) if msg.contains("unreachable") => {
+                    SOCKS5_REP_HOST_UNREACHABLE
+                }
                 _ => SOCKS5_REP_GENERAL_FAILURE,
             };
             send_reply(stream, rep, None).await?;
@@ -190,7 +198,9 @@ async fn handle_tcp_connect(stream: &mut TcpStream, client: Arc<QuicClient>, tar
             match client_read.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    if send.write_raw(&buf[..n]).await.is_err() { break; }
+                    if send.write_raw(&buf[..n]).await.is_err() {
+                        break;
+                    }
                 }
                 Err(_) => break,
             }
@@ -204,7 +214,9 @@ async fn handle_tcp_connect(stream: &mut TcpStream, client: Arc<QuicClient>, tar
         loop {
             match recv.read_raw(&mut buf).await {
                 Ok(Some(n)) if n > 0 => {
-                    if client_write.write_all(&buf[..n]).await.is_err() { break; }
+                    if client_write.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
                 }
                 _ => break,
             }

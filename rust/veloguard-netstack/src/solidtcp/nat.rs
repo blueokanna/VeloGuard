@@ -74,7 +74,6 @@ pub struct NatTable {
     next_port: AtomicU64,
 }
 
-
 impl NatTable {
     pub fn new() -> Self {
         Self::with_config(NatConfig::default())
@@ -97,7 +96,12 @@ impl NatTable {
         self.config.port_start + ((port - self.config.port_start as u64) % range) as u16
     }
 
-    pub fn insert_tcp(&self, src: SocketAddr, dst: SocketAddr, domain: Option<String>) -> Result<NatEntry> {
+    pub fn insert_tcp(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+        domain: Option<String>,
+    ) -> Result<NatEntry> {
         let key = NatKey::new(src, dst);
         if let Some(e) = self.tcp.get(&key) {
             return Ok(e.clone());
@@ -108,7 +112,8 @@ impl NatTable {
 
         let now = Instant::now();
         let entry = NatEntry {
-            src, dst,
+            src,
+            dst,
             local_port: self.alloc_port(),
             created: now,
             last_active: now,
@@ -122,7 +127,12 @@ impl NatTable {
         Ok(entry)
     }
 
-    pub fn insert_udp(&self, src: SocketAddr, dst: SocketAddr, domain: Option<String>) -> Result<NatEntry> {
+    pub fn insert_udp(
+        &self,
+        src: SocketAddr,
+        dst: SocketAddr,
+        domain: Option<String>,
+    ) -> Result<NatEntry> {
         let key = NatKey::new(src, dst);
         if let Some(e) = self.udp.get(&key) {
             return Ok(e.clone());
@@ -133,7 +143,8 @@ impl NatTable {
 
         let now = Instant::now();
         let entry = NatEntry {
-            src, dst,
+            src,
+            dst,
             local_port: self.alloc_port(),
             created: now,
             last_active: now,
@@ -181,8 +192,12 @@ impl NatTable {
         let tcp_timeout = self.config.tcp_timeout;
         let udp_timeout = self.config.udp_timeout;
 
-        let tcp_expired: Vec<_> = self.tcp.iter()
-            .filter(|e| now.duration_since(e.last_active) > tcp_timeout || e.state == NatState::Closed)
+        let tcp_expired: Vec<_> = self
+            .tcp
+            .iter()
+            .filter(|e| {
+                now.duration_since(e.last_active) > tcp_timeout || e.state == NatState::Closed
+            })
             .map(|e| *e.key())
             .collect();
         for key in tcp_expired {
@@ -191,7 +206,9 @@ impl NatTable {
             }
         }
 
-        let udp_expired: Vec<_> = self.udp.iter()
+        let udp_expired: Vec<_> = self
+            .udp
+            .iter()
             .filter(|e| now.duration_since(e.last_active) > udp_timeout)
             .map(|e| *e.key())
             .collect();
@@ -202,9 +219,15 @@ impl NatTable {
         }
     }
 
-    pub fn tcp_count(&self) -> usize { self.tcp.len() }
-    pub fn udp_count(&self) -> usize { self.udp.len() }
-    pub fn total_count(&self) -> usize { self.tcp_count() + self.udp_count() }
+    pub fn tcp_count(&self) -> usize {
+        self.tcp.len()
+    }
+    pub fn udp_count(&self) -> usize {
+        self.udp.len()
+    }
+    pub fn total_count(&self) -> usize {
+        self.tcp_count() + self.udp_count()
+    }
 
     pub fn clear(&self) {
         self.tcp.clear();
@@ -215,5 +238,7 @@ impl NatTable {
 }
 
 impl Default for NatTable {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

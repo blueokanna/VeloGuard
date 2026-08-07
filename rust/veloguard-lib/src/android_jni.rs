@@ -33,12 +33,12 @@ pub extern "system" fn Java_com_blueokanna_veloguard_VeloGuardVpnService_nativeI
     {
         let mut vm_guard = JAVA_VM.write();
         let mut service_guard = VPN_SERVICE.write();
-        
+
         // Drop old references
         *vm_guard = None;
         *service_guard = None;
         JNI_INITIALIZED.store(false, Ordering::SeqCst);
-        
+
         android_log("INFO", "Cleared previous JNI state");
     }
 
@@ -114,17 +114,17 @@ pub extern "system" fn Java_com_blueokanna_veloguard_VeloGuardVpnService_nativeC
 ) {
     android_log("INFO", "Clearing Rust JNI bridge");
     info!("Clearing Rust JNI bridge");
-    
+
     // Clear all state to allow re-initialization
     JNI_INITIALIZED.store(false, Ordering::SeqCst);
-    
+
     {
         let mut vm_guard = JAVA_VM.write();
         let mut service_guard = VPN_SERVICE.write();
         *vm_guard = None;
         *service_guard = None;
     }
-    
+
     // Clear the protect callback
     veloguard_netstack::clear_protect_callback();
 
@@ -143,7 +143,7 @@ pub fn protect_socket_via_jni(fd: i32) -> bool {
     // Hold the read locks for the duration of the JNI call
     let vm_guard = JAVA_VM.read();
     let service_guard = VPN_SERVICE.read();
-    
+
     let vm = match vm_guard.as_ref() {
         Some(vm) => vm,
         None => {
@@ -238,8 +238,8 @@ fn setup_protect_callback() {
 
 /// Check if JNI bridge is initialized
 pub fn is_jni_initialized() -> bool {
-    JNI_INITIALIZED.load(Ordering::SeqCst) 
-        && JAVA_VM.read().is_some() 
+    JNI_INITIALIZED.load(Ordering::SeqCst)
+        && JAVA_VM.read().is_some()
         && VPN_SERVICE.read().is_some()
 }
 

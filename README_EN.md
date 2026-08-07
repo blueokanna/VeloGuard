@@ -45,7 +45,7 @@ A protocol can move to “supported” only after interoperability tests against
 | Linux | Present | GNOME settings path | IPv4 global-mode path implemented | Requires root/device testing; rule/direct modes fail closed until socket marking or interface binding is implemented |
 | macOS | Present | `networksetup` path | No Network Extension | Full-tunnel support cannot be claimed |
 | iOS | Present | N/A | No Packet Tunnel Extension | Application shell only |
-| HarmonyOS NEXT | Project skeleton | N/A | VPN FD handoff to Rust is incomplete | Not releasable |
+| HarmonyOS NEXT | Project skeleton | N/A | Explicitly returns `OHOS_VPN_UNSUPPORTED` | Not releasable |
 
 ## Architecture
 
@@ -108,23 +108,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate_icons.ps1
 
 The script generates and validates Android, iOS, macOS, Windows, Linux, Web, and HarmonyOS assets. Generated icons should not be edited manually.
 
-## Verification Performed
+## Automated Verification
 
-- `cargo metadata --no-deps --format-version 1`: passed.
-- `cargo check --workspace --all-targets --locked --offline`: passed.
-- Native WSL Ubuntu `cargo check --workspace --all-targets --locked --offline`: passed.
-- Native WSL Ubuntu `cargo test --workspace --all-targets --locked --offline`: passed with 299 tests passed, 6 ignored (5 require external network access and 1 requires Linux `CAP_NET_ADMIN`), and 0 failures.
-- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`: passed for the default production feature set.
-- The privileged `tun::tests::linux_tun_lifecycle` test passed separately as WSL root; it created and released a real temporary TUN interface without changing the default route or DNS.
-- `cargo build -p veloguard-lib --target aarch64-linux-android --release --locked --offline`: passed; the output is an AArch64 ELF shared library whose JNI/FRB exports and binding hash were inspected.
-- ADB device connection: passed for a OnePlus PLK110 running Android 16/API 36 with the `arm64-v8a` ABI.
-- Generated icon dimensions and Windows ICO directory structure: passed.
-- All-features Clippy: not completed because the optional `hyper-timeout` dependency is absent from the offline cache.
-- Full-workspace `cargo fmt --all -- --check`: not passed because existing Rust files contain broad formatting drift; no bulk formatting rewrite was applied in this change.
-- Dart formatting check: passed.
-- Flutter analyze/test and Android APK installation: not completed. The unused `ffigen` dependency was removed; `window_manager` is now missing from the offline cache, and networked `flutter pub get` still requires explicit authorization.
-- The Android VPN data path has not been validated on-device. Current evidence covers only ADB connectivity, the Android arm64 Rust release library, and JNI/FRB symbols; it does not prove VPN start/stop or protocol interoperability.
-- macOS, iOS, Linux Flutter desktop packages and the HarmonyOS build were not completed on this host.
+Every push and pull request runs Dart formatting, Flutter analysis and tests, an Android debug APK build, Android release lint, Rust formatting, Clippy with warnings denied, and all workspace tests. The release workflow repeats those checks while creating a signed APK.
+
+An automated build is not evidence of VPN behavior or protocol interoperability. Android VPN traffic, privileged Windows/Linux TUN routing, Apple Network Extension, HarmonyOS VPN FD handling, and real-server protocol compatibility remain subject to the release gates below.
+
+## GitHub Release Configuration
+
+Create these repository Actions secrets before manually dispatching a release or pushing a release tag:
+
+- `VELOGUARD_KEYSTORE_BASE64`
+- `VELOGUARD_KEYSTORE_PASSWORD`
+- `VELOGUARD_KEY_ALIAS`
+- `VELOGUARD_KEY_PASSWORD`
+
+The `version` in `pubspec.yaml`, the top changelog section, and the `vMAJOR.MINOR.PATCH` tag must match. Manual releases can run only from the default branch. Existing releases are immutable, so the workflow fails instead of silently replacing or accepting existing assets.
 
 ## Release Gates
 

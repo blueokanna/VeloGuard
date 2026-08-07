@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use rustls::pki_types::CertificateDer;
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::TlsAcceptor as TokioTlsAcceptor;
 
 use super::config::ServerConfig;
-use super::error::{TlsError, Result};
+use super::error::{Result, TlsError};
 use super::stream::TlsStream;
 
 pub struct TlsAcceptor {
@@ -39,11 +39,17 @@ impl TlsAcceptor {
         Ok(Self { inner: acceptor })
     }
 
-    pub async fn accept<S>(&self, stream: S) -> Result<TlsStream<tokio_rustls::server::TlsStream<S>>>
+    pub async fn accept<S>(
+        &self,
+        stream: S,
+    ) -> Result<TlsStream<tokio_rustls::server::TlsStream<S>>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let tls_stream = self.inner.accept(stream).await
+        let tls_stream = self
+            .inner
+            .accept(stream)
+            .await
             .map_err(|e| TlsError::Handshake(e.to_string()))?;
 
         Ok(TlsStream::new(tls_stream))

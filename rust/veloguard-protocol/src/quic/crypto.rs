@@ -142,7 +142,8 @@ pub fn derive_key(cipher_kind: CipherKind, password: &str) -> Vec<u8> {
 fn derive_key_hkdf(password: &str, key_size: usize) -> Vec<u8> {
     let hk = Hkdf::<Sha256>::new(Some(b"shadowsocks"), password.as_bytes());
     let mut key = vec![0u8; key_size];
-    hk.expand(b"ss-subkey", &mut key).expect("HKDF expand failed");
+    hk.expand(b"ss-subkey", &mut key)
+        .expect("HKDF expand failed");
     key
 }
 

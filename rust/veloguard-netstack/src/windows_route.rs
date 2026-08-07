@@ -78,7 +78,7 @@ impl WindowsRouteManager {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let parts: Vec<&str> = stdout.trim().split('|').collect();
-        
+
         if parts.len() >= 2 {
             self.original_gateway = Some(parts[0].to_string());
             self.original_interface = parts[1].parse().ok();
@@ -104,12 +104,16 @@ impl WindowsRouteManager {
             return Ok(());
         }
 
-        info!("Enabling global mode routes for interface: {}", self.interface_name);
+        info!(
+            "Enabling global mode routes for interface: {}",
+            self.interface_name
+        );
 
         // Get TUN interface index
-        let if_index = self.get_interface_index()
+        let if_index = self
+            .get_interface_index()
             .ok_or_else(|| format!("Could not find interface: {}", self.interface_name))?;
-        
+
         info!("TUN interface index: {}", if_index);
 
         // Save original gateway
@@ -141,17 +145,14 @@ impl WindowsRouteManager {
         // Add routes for 0.0.0.0/1 and 128.0.0.0/1 through TUN
         // This covers all IPv4 addresses without replacing the default route
         let routes = [
-            ("0.0.0.0", "128.0.0.0"),    // 0.0.0.0/1
-            ("128.0.0.0", "128.0.0.0"),  // 128.0.0.0/1
+            ("0.0.0.0", "128.0.0.0"),   // 0.0.0.0/1
+            ("128.0.0.0", "128.0.0.0"), // 128.0.0.0/1
         ];
 
         for (dest, mask) in routes {
-            if let Err(error) = self.add_managed_route(
-                dest,
-                mask,
-                &self.gateway.to_string(),
-                if_index,
-            ) {
+            if let Err(error) =
+                self.add_managed_route(dest, mask, &self.gateway.to_string(), if_index)
+            {
                 let rollback_error = self.disable_global_mode().err();
                 return Err(match rollback_error {
                     Some(rollback) => format!("{error}; rollback failed: {rollback}"),
@@ -220,7 +221,8 @@ impl WindowsRouteManager {
 
     /// Add a specific route through TUN
     pub fn add_route(&mut self, destination: &str, mask: &str) -> Result<(), String> {
-        let if_index = self.get_interface_index()
+        let if_index = self
+            .get_interface_index()
             .ok_or_else(|| format!("Could not find interface: {}", self.interface_name))?;
 
         self.add_managed_route(destination, mask, &self.gateway.to_string(), if_index)
@@ -244,10 +246,13 @@ impl WindowsRouteManager {
     /// Exclude a specific IP from TUN routing (for proxy server)
     pub fn exclude_ip(&mut self, ip: &str) -> Result<(), String> {
         // Get the original gateway to route excluded IPs
-        let gateway = self.original_gateway.clone()
+        let gateway = self
+            .original_gateway
+            .clone()
             .ok_or_else(|| "Original gateway not saved".to_string())?;
-        
-        let if_index = self.original_interface
+
+        let if_index = self
+            .original_interface
             .ok_or_else(|| "Original interface not saved".to_string())?;
 
         self.add_managed_route(ip, "255.255.255.255", &gateway, if_index)

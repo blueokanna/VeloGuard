@@ -244,13 +244,15 @@ class DnsSettingsProvider extends ChangeNotifier {
 
   Future<void> addFallbackFilterGeosite(String site) async {
     if (!_settings.fallbackFilter.geosite.contains(site)) {
-      final newList = List<String>.from(_settings.fallbackFilter.geosite)..add(site);
+      final newList = List<String>.from(_settings.fallbackFilter.geosite)
+        ..add(site);
       await setFallbackFilterGeosite(newList);
     }
   }
 
   Future<void> removeFallbackFilterGeosite(String site) async {
-    final newList = List<String>.from(_settings.fallbackFilter.geosite)..remove(site);
+    final newList = List<String>.from(_settings.fallbackFilter.geosite)
+      ..remove(site);
     await setFallbackFilterGeosite(newList);
   }
 
@@ -261,13 +263,15 @@ class DnsSettingsProvider extends ChangeNotifier {
 
   Future<void> addFallbackFilterIpCidr(String cidr) async {
     if (!_settings.fallbackFilter.ipCidr.contains(cidr)) {
-      final newList = List<String>.from(_settings.fallbackFilter.ipCidr)..add(cidr);
+      final newList = List<String>.from(_settings.fallbackFilter.ipCidr)
+        ..add(cidr);
       await setFallbackFilterIpCidr(newList);
     }
   }
 
   Future<void> removeFallbackFilterIpCidr(String cidr) async {
-    final newList = List<String>.from(_settings.fallbackFilter.ipCidr)..remove(cidr);
+    final newList = List<String>.from(_settings.fallbackFilter.ipCidr)
+      ..remove(cidr);
     await setFallbackFilterIpCidr(newList);
   }
 
@@ -278,13 +282,15 @@ class DnsSettingsProvider extends ChangeNotifier {
 
   Future<void> addFallbackFilterDomain(String domain) async {
     if (!_settings.fallbackFilter.domain.contains(domain)) {
-      final newList = List<String>.from(_settings.fallbackFilter.domain)..add(domain);
+      final newList = List<String>.from(_settings.fallbackFilter.domain)
+        ..add(domain);
       await setFallbackFilterDomain(newList);
     }
   }
 
   Future<void> removeFallbackFilterDomain(String domain) async {
-    final newList = List<String>.from(_settings.fallbackFilter.domain)..remove(domain);
+    final newList = List<String>.from(_settings.fallbackFilter.domain)
+      ..remove(domain);
     await setFallbackFilterDomain(newList);
   }
 

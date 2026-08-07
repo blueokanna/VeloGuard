@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "AGPL-3.0-or-later"
-version = "0.1.0"
+version = "1.0.1"
 authors = ["blueokanna"]
 description = "Cross-platform proxy client core for VeloGuard"
 
@@ -191,7 +191,7 @@ tokio-test = "0.4"
 tokio-tungstenite = "0.30.0"
 tokio-util = { version = "0.7.19", features = ["net", "codec", "io", "compat"] }
 tor-rtcompat = { version = "0.45.0", default-features = false }
-totp-rs = { version = "5", features = ["serde_support"] }
+totp-rs = { version = "6.0.0", features = ["serde_support"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7", features = ["fs", "trace", "cors"] }
 tracing = "0.1"

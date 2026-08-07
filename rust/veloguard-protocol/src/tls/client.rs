@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use rustls::pki_types::ServerName;
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::TlsConnector as TokioTlsConnector;
 
 use super::config::ClientConfig;
-use super::error::{TlsError, Result};
+use super::error::{Result, TlsError};
 use super::stream::TlsStream;
 use super::verifier::SkipServerVerification;
 
@@ -16,14 +16,13 @@ pub struct TlsConnector {
 impl TlsConnector {
     pub fn new(config: ClientConfig) -> Result<Self> {
         let mut root_store = rustls::RootCertStore::empty();
-        
+
         let certs = rustls_native_certs::load_native_certs();
         for cert in certs.certs {
             root_store.add(cert).ok();
         }
 
-        let builder = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store);
+        let builder = rustls::ClientConfig::builder().with_root_certificates(root_store);
 
         let mut tls_config = if config.skip_cert_verify {
             let verifier = Arc::new(SkipServerVerification);
@@ -39,10 +38,17 @@ impl TlsConnector {
 
         let connector = TokioTlsConnector::from(Arc::new(tls_config));
 
-        Ok(Self { inner: connector, config })
+        Ok(Self {
+            inner: connector,
+            config,
+        })
     }
 
-    pub async fn connect<S>(&self, stream: S, server_name: &str) -> Result<TlsStream<tokio_rustls::client::TlsStream<S>>>
+    pub async fn connect<S>(
+        &self,
+        stream: S,
+        server_name: &str,
+    ) -> Result<TlsStream<tokio_rustls::client::TlsStream<S>>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -50,7 +56,10 @@ impl TlsConnector {
         let server_name = ServerName::try_from(name.to_string())
             .map_err(|_| TlsError::InvalidConfig("Invalid server name".to_string()))?;
 
-        let tls_stream = self.inner.connect(server_name, stream).await
+        let tls_stream = self
+            .inner
+            .connect(server_name, stream)
+            .await
             .map_err(|e| TlsError::Handshake(e.to_string()))?;
 
         Ok(TlsStream::new(tls_stream))

@@ -1,15 +1,15 @@
 //! TLS/Rustls implementation for VeloGuard
 
 mod client;
-mod server;
 mod config;
-mod stream;
 mod error;
+mod server;
+mod stream;
 mod verifier;
 
 pub use client::TlsConnector;
-pub use server::TlsAcceptor;
 pub use config::{ClientConfig, ServerConfig};
+pub use error::{Result, TlsError};
+pub use server::TlsAcceptor;
 pub use stream::TlsStream;
-pub use error::{TlsError, Result};
 pub use verifier::SkipServerVerification;

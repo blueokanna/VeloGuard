@@ -54,7 +54,9 @@ impl From<veloguard_core::Error> for VeloGuardError {
             veloguard_core::Error::Parse { message, .. } => VeloGuardError::Parse(message),
             veloguard_core::Error::Auth { message, .. } => VeloGuardError::Auth(message),
             veloguard_core::Error::Timeout { message, .. } => VeloGuardError::Timeout(message),
-            veloguard_core::Error::ResourceExhausted { message, .. } => VeloGuardError::ResourceExhausted(message),
+            veloguard_core::Error::ResourceExhausted { message, .. } => {
+                VeloGuardError::ResourceExhausted(message)
+            }
             veloguard_core::Error::Internal { message, .. } => VeloGuardError::Internal(message),
             veloguard_core::Error::Routing { message, .. } => VeloGuardError::Routing(message),
             veloguard_core::Error::Proxy { message, .. } => VeloGuardError::Proxy(message),

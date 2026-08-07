@@ -33,15 +33,6 @@
         ]
       }
     ],
-    "extensionAbilities": [
-      {
-        "name": "CatClashVpnExtension",
-        "srcEntry": "./ets/vpnextension/CatClashVpnExtension.ets",
-        "type": "vpn",
-        "description": "$string:vpn_service_desc",
-        "exported": false
-      }
-    ],
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET",
@@ -64,22 +55,6 @@
         "reason": "$string:module_desc",
         "usedScene": {
           "abilities": ["EntryAbility"],
-          "when": "always"
-        }
-      },
-      {
-        "name": "ohos.permission.MANAGE_VPN",
-        "reason": "$string:vpn_service_desc",
-        "usedScene": {
-          "abilities": ["CatClashVpnExtension"],
-          "when": "always"
-        }
-      },
-      {
-        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
-        "reason": "$string:vpn_service_desc",
-        "usedScene": {
-          "abilities": ["CatClashVpnExtension"],
           "when": "always"
         }
       }

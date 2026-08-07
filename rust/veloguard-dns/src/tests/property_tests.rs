@@ -36,8 +36,7 @@ fn domain_strategy() -> impl Strategy<Value = String> {
 
 /// Strategy for generating valid IPv4 addresses
 fn ipv4_strategy() -> impl Strategy<Value = Ipv4Addr> {
-    (0u8..=255, 0u8..=255, 0u8..=255, 0u8..=255)
-        .prop_map(|(a, b, c, d)| Ipv4Addr::new(a, b, c, d))
+    (0u8..=255, 0u8..=255, 0u8..=255, 0u8..=255).prop_map(|(a, b, c, d)| Ipv4Addr::new(a, b, c, d))
 }
 
 /// Strategy for generating public (non-bogon) IPv4 addresses
@@ -106,14 +105,68 @@ fn bogon_ipv6_strategy() -> impl Strategy<Value = Ipv6Addr> {
         // Unspecified ::
         Just(Ipv6Addr::UNSPECIFIED),
         // Link-local fe80::/10
-        (0u16..0x3ff, any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>())
-            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(0xfe80 | (b & 0x3f), c, d, e, f, g, h, i)),
+        (
+            0u16..0x3ff,
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>()
+        )
+            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(
+                0xfe80 | (b & 0x3f),
+                c,
+                d,
+                e,
+                f,
+                g,
+                h,
+                i
+            )),
         // ULA fc00::/7
-        (0u16..0x1ff, any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>())
-            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(0xfc00 | (b & 0x1ff), c, d, e, f, g, h, i)),
+        (
+            0u16..0x1ff,
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>()
+        )
+            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(
+                0xfc00 | (b & 0x1ff),
+                c,
+                d,
+                e,
+                f,
+                g,
+                h,
+                i
+            )),
         // Multicast ff00::/8
-        (0u16..0xff, any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>())
-            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(0xff00 | (b & 0xff), c, d, e, f, g, h, i)),
+        (
+            0u16..0xff,
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>()
+        )
+            .prop_map(|(b, c, d, e, f, g, h, i)| Ipv6Addr::new(
+                0xff00 | (b & 0xff),
+                c,
+                d,
+                e,
+                f,
+                g,
+                h,
+                i
+            )),
     ]
 }
 

@@ -288,7 +288,6 @@ class _TrafficChartState extends State<TrafficChart>
           final client = HttpClient();
           // Use local HTTP proxy (mixed port)
           client.findProxy = (uri) => 'PROXY 127.0.0.1:7890';
-          client.badCertificateCallback = (cert, host, port) => true;
           return client;
         },
       );

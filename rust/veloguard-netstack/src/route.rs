@@ -81,11 +81,14 @@ impl RouteManager {
         // Get current default route info
         self.save_original_routes()?;
 
-        let tun_idx = self.tun_interface_index
+        let tun_idx = self
+            .tun_interface_index
             .ok_or_else(|| NetStackError::RoutingError("TUN interface index not set".into()))?;
 
         // Add routes for excluded addresses via original gateway first
-        if let (Some(orig_gw), Some(orig_idx)) = (self.original_gateway, self.original_interface_index) {
+        if let (Some(orig_gw), Some(orig_idx)) =
+            (self.original_gateway, self.original_interface_index)
+        {
             let excluded = self.excluded_addresses.clone();
             for addr in excluded {
                 self.add_host_route(addr, Some(orig_gw), orig_idx)?;
@@ -94,8 +97,20 @@ impl RouteManager {
 
         // Add default route via TUN
         // We use two /1 routes instead of 0.0.0.0/0 to avoid conflicts
-        self.add_route(Ipv4Addr::new(0, 0, 0, 0).into(), 1, Some(tun_gateway.into()), tun_idx, 1)?;
-        self.add_route(Ipv4Addr::new(128, 0, 0, 0).into(), 1, Some(tun_gateway.into()), tun_idx, 1)?;
+        self.add_route(
+            Ipv4Addr::new(0, 0, 0, 0).into(),
+            1,
+            Some(tun_gateway.into()),
+            tun_idx,
+            1,
+        )?;
+        self.add_route(
+            Ipv4Addr::new(128, 0, 0, 0).into(),
+            1,
+            Some(tun_gateway.into()),
+            tun_idx,
+            1,
+        )?;
 
         info!("TUN routes configured successfully");
         Ok(())
@@ -123,10 +138,12 @@ impl RouteManager {
         let output = Command::new("route")
             .args(["print", "0.0.0.0"])
             .output()
-            .map_err(|e| NetStackError::RoutingError(format!("Failed to run route print: {}", e)))?;
+            .map_err(|e| {
+                NetStackError::RoutingError(format!("Failed to run route print: {}", e))
+            })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse output to find default gateway
         for line in stdout.lines() {
             if line.contains("0.0.0.0") && !line.contains("On-link") {
@@ -147,9 +164,16 @@ impl RouteManager {
     }
 
     #[cfg(windows)]
-    fn add_route(&mut self, dest: IpAddr, prefix_len: u8, gateway: Option<IpAddr>, if_index: u32, metric: u32) -> Result<()> {
+    fn add_route(
+        &mut self,
+        dest: IpAddr,
+        prefix_len: u8,
+        gateway: Option<IpAddr>,
+        if_index: u32,
+        metric: u32,
+    ) -> Result<()> {
         let mask = prefix_to_netmask(prefix_len);
-        
+
         let mut args = vec![
             "add".to_string(),
             dest.to_string(),
@@ -193,7 +217,12 @@ impl RouteManager {
     }
 
     #[cfg(windows)]
-    fn add_host_route(&mut self, dest: IpAddr, gateway: Option<IpAddr>, if_index: u32) -> Result<()> {
+    fn add_host_route(
+        &mut self,
+        dest: IpAddr,
+        gateway: Option<IpAddr>,
+        if_index: u32,
+    ) -> Result<()> {
         self.add_route(dest, 32, gateway, if_index, 1)
     }
 
@@ -253,13 +282,7 @@ impl RouteManager {
             )?;
         }
 
-        self.add_linux_route(
-            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-            1,
-            None,
-            &tun_name,
-            false,
-        )?;
+        self.add_linux_route(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1, None, &tun_name, false)?;
         self.add_linux_route(
             IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)),
             1,
@@ -323,7 +346,12 @@ impl RouteManager {
         allow_existing: bool,
     ) -> Result<()> {
         let cidr = format!("{destination}/{prefix_len}");
-        let mut args = vec!["-4".to_string(), "route".to_string(), "add".to_string(), cidr];
+        let mut args = vec![
+            "-4".to_string(),
+            "route".to_string(),
+            "add".to_string(),
+            cidr,
+        ];
         if let Some(gateway) = gateway {
             args.extend(["via".to_string(), gateway.to_string()]);
         }
@@ -396,7 +424,9 @@ fn parse_linux_default_route(output: &str) -> Result<(Option<Ipv4Addr>, String)>
         .find_map(|pair| (pair[0] == "via").then_some(pair[1]))
         .map(str::parse)
         .transpose()
-        .map_err(|error| NetStackError::RoutingError(format!("Invalid default gateway: {error}")))?;
+        .map_err(|error| {
+            NetStackError::RoutingError(format!("Invalid default gateway: {error}"))
+        })?;
     Ok((gateway, interface.to_string()))
 }
 
@@ -409,7 +439,10 @@ impl Default for RouteManager {
 impl Drop for RouteManager {
     fn drop(&mut self) {
         if !self.added_routes.is_empty() {
-            warn!("RouteManager dropped with {} routes still active", self.added_routes.len());
+            warn!(
+                "RouteManager dropped with {} routes still active",
+                self.added_routes.len()
+            );
             let _ = self.restore_routes();
         }
     }
@@ -424,7 +457,7 @@ fn prefix_to_netmask(prefix: u8) -> String {
     if prefix >= 32 {
         return "255.255.255.255".to_string();
     }
-    
+
     let mask: u32 = !0u32 << (32 - prefix);
     let octets = [
         ((mask >> 24) & 0xFF) as u8,

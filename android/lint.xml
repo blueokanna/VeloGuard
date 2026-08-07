@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- local.properties is generated per machine and is never committed. -->
+    <issue id="PropertyEscape">
+        <ignore path="local.properties" />
+    </issue>
+</lint>

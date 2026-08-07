@@ -140,9 +140,17 @@ impl RustlsSessionStore {
 }
 
 impl rustls::client::ClientSessionStore for RustlsSessionStore {
-    fn set_kx_hint(&self, _server_name: rustls::pki_types::ServerName<'_>, _group: rustls::NamedGroup) {}
+    fn set_kx_hint(
+        &self,
+        _server_name: rustls::pki_types::ServerName<'_>,
+        _group: rustls::NamedGroup,
+    ) {
+    }
 
-    fn kx_hint(&self, _server_name: &rustls::pki_types::ServerName<'_>) -> Option<rustls::NamedGroup> {
+    fn kx_hint(
+        &self,
+        _server_name: &rustls::pki_types::ServerName<'_>,
+    ) -> Option<rustls::NamedGroup> {
         None
     }
 
@@ -150,7 +158,8 @@ impl rustls::client::ClientSessionStore for RustlsSessionStore {
         &self,
         _server_name: rustls::pki_types::ServerName<'_>,
         _value: rustls::client::Tls12ClientSessionValue,
-    ) {}
+    ) {
+    }
 
     fn tls12_session(
         &self,

@@ -183,7 +183,6 @@ pub struct TunStatus {
     pub error: Option<String>,
 }
 
-
 // ============== QUIC Proxy Types ==============
 
 /// QUIC proxy configuration for FFI
@@ -308,7 +307,6 @@ pub struct DnsConfigDto {
     pub fallback: Vec<String>,
 }
 
-
 // ============== From Trait Implementations for DTO Types ==============
 
 impl TrafficStatsDto {
@@ -325,7 +323,12 @@ impl TrafficStatsDto {
     }
 
     /// Create from upload/download values
-    pub fn from_traffic(upload: u64, download: u64, connection_count: u32, uptime_secs: u64) -> Self {
+    pub fn from_traffic(
+        upload: u64,
+        download: u64,
+        connection_count: u32,
+        uptime_secs: u64,
+    ) -> Self {
         Self {
             upload,
             download,
@@ -406,12 +409,7 @@ impl ProxyInfoDto {
 
 impl ProxyGroupDto {
     /// Create a new ProxyGroupDto
-    pub fn new(
-        tag: String,
-        group_type: String,
-        proxies: Vec<String>,
-        selected: String,
-    ) -> Self {
+    pub fn new(tag: String, group_type: String, proxies: Vec<String>, selected: String) -> Self {
         Self {
             tag,
             group_type,
@@ -443,11 +441,7 @@ impl ProxyLatencyDto {
 
 impl RuleDto {
     /// Create a new RuleDto
-    pub fn new(
-        rule_type: String,
-        payload: String,
-        outbound: String,
-    ) -> Self {
+    pub fn new(rule_type: String, payload: String, outbound: String) -> Self {
         Self {
             rule_type,
             payload,
@@ -494,13 +488,14 @@ impl Default for DnsConfigDto {
     }
 }
 
-
 // ============== Conversion from veloguard-core types ==============
 
 /// Convert from TrackedConnection to ConnectionDto
 impl ConnectionDto {
     /// Create from a TrackedConnection reference
-    pub fn from_tracked_connection(conn: &veloguard_core::connection_tracker::TrackedConnection) -> Self {
+    pub fn from_tracked_connection(
+        conn: &veloguard_core::connection_tracker::TrackedConnection,
+    ) -> Self {
         Self {
             id: conn.id.clone(),
             src_addr: format!("{}:{}", conn.host, conn.destination_port),
@@ -515,7 +510,6 @@ impl ConnectionDto {
         }
     }
 }
-
 
 /// Convert from OutboundConfig to ProxyInfoDto
 impl ProxyInfoDto {
@@ -546,7 +540,8 @@ impl ProxyGroupDto {
         };
 
         // Get proxies list from options
-        let proxies: Vec<String> = config.options
+        let proxies: Vec<String> = config
+            .options
             .get("proxies")
             .and_then(|v| v.as_sequence())
             .map(|seq| {
@@ -567,7 +562,6 @@ impl ProxyGroupDto {
         })
     }
 }
-
 
 /// Convert from RuleConfig to RuleDto
 impl RuleDto {

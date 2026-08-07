@@ -51,7 +51,8 @@ impl DeviceStats {
 
     pub fn record_write(&self, bytes: usize) {
         self.packets_written.fetch_add(1, Ordering::Relaxed);
-        self.bytes_written.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.bytes_written
+            .fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
     pub fn record_read_error(&self) {
@@ -89,16 +90,16 @@ pub struct DeviceStatsSnapshot {
 pub trait VirtualDeviceTrait: Send + Sync {
     /// Read a packet from the device
     fn read_packet(&self, buf: &mut [u8]) -> Result<usize>;
-    
+
     /// Write a packet to the device
     fn write_packet(&self, data: &[u8]) -> Result<usize>;
-    
+
     /// Get device MTU
     fn mtu(&self) -> usize;
-    
+
     /// Get device name
     fn name(&self) -> &str;
-    
+
     /// Check if device is ready
     fn is_ready(&self) -> bool;
 }
@@ -121,7 +122,7 @@ impl VirtualDevice {
     /// Create a new virtual device
     pub fn new(config: DeviceConfig) -> Self {
         let (write_tx, write_rx) = mpsc::channel(config.write_queue_size);
-        
+
         Self {
             config,
             stats: Arc::new(DeviceStats::default()),
@@ -231,7 +232,7 @@ pub mod android {
             let mut file = unsafe { std::fs::File::from_raw_fd(self.fd) };
             let result = file.read(buf);
             std::mem::forget(file); // Don't close the fd
-            
+
             match result {
                 Ok(n) => {
                     self.stats.record_read(n);
@@ -248,7 +249,7 @@ pub mod android {
             let mut file = unsafe { std::fs::File::from_raw_fd(self.fd) };
             let result = file.write(data);
             std::mem::forget(file);
-            
+
             match result {
                 Ok(n) => {
                     self.stats.record_write(n);
@@ -279,8 +280,8 @@ pub mod android {
 #[cfg(test)]
 pub mod mock {
     use super::*;
-    use std::collections::VecDeque;
     use parking_lot::Mutex;
+    use std::collections::VecDeque;
 
     pub struct MockDevice {
         config: DeviceConfig,

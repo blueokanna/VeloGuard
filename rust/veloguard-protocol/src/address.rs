@@ -208,37 +208,38 @@ impl Address {
     }
 
     pub async fn read_from_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        let addr_type_byte = reader.read_u8().await
-            .map_err(ProtocolError::Io)?;
+        let addr_type_byte = reader.read_u8().await.map_err(ProtocolError::Io)?;
         let addr_type = AddressType::try_from(addr_type_byte)?;
 
         match addr_type {
             AddressType::IPv4 => {
                 let mut ip = [0u8; 4];
-                reader.read_exact(&mut ip).await
+                reader
+                    .read_exact(&mut ip)
+                    .await
                     .map_err(ProtocolError::Io)?;
-                let port = reader.read_u16().await
-                    .map_err(ProtocolError::Io)?;
+                let port = reader.read_u16().await.map_err(ProtocolError::Io)?;
                 Ok(Self::Ipv4(Ipv4Addr::from(ip), port))
             }
             AddressType::IPv6 => {
                 let mut ip = [0u8; 16];
-                reader.read_exact(&mut ip).await
+                reader
+                    .read_exact(&mut ip)
+                    .await
                     .map_err(ProtocolError::Io)?;
-                let port = reader.read_u16().await
-                    .map_err(ProtocolError::Io)?;
+                let port = reader.read_u16().await.map_err(ProtocolError::Io)?;
                 Ok(Self::Ipv6(Ipv6Addr::from(ip), port))
             }
             AddressType::Domain => {
-                let len = reader.read_u8().await
-                    .map_err(ProtocolError::Io)? as usize;
+                let len = reader.read_u8().await.map_err(ProtocolError::Io)? as usize;
                 let mut domain = vec![0u8; len];
-                reader.read_exact(&mut domain).await
+                reader
+                    .read_exact(&mut domain)
+                    .await
                     .map_err(ProtocolError::Io)?;
                 let domain = String::from_utf8(domain)
                     .map_err(|_| ProtocolError::AddressParse("Invalid UTF-8 domain".into()))?;
-                let port = reader.read_u16().await
-                    .map_err(ProtocolError::Io)?;
+                let port = reader.read_u16().await.map_err(ProtocolError::Io)?;
                 Ok(Self::Domain(domain, port))
             }
         }
@@ -408,8 +409,14 @@ mod property_tests {
 
     fn arb_ipv6_addr() -> impl Strategy<Value = Ipv6Addr> {
         (
-            any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(),
-            any::<u16>(), any::<u16>(), any::<u16>(), any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
         )
             .prop_map(|(a, b, c, d, e, f, g, h)| Ipv6Addr::new(a, b, c, d, e, f, g, h))
     }
